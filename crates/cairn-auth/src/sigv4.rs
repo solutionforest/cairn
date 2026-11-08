@@ -41,7 +41,7 @@ pub fn uri_encode(input: &[u8], keep_slash: bool) -> String {
     out
 }
 
-fn percent_decode(s: &str) -> Vec<u8> {
+pub(crate) fn percent_decode(s: &str) -> Vec<u8> {
     fn hexval(b: u8) -> Option<u8> {
         (b as char).to_digit(16).map(|d| d as u8)
     }

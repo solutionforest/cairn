@@ -148,6 +148,33 @@ pub struct AccessKeyInfo {
     pub allowed_source_cidrs: Vec<String>,
 }
 
+/// Public view of an STS session (never includes the secret or token).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionSummary {
+    /// Temporary access key id.
+    pub access_key_id: String,
+    /// Principal id the session acts as (`root`, `user:alice`, `role:r/session`).
+    pub principal: String,
+    /// For role sessions, the principal that called AssumeRole.
+    pub source: Option<String>,
+    /// Issue time.
+    pub created_at: Ts,
+    /// Expiry.
+    pub expires_at: Ts,
+    /// True if already expired (not yet purged).
+    pub expired: bool,
+}
+
+fn session_principal(k: &SessionKind) -> String {
+    match k {
+        SessionKind::Root => "root".into(),
+        SessionKind::User(u) => format!("user:{u}"),
+        SessionKind::Role {
+            role, session_name, ..
+        } => format!("role:{role}/{session_name}"),
+    }
+}
+
 /// A newly created access key; the only time the secret is returned.
 #[derive(Debug, Clone)]
 pub struct NewAccessKey {
@@ -1204,6 +1231,56 @@ impl CredentialStore {
             self.backend.apply(ops).map_err(be)?;
         }
         Ok(n)
+    }
+
+    /// Revoke an STS session immediately (its access key id stops resolving).
+    pub async fn revoke_session(&self, access_key_id: &str) -> Result<(), AuthError> {
+        let _g = self.lock();
+        let k = key(K_SESSION, access_key_id);
+        if self.get::<SessionRecord>(&k)?.is_none() {
+            return Err(AuthError::NotFound {
+                kind: "session",
+                name: access_key_id.into(),
+            });
+        }
+        self.backend.delete(&k).map_err(be).map(|_| ())
+    }
+
+    /// Revoke every session issued for `principal_id` (e.g. `user:alice`, or `role:r/` for
+    /// all sessions of role `r`); returns how many were removed.
+    pub async fn revoke_sessions_for(&self, principal_id: &str) -> Result<usize, AuthError> {
+        let _g = self.lock();
+        let ops: Vec<BackendOp> = self
+            .list::<SessionRecord>(K_SESSION)?
+            .into_iter()
+            .filter(|s| session_principal(&s.kind).starts_with(principal_id))
+            .map(|s| BackendOp::Delete(key(K_SESSION, &s.access_key_id)))
+            .collect();
+        let n = ops.len();
+        if n > 0 {
+            self.backend.apply(ops).map_err(be)?;
+        }
+        Ok(n)
+    }
+
+    /// List STS sessions (no secrets).
+    pub async fn list_sessions(&self) -> Result<Vec<SessionSummary>, AuthError> {
+        let now = self.now();
+        Ok(self
+            .list::<SessionRecord>(K_SESSION)?
+            .into_iter()
+            .map(|s| SessionSummary {
+                principal: session_principal(&s.kind),
+                source: match &s.kind {
+                    SessionKind::Role { source, .. } => Some(source.to_string()),
+                    _ => None,
+                },
+                expired: s.expires_at <= now,
+                access_key_id: s.access_key_id,
+                created_at: s.created_at,
+                expires_at: s.expires_at,
+            })
+            .collect())
     }
 
     /// Number of stored sessions (including expired, not yet purged).

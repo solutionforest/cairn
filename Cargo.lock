@@ -657,20 +657,28 @@ name = "cairn-auth"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",
+ "async-trait",
+ "axum",
  "base64 0.22.1",
+ "cairn-meta",
  "globset",
  "hex",
  "hmac 0.12.1",
+ "http 1.5.0",
+ "http-body-util",
  "ipnet",
  "jiff",
  "postcard",
  "rand 0.9.5",
+ "s3s",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "subtle",
+ "tempfile",
  "thiserror",
  "tokio",
+ "tower",
  "tracing",
  "url",
  "zeroize",
@@ -764,19 +772,25 @@ dependencies = [
 name = "cairn-events"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "cairn-core",
- "cairn-engine",
  "cairn-meta",
+ "futures",
  "hex",
  "hmac 0.12.1",
  "jiff",
+ "quick-xml",
+ "rand 0.9.5",
  "reqwest",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "tempfile",
  "thiserror",
  "tokio",
  "tracing",
+ "url",
+ "zeroize",
 ]
 
 [[package]]
@@ -815,6 +829,7 @@ dependencies = [
 name = "cairn-s3"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "base64 0.22.1",
  "bytes",
  "cairn-core",
@@ -824,9 +839,11 @@ dependencies = [
  "http 1.5.0",
  "jiff",
  "s3s",
+ "subtle",
  "thiserror",
  "tokio",
  "tracing",
+ "url",
 ]
 
 [[package]]

@@ -7,10 +7,15 @@ repository.workspace = true
 rust-version.workspace = true
 description = "Cairn object storage: auth"
 
-# NOTE: cairn-core / cairn-meta are intentionally not dependencies yet (phase 1b runs in parallel
-# with phase 1a). Shared types live in `types` with TODO(agent-a) markers; persistence goes
-# through the `CredentialBackend` trait which cairn-meta will implement.
+# Phase 2b: cairn-meta for persistence (redb `CredentialBackend`, bucket policies), s3s for the
+# `S3Auth`/`S3Access` bridge, axum for the STS router. Always on: the only consumer is the
+# server binary, which links s3s and axum anyway (see BUILD-PLAN decisions log).
 [dependencies]
+cairn-meta.workspace = true
+s3s.workspace = true
+async-trait.workspace = true
+axum.workspace = true
+http.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 postcard.workspace = true
@@ -29,5 +34,9 @@ jiff.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
-[dev-dependencies]
 tokio.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tower.workspace = true
+http-body-util.workspace = true

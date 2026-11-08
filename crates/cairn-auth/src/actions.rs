@@ -50,6 +50,7 @@ pub const S3_ACTIONS: &[&str] = &[
     "s3:ListBucketVersions",
     "s3:ListMultipartUploadParts",
     "s3:PutAccelerateConfiguration",
+    "s3:PutAnalyticsConfiguration",
     "s3:PutBucketAcl",
     "s3:PutBucketCORS",
     "s3:PutBucketLogging",
@@ -63,7 +64,9 @@ pub const S3_ACTIONS: &[&str] = &[
     "s3:PutBucketVersioning",
     "s3:PutBucketWebsite",
     "s3:PutEncryptionConfiguration",
+    "s3:PutInventoryConfiguration",
     "s3:PutLifecycleConfiguration",
+    "s3:PutMetricsConfiguration",
     "s3:PutObject",
     "s3:PutObjectAcl",
     "s3:PutObjectLegalHold",
@@ -209,6 +212,33 @@ pub fn for_s3_operation(op: &str) -> Option<&'static str> {
         "PutBucketNotificationConfiguration" => "s3:PutBucketNotification",
         "GetBucketReplication" => "s3:GetReplicationConfiguration",
         "PutBucketReplication" | "DeleteBucketReplication" => "s3:PutReplicationConfiguration",
+        "GetBucketLogging" => "s3:GetBucketLogging",
+        "PutBucketLogging" => "s3:PutBucketLogging",
+        "GetBucketWebsite" => "s3:GetBucketWebsite",
+        "PutBucketWebsite" => "s3:PutBucketWebsite",
+        "DeleteBucketWebsite" => "s3:DeleteBucketWebsite",
+        "GetBucketAccelerateConfiguration" => "s3:GetAccelerateConfiguration",
+        "PutBucketAccelerateConfiguration" => "s3:PutAccelerateConfiguration",
+        "GetBucketRequestPayment" => "s3:GetBucketRequestPayment",
+        "PutBucketRequestPayment" => "s3:PutBucketRequestPayment",
+        "GetBucketAnalyticsConfiguration" | "ListBucketAnalyticsConfigurations" => {
+            "s3:GetAnalyticsConfiguration"
+        }
+        "PutBucketAnalyticsConfiguration" | "DeleteBucketAnalyticsConfiguration" => {
+            "s3:PutAnalyticsConfiguration"
+        }
+        "GetBucketInventoryConfiguration" | "ListBucketInventoryConfigurations" => {
+            "s3:GetInventoryConfiguration"
+        }
+        "PutBucketInventoryConfiguration" | "DeleteBucketInventoryConfiguration" => {
+            "s3:PutInventoryConfiguration"
+        }
+        "GetBucketMetricsConfiguration" | "ListBucketMetricsConfigurations" => {
+            "s3:GetMetricsConfiguration"
+        }
+        "PutBucketMetricsConfiguration" | "DeleteBucketMetricsConfiguration" => {
+            "s3:PutMetricsConfiguration"
+        }
         "GetObjectLockConfiguration" => "s3:GetBucketObjectLockConfiguration",
         "PutObjectLockConfiguration" => "s3:PutBucketObjectLockConfiguration",
         // object
@@ -227,6 +257,7 @@ pub fn for_s3_operation(op: &str) -> Option<&'static str> {
         "PutObjectRetention" => "s3:PutObjectRetention",
         "GetObjectLegalHold" => "s3:GetObjectLegalHold",
         "PutObjectLegalHold" => "s3:PutObjectLegalHold",
+        "RestoreObject" => "s3:RestoreObject",
         // multipart
         "CreateMultipartUpload" | "UploadPart" | "UploadPartCopy" | "CompleteMultipartUpload" => {
             "s3:PutObject"
