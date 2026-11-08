@@ -85,7 +85,7 @@ pub struct Server {
 /// Engine settings derived from the server configuration.
 pub fn engine_config(cfg: &Config) -> anyhow::Result<EngineConfig> {
     let at_rest_key = if cfg.storage.encrypt_at_rest {
-        Some(load_or_create_master_key(&cfg.master_key_path())?)
+        Some(cairn_blob::DataKey::new(master_key_bytes(cfg)?))
     } else {
         None
     };
@@ -112,6 +112,15 @@ fn read_or_create_key_bytes(path: &std::path::Path) -> anyhow::Result<[u8; 32]> 
     Ok(k)
 }
 
+/// The 32-byte master key: `storage.master_key` / `storage.master_key_file` when configured
+/// (never generated), else `keys/master.key`, created on first use.
+pub fn master_key_bytes(cfg: &Config) -> anyhow::Result<[u8; 32]> {
+    match cfg.configured_master_key().context("master key")? {
+        Some(k) => Ok(k),
+        None => read_or_create_key_bytes(&cfg.master_key_path()),
+    }
+}
+
 /// Read the 32-byte master key, creating it (mode 0600) on first use.
 pub fn load_or_create_master_key(path: &std::path::Path) -> anyhow::Result<cairn_blob::DataKey> {
     Ok(cairn_blob::DataKey::new(read_or_create_key_bytes(path)?))
@@ -119,7 +128,7 @@ pub fn load_or_create_master_key(path: &std::path::Path) -> anyhow::Result<cairn
 
 /// Key sealing IAM secrets at rest, derived from the master key file.
 pub fn iam_master_key(cfg: &Config) -> anyhow::Result<MasterKey> {
-    let mk = read_or_create_key_bytes(&cfg.master_key_path())?;
+    let mk = master_key_bytes(cfg)?;
     Ok(MasterKey::new(blake3::derive_key(
         "cairn iam secrets v1",
         &mk,
@@ -127,7 +136,7 @@ pub fn iam_master_key(cfg: &Config) -> anyhow::Result<MasterKey> {
 }
 
 fn replication_key(cfg: &Config) -> anyhow::Result<[u8; 32]> {
-    let mk = read_or_create_key_bytes(&cfg.master_key_path())?;
+    let mk = master_key_bytes(cfg)?;
     Ok(blake3::derive_key("cairn replication targets", &mk))
 }
 

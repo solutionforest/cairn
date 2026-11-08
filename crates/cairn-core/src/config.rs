@@ -101,6 +101,12 @@ pub struct StorageConfig {
     pub verify_on_read: bool,
     /// Encrypt every blob at rest with a key derived from the master key.
     pub encrypt_at_rest: bool,
+    /// Master key as 64 hex characters (prefer `CAIRN_STORAGE_MASTER_KEY` over the file).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub master_key: Option<String>,
+    /// File holding the master key (32 raw bytes or 64 hex characters); must exist.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub master_key_file: Option<PathBuf>,
     /// Free space (bytes) kept under the data directory; writes that would eat into it get
     /// `507`. `0` disables the guard.
     pub min_free: u64,
@@ -120,6 +126,8 @@ impl Default for StorageConfig {
             fsync: true,
             verify_on_read: false,
             encrypt_at_rest: false,
+            master_key: None,
+            master_key_file: None,
             min_free: 1 << 30,
             scrub: false,
             scrub_bytes_per_sec: 50 * 1024 * 1024,
@@ -435,6 +443,37 @@ impl Config {
         self.storage.data_dir.join("keys").join("master.key")
     }
 
+    /// The master key when one is configured explicitly (`storage.master_key` or
+    /// `storage.master_key_file`); `None` means the default `keys/master.key`, created on first
+    /// use. A configured key is never generated: a missing or malformed one is an error.
+    pub fn configured_master_key(&self) -> Result<Option<[u8; 32]>, ConfigError> {
+        if let Some(hex) = &self.storage.master_key {
+            return parse_key(hex.trim().as_bytes())
+                .map(Some)
+                .ok_or_else(|| ConfigError::Env {
+                    var: "storage.master_key".into(),
+                    msg: "expected 64 hex characters".into(),
+                });
+        }
+        let Some(path) = &self.storage.master_key_file else {
+            return Ok(None);
+        };
+        let raw = std::fs::read(path).map_err(|source| ConfigError::Io {
+            path: path.clone(),
+            source,
+        })?;
+        let key = <[u8; 32]>::try_from(raw.as_slice())
+            .ok()
+            .or_else(|| parse_key(raw.trim_ascii()));
+        key.map(Some).ok_or_else(|| ConfigError::Env {
+            var: "storage.master_key_file".into(),
+            msg: format!(
+                "{} must hold 32 raw bytes or 64 hex characters",
+                path.display()
+            ),
+        })
+    }
+
     /// Semantic checks beyond parsing; returns every problem found.
     pub fn validate(&self) -> Vec<String> {
         let mut out = Vec::new();
@@ -443,6 +482,14 @@ impl Config {
                 "server.listen {:?} is not an ip:port address",
                 self.server.listen
             ));
+        }
+        if self.storage.master_key.is_some() && self.storage.master_key_file.is_some() {
+            out.push(
+                "storage.master_key and storage.master_key_file are mutually exclusive".into(),
+            );
+        }
+        if let Err(e) = self.configured_master_key() {
+            out.push(e.to_string());
         }
         if self.server.tls_cert.is_some() != self.server.tls_key.is_some() {
             out.push("server.tls_cert and server.tls_key must be set together".into());
@@ -504,14 +551,30 @@ impl Config {
         if c.auth.root_secret_key.is_some() {
             c.auth.root_secret_key = Some("********".into());
         }
+        if c.storage.master_key.is_some() {
+            c.storage.master_key = Some("********".into());
+        }
         toml::to_string_pretty(&c).unwrap_or_default()
     }
+}
+
+/// 64 hex characters -> 32 bytes.
+fn parse_key(hex: &[u8]) -> Option<[u8; 32]> {
+    if hex.len() != 64 {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    for (o, pair) in out.iter_mut().zip(hex.chunks(2)) {
+        *o = u8::from_str_radix(std::str::from_utf8(pair).ok()?, 16).ok()?;
+    }
+    Some(out)
 }
 
 fn known_optional(section: &str, field: &str) -> bool {
     matches!(
         (section, field),
         ("server", "domain" | "tls_cert" | "tls_key")
+            | ("storage", "master_key" | "master_key_file")
             | ("auth", "root_access_key" | "root_secret_key")
             | ("audit", "path")
     )
@@ -646,7 +709,15 @@ pub const KEY_DOCS: &[(&str, &str)] = &[
     ),
     (
         "storage.encrypt_at_rest",
-        r#"Encrypt every blob with a key derived from `keys/master.key`."#,
+        r#"Encrypt every blob with a key derived from the master key (`storage.master_key`, else `storage.master_key_file`, else `keys/master.key` created on first use)."#,
+    ),
+    (
+        "storage.master_key",
+        r#"Master key as 64 hex characters; set it with `CAIRN_STORAGE_MASTER_KEY` rather than in the file. Never printed by `cairn config check`. Unset by default."#,
+    ),
+    (
+        "storage.master_key_file",
+        r#"File with the master key (32 raw bytes or 64 hex characters), e.g. a container secret; must exist, never generated. Unset by default (`keys/master.key`)."#,
     ),
     (
         "storage.min_free",
@@ -889,6 +960,45 @@ mod tests {
         let bad =
             Config::default().with_env([("CAIRN_STORAGE_FSYNC".to_string(), "maybe".to_string())]);
         assert!(bad.is_err());
+    }
+
+    #[test]
+    fn master_key_from_env_or_file() {
+        let hex = "0f".repeat(32);
+        let c = Config::default()
+            .with_env([("CAIRN_STORAGE_MASTER_KEY".to_string(), hex.clone())])
+            .unwrap();
+        assert_eq!(c.configured_master_key().unwrap(), Some([0x0f; 32]));
+        assert!(!c.to_redacted_toml().contains(&hex));
+        assert!(c.validate().is_empty(), "{:?}", c.validate());
+        let d = std::env::temp_dir().join(format!("cairn-mk-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let raw = d.join("raw");
+        std::fs::write(&raw, [7u8; 32]).unwrap();
+        let hexf = d.join("hex");
+        std::fs::write(&hexf, format!("{}\n", "07".repeat(32))).unwrap();
+        for f in [&raw, &hexf] {
+            let c = Config::default()
+                .with_env([(
+                    "CAIRN_STORAGE_MASTER_KEY_FILE".to_string(),
+                    f.display().to_string(),
+                )])
+                .unwrap();
+            assert_eq!(c.configured_master_key().unwrap(), Some([7; 32]));
+        }
+        let short = d.join("short");
+        std::fs::write(&short, [7u8; 31]).unwrap();
+        let mut c = Config::default();
+        c.storage.master_key_file = Some(short);
+        assert!(c.configured_master_key().is_err());
+        assert!(!c.validate().is_empty());
+        c.storage.master_key_file = Some(d.join("missing"));
+        assert!(c.configured_master_key().is_err());
+        c.storage.master_key_file = Some(raw);
+        c.storage.master_key = Some(hex);
+        assert!(!c.validate().is_empty());
+        assert_eq!(Config::default().configured_master_key().unwrap(), None);
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]

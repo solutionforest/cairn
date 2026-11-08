@@ -120,18 +120,3 @@ async fn encrypted_store_dedups_and_never_writes_plaintext() {
     );
     node.stop().await;
 }
-
-/// Whether any file under `dir` contains `needle`.
-fn tree_contains(dir: &std::path::Path, needle: &[u8]) -> bool {
-    std::fs::read_dir(dir).unwrap().flatten().any(|e| {
-        let p = e.path();
-        if p.is_dir() {
-            tree_contains(&p, needle)
-        } else {
-            std::fs::read(&p)
-                .unwrap()
-                .windows(needle.len())
-                .any(|w| w == needle)
-        }
-    })
-}
