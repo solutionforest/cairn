@@ -130,6 +130,7 @@ pub struct Node {
     pub s3: Client,
     pub admin: cairn_admin::client::AdminClient,
     pub engine: Option<cairn_server::cairn_engine::CairnEngine>,
+    pub metrics: std::sync::Arc<cairn_server::Metrics>,
     trigger: Option<cairn_server::ShutdownTrigger>,
     join: Option<tokio::task::JoinHandle<anyhow::Result<()>>>,
 }
@@ -149,6 +150,7 @@ impl Node {
             .expect("bind test server");
         let addr = server.local_addr();
         let engine = server.engine().clone();
+        let metrics = server.metrics().clone();
         let trigger = server.shutdown_trigger();
         let join = tokio::spawn(server.run_until(std::future::pending::<()>()));
         let admin = cairn_admin::client::AdminClient::new(
@@ -164,6 +166,7 @@ impl Node {
             s3: client(addr, &creds),
             admin,
             engine: Some(engine),
+            metrics,
             trigger: Some(trigger),
             join: Some(join),
         }
