@@ -60,4 +60,79 @@ Legend: ✅ implemented and tested · 🟡 partial (see notes) · ❌ returns `5
 
 ## Manual client runs
 
-Not yet recorded (PRODUCTION-READINESS A8): `aws s3 cp/sync/ls/rm/mb/rb`, `rclone`, `mc`.
+Real clients against a throwaway `cairn serve` (PRODUCTION-READINESS A3). Re-run with
+`scripts/e2e-clients.sh [path/to/cairn]` and paste its output here.
+
+Run 2026-11-08T17:45Z by `scripts/e2e-clients.sh`, cairn 0.1.0 debug build of `target/debug/cairn` built 17:17Z (tree at about 523a207), SigV4 auth on with the root credential printed by `cairn init`, 1 vCPU gVisor host. Clients:
+- aws-cli/1.46.3 Python/3.12.1 Linux/4.19.0-gvisor botocore/1.43.62
+- rclone v1.76.0
+- mc RELEASE.2025-08-13T08-35-41Z
+
+| Client | Step | Result |
+|---|---|---|
+| aws | s3 mb | pass |
+| aws | s3 ls (buckets) | pass |
+| aws | s3 cp upload (small) | pass |
+| aws | s3 cp upload (24 MiB, multipart) | pass |
+| aws | s3 cp download + cmp (multipart) | pass |
+| aws | s3 cp - (stdin stream) | pass |
+| aws | s3 cp --recursive | pass |
+| aws | s3 sync up | pass |
+| aws | s3 sync up again (no-op) | pass |
+| aws | s3 sync down + diff | pass |
+| aws | s3 ls --recursive (count) | pass |
+| aws | s3 ls prefix (delimiter) | pass |
+| aws | s3 sync --delete | pass |
+| aws | s3 mv | pass |
+| aws | s3 cp (server-side copy) | pass |
+| aws | s3 presign (SigV2 URL) → refused | pass |
+| aws | s3 presign (SigV4) + curl GET | pass |
+| aws | s3api head-object | pass |
+| aws | s3 rm | pass |
+| aws | s3 rm --recursive | pass |
+| aws | s3 rb (non-empty → refused) | pass |
+| aws | s3 rb --force | pass |
+| aws | s3 ls (bucket gone) | pass |
+| rclone | mkdir | pass |
+| rclone | sync up | pass |
+| rclone | check (size + md5) | pass |
+| rclone | sync up again (0 transfers) | pass |
+| rclone | sync down + diff | pass |
+| rclone | copyto (24 MiB, multipart 5 MiB chunks) | pass |
+| rclone | cat + cmp (multipart) | pass |
+| rclone | lsf -R (count) | pass |
+| rclone | sync (deletes extraneous) | pass |
+| rclone | moveto (server-side copy + delete) | pass |
+| rclone | delete | pass |
+| rclone | purge (bucket) | pass |
+| rclone | lsd (bucket gone) | pass |
+| mc | alias set | pass |
+| mc | admin-free ping (ls) | pass |
+| mc | mb | pass |
+| mc | cp (small) | pass |
+| mc | cp (24 MiB, multipart) | pass |
+| mc | cat + cmp (multipart) | pass |
+| mc | pipe (stdin stream) | pass |
+| mc | cp --recursive | pass |
+| mc | mirror up | pass |
+| mc | mirror down + diff | pass |
+| mc | diff (no differences) | pass |
+| mc | ls --recursive (count) | pass |
+| mc | stat | pass |
+| mc | tag set / list | pass |
+| mc | version enable + info | pass |
+| mc | ls --versions | pass |
+| mc | share download + curl | pass |
+| mc | rm | pass |
+| mc | rm --recursive --force | pass |
+| mc | rb --force (versioned bucket) | pass |
+| mc | ls (bucket gone) | pass |
+
+57/57 steps passed
+
+Server-log notes from this run: the SigV2 presign step is refused by design
+(`AccessDenied: Signature Version 2 is disabled`); `mc` probes `GetObjectLockConfiguration` on
+`ls`/`stat`/`rb` and gets `501 NotImplemented` (Object Lock is shelved for v0.1, DESIGN §0), which
+`mc` tolerates. Both are logged at `ERROR` level by the s3s/tower-http layers even though they
+are expected client errors.
+

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # End-to-end run of real S3 clients (aws CLI, rclone, MinIO mc) against a throwaway `cairn serve`.
 # Prints a markdown results table (paste it into docs/COMPAT.md "Manual client runs") and exits
-# non-zero if any step failed. PRODUCTION-READINESS A8.
+# non-zero if any step failed. PRODUCTION-READINESS A3.
 #
 # Usage: scripts/e2e-clients.sh [path/to/cairn]     (default: target/release/cairn, else target/debug/cairn)
-# Env:   E2E_PORT (default 9100), E2E_CLIENTS ("aws rclone mc"), E2E_BIG_MIB (24, multipart size),
+# Env:   E2E_PORT (default 0 = ephemeral), E2E_CLIENTS ("aws rclone mc"), E2E_BIG_MIB (24, multipart size),
 #        E2E_KEEP=1 keeps the temp dir.
 set -uo pipefail
 
@@ -17,10 +17,9 @@ if [ -z "$cairn" ]; then
   done
 fi
 [ -x "${cairn:-}" ] || { echo "cairn binary not found; build with cargo build -p cairn-cli" >&2; exit 2; }
-port="${E2E_PORT:-9100}"
+port="${E2E_PORT:-0}"
 clients="${E2E_CLIENTS:-aws rclone mc}"
 big_mib="${E2E_BIG_MIB:-24}"
-ep="http://127.0.0.1:$port"
 
 work="$(mktemp -d /tmp/cairn-e2e.XXXXXX)"
 srv_pid=""
@@ -34,13 +33,17 @@ trap cleanup EXIT
 ak="$(sed -n 's/^ *access key: *//p' "$work/init.txt")"
 sk="$(sed -n 's/^ *secret key: *//p' "$work/init.txt")"
 [ -n "$ak" ] && [ -n "$sk" ] || { echo "could not parse root credentials" >&2; exit 2; }
-"$cairn" serve --config "$work/data/cairn.toml" > "$work/server.log" 2>&1 &
+"$cairn" --log-format json serve --config "$work/data/cairn.toml" > "$work/server.log" 2>&1 &
 srv_pid=$!
+addr=""
 for _ in $(seq 1 100); do
-  curl -fs "$ep/healthz" > /dev/null 2>&1 && break
+  kill -0 "$srv_pid" 2>/dev/null || { echo "server exited:" >&2; cat "$work/server.log" >&2; exit 2; }
+  addr=$(sed -n 's/.*"addr":"\([^"]*\)".*"cairn listening".*/\1/p; s/.*"cairn listening".*"addr":"\([^"]*\)".*/\1/p' "$work/server.log" | head -1)
+  [ -n "$addr" ] && curl -fs "http://$addr/readyz" > /dev/null 2>&1 && break
   sleep 0.2
 done
-curl -fs "$ep/readyz" > /dev/null || { echo "server did not become ready" >&2; cat "$work/server.log" >&2; exit 2; }
+[ -n "$addr" ] || { echo "server did not become ready" >&2; cat "$work/server.log" >&2; exit 2; }
+ep="http://$addr"
 
 # Test data: a tree of small files, one file with spaces/unicode in its name, one multipart-sized file.
 src="$work/src"
@@ -160,8 +163,8 @@ for c in $clients; do
   esac
 done
 
-if grep -Eq ' (ERROR|panicked)' "$work/server.log"; then
-  echo "server log has errors:" >&2; grep -E ' (ERROR|panicked)' "$work/server.log" | head -20 >&2
+if grep -Eq '"level":"ERROR"|panicked' "$work/server.log"; then
+  echo "server log has errors:" >&2; grep -E '"level":"ERROR"|panicked' "$work/server.log" | head -20 >&2
 fi
 
 echo
