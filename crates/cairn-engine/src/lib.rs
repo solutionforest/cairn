@@ -7,8 +7,10 @@
 pub mod backup;
 mod bucket;
 mod commit;
+mod events;
 pub mod fsck;
 mod gc;
+pub mod lifecycle;
 mod list;
 mod multipart;
 mod object;
@@ -17,6 +19,7 @@ pub mod replication;
 pub mod scrub;
 mod trash;
 pub mod types;
+pub mod usage;
 mod util;
 
 use cairn_blob::{DataKey, FsBlobStore};
@@ -28,9 +31,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 pub use cairn_meta;
+pub use events::{RequestCtx, cairn_events, current_ctx, with_request_ctx};
 pub use list::MAX_LIST_KEYS;
 pub use recovery::{LATEST_SAMPLE, RecoveryReport};
 pub use types::*;
+pub use usage::BucketUsage;
 
 /// Engine settings derived from `cairn_core::Config`.
 #[derive(Clone, Default)]
@@ -45,6 +50,18 @@ pub struct EngineConfig {
     pub fsync: bool,
 }
 
+/// Runtime collaborators that are not plain configuration (see [`CairnEngine::open_with`]).
+#[derive(Clone, Default)]
+pub struct EngineExtras {
+    /// Event outbox every committed mutation appends to (default: records nothing unless a
+    /// bucket has a notification configuration).
+    pub outbox: cairn_events::Outbox,
+    /// Region name stamped on events (default `us-east-1`).
+    pub region: Option<String>,
+    /// Free-space guard checked before new blob data is written.
+    pub space: Option<cairn_blob::space::SpaceGuard>,
+}
+
 struct Inner {
     meta: RedbMetaStore,
     blobs: FsBlobStore,
@@ -53,6 +70,9 @@ struct Inner {
     unclean: bool,
     tmp_removed: usize,
     shut: AtomicBool,
+    outbox: cairn_events::Outbox,
+    region: String,
+    space: Option<cairn_blob::space::SpaceGuard>,
 }
 
 /// Marker file present while an engine has the data directory open.
@@ -67,6 +87,15 @@ pub struct CairnEngine {
 impl CairnEngine {
     /// Open the engine on a data directory (`meta/cairn.redb`, `blobs/`, `tmp/`).
     pub fn open(data_dir: &Path, cfg: EngineConfig) -> S3Result<CairnEngine> {
+        CairnEngine::open_with(data_dir, cfg, EngineExtras::default())
+    }
+
+    /// [`CairnEngine::open`] with an event outbox, region and free-space guard.
+    pub fn open_with(
+        data_dir: &Path,
+        cfg: EngineConfig,
+        extras: EngineExtras,
+    ) -> S3Result<CairnEngine> {
         let meta = RedbMetaStore::open(&data_dir.join("meta").join("cairn.redb"))?;
         let blobs = FsBlobStore::open(data_dir, cfg.fsync)?;
         let tmp_removed = blobs.clean_tmp()?;
@@ -82,6 +111,9 @@ impl CairnEngine {
                 unclean,
                 tmp_removed,
                 shut: AtomicBool::new(false),
+                outbox: extras.outbox,
+                region: extras.region.unwrap_or_else(|| "us-east-1".into()),
+                space: extras.space,
             }),
         })
     }

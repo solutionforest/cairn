@@ -4,11 +4,14 @@
 //! `s3s` DTOs to engine calls (DESIGN §5–§6). Unimplemented operations return `NotImplemented`.
 
 mod auth;
+mod config_ops;
 mod convert;
+mod observe;
 mod ops;
 
 pub use auth::RootAuth;
 pub use convert::RequestId;
+pub use observe::{ObservedAccess, OpInfo, OpSlot};
 
 use cairn_core::PrincipalId;
 use cairn_engine::CairnEngine;
@@ -22,6 +25,9 @@ pub struct CairnS3 {
     engine: CairnEngine,
     region: String,
     root_access_key: Option<String>,
+    policies: Option<Arc<cairn_auth::BucketPolicyStore>>,
+    access: Option<cairn_auth::CairnS3Access>,
+    sink_arns: Arc<Vec<String>>,
 }
 
 impl CairnS3 {
@@ -31,6 +37,9 @@ impl CairnS3 {
             engine,
             region: region.into(),
             root_access_key: None,
+            policies: None,
+            access: None,
+            sink_arns: Arc::new(Vec::new()),
         }
     }
 
@@ -45,6 +54,12 @@ impl CairnS3 {
     pub(crate) fn principal<T>(&self, req: &s3s::S3Request<T>) -> PrincipalId {
         if let Some(p) = req.extensions.get::<PrincipalId>() {
             return p.clone();
+        }
+        if let Some(c) = req.extensions.get::<cairn_auth::AuthenticatedCaller>() {
+            return match &c.principal {
+                Some(p) => PrincipalId(p.id.as_str().to_string()),
+                None => PrincipalId::anonymous(),
+            };
         }
         match &req.credentials {
             Some(c) if self.root_access_key.as_deref() == Some(c.access_key.as_str()) => {
@@ -109,6 +124,24 @@ impl CairnS3Builder {
     /// insert a `cairn_core::PrincipalId` into the request extensions to name the caller.
     pub fn with_access<A: s3s::access::S3Access>(mut self, access: A) -> CairnS3Builder {
         self.access = Some(Box::new(move |b| b.set_access(access)));
+        self
+    }
+
+    /// Bucket policy / PublicAccessBlock store behind the policy S3 operations.
+    pub fn with_policies(mut self, p: Arc<cairn_auth::BucketPolicyStore>) -> CairnS3Builder {
+        self.s3.policies = Some(p);
+        self
+    }
+
+    /// Access checker used for in-handler checks (`cairn:ReplicateObject`).
+    pub fn with_access_checker(mut self, a: cairn_auth::CairnS3Access) -> CairnS3Builder {
+        self.s3.access = Some(a);
+        self
+    }
+
+    /// Destination ARNs notification configurations may name (configured sinks).
+    pub fn with_sink_arns(mut self, arns: Vec<String>) -> CairnS3Builder {
+        self.s3.sink_arns = Arc::new(arns);
         self
     }
 

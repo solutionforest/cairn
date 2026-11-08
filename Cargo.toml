@@ -92,6 +92,8 @@ aws-sdk-s3 = { version = "1", default-features = false, features = ["rt-tokio", 
 aws-smithy-http-client = { version = "1", default-features = false, features = ["rustls-ring"] }
 aws-credential-types = "1"
 rustix = { version = "1", default-features = false, features = ["std", "fs"] }
+# Prometheus text exposition for /metrics (pure Rust; protobuf format disabled).
+prometheus = { version = "0.14", default-features = false }
 
 [profile.dev]
 debug = 0

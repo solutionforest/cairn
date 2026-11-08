@@ -34,6 +34,7 @@ pub(crate) fn purge_version(
     v: &VersionRecord,
     now: Ts,
 ) -> Result<(), MetaError> {
+    crate::usage::on_purge(txn, b, v)?;
     txn.del_version(b, &v.key, &v.version_id)?;
     for blob in v.blobs() {
         txn.blob_decref(&blob, now)?;
@@ -205,6 +206,11 @@ impl CairnEngine {
                 for (t, k) in &leftovers {
                     txn.del(*t, k)?;
                 }
+                crate::usage::forget(txn, bid)?;
+                cairn_events::notification::remove(txn, bid).map_err(|e| match e {
+                    cairn_events::EventsError::Meta(m) => m,
+                    other => MetaError::Corrupt(other.to_string()),
+                })?;
                 txn.del(Table::BucketMeta, &bid.to_bytes())?;
                 txn.del(Table::BucketTrashIdx, &idx_key)?;
                 Ok((0, 1, true))

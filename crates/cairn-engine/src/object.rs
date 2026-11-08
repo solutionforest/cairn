@@ -1,11 +1,14 @@
 //! Object operations: put/get/head/delete/copy/tagging.
 
-use crate::commit::{active_bucket, check_lock, commit_version, now_for_key, soft_delete};
+use crate::commit::{
+    active_bucket, check_lock, commit_replica, commit_version, now_for_key, soft_delete,
+};
 use crate::types::*;
 use crate::util::*;
 use crate::{CairnEngine, resolve_bucket};
 use cairn_blob::{BlobDigest, BlobStore, WriteOpts};
 use cairn_core::{ChecksumAlgo, ObjectKey, PrincipalId, S3Error, S3ErrorCode, S3Result, VersionId};
+use cairn_events::EventName;
 use cairn_meta::{
     ObjectBody, PartRef, ReadExt, StoredChecksum, VersionKind, VersionRecord, Versioning, pitr,
 };
@@ -44,6 +47,9 @@ impl CairnEngine {
         if content_length.is_some_and(|n| n > max) {
             return Err(S3Error::code(S3ErrorCode::EntityTooLarge));
         }
+        if let Some(g) = &self.inner.space {
+            g.check(content_length.unwrap_or(0))?;
+        }
         let algo = checksum.algo();
         let opts = WriteOpts {
             sha256: false,
@@ -58,7 +64,17 @@ impl CairnEngine {
             if n > max {
                 return Err(S3Error::code(S3ErrorCode::EntityTooLarge));
             }
-            w.write_all(&c).await?;
+            if let Err(e) = w.write_all(&c).await {
+                if cairn_blob::space::is_enospc(&e) {
+                    return Err(cairn_blob::space::StorageFull {
+                        available: 0,
+                        reserve: 0,
+                        needed: content_length.unwrap_or(0),
+                    }
+                    .into());
+                }
+                return Err(e.into());
+            }
         }
         if content_length.is_some_and(|cl| cl != n) {
             return Err(S3Error::code(S3ErrorCode::IncompleteBody));
@@ -112,6 +128,23 @@ impl CairnEngine {
 
     /// PutObject.
     pub async fn put_object(&self, req: PutObjectReq) -> S3Result<PutObjectRes> {
+        self.put_object_with(req, None).await
+    }
+
+    /// PutObject writing a replica with the given version id (`x-cairn-version-id`).
+    pub async fn put_object_replica(
+        &self,
+        req: PutObjectReq,
+        version_id: VersionId,
+    ) -> S3Result<PutObjectRes> {
+        self.put_object_with(req, Some(version_id)).await
+    }
+
+    async fn put_object_with(
+        &self,
+        req: PutObjectReq,
+        replica: Option<VersionId>,
+    ) -> S3Result<PutObjectRes> {
         ObjectKey::try_from(req.key.as_str())?;
         validate_tags(&req.tags, 10)?;
         let bucket = self.bucket(&req.bucket)?;
@@ -169,6 +202,8 @@ impl CairnEngine {
                 body,
                 &req.owner,
                 req.conditions,
+                EventName::ObjectCreatedPut,
+                replica,
             )
             .await;
         if res.is_err() && !ing.digest.deduped {
@@ -177,6 +212,7 @@ impl CairnEngine {
         res
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn commit_object(
         &self,
         bucket_id: cairn_core::BucketId,
@@ -185,26 +221,49 @@ impl CairnEngine {
         body: ObjectBody,
         owner: &PrincipalId,
         conds: WriteConditions,
+        ev: EventName,
+        replica: Option<VersionId>,
     ) -> S3Result<PutObjectRes> {
         let inner = self.inner.clone();
+        let em = self.emitter(owner);
         let (bn, k, o) = (bucket_name.to_string(), key.to_string(), owner.clone());
         let (v, b) = self
             .inner
             .meta
             .write(move |txn| {
-                commit_version(
+                let kind = VersionKind::Object(Box::new(body.clone()));
+                if let Some(vid) = replica {
+                    let (v, b) =
+                        commit_replica(txn, &inner.blobs, bucket_id, &bn, &k, kind, &o, vid)?;
+                    return match v {
+                        Some(v) => {
+                            em.emit(txn, &b, ev, &k, Some(&v), Vec::new())?;
+                            Ok((v, b))
+                        }
+                        None => {
+                            let v = txn
+                                .version(bucket_id, &k, &vid)?
+                                .ok_or_else(|| S3Error::code(S3ErrorCode::InternalError))?;
+                            Ok((v, b))
+                        }
+                    };
+                }
+                let (v, b) = commit_version(
                     txn,
                     &inner.blobs,
                     &inner.cfg,
                     bucket_id,
                     &bn,
                     &k,
-                    VersionKind::Object(Box::new(body.clone())),
+                    kind,
                     &o,
                     &conds,
-                )
+                )?;
+                em.emit(txn, &b, ev, &k, Some(&v), Vec::new())?;
+                Ok::<_, S3Error>((v, b))
             })
             .await?;
+        self.notify();
         let body = v.body().expect("object version");
         Ok(PutObjectRes {
             etag: body.etag.clone(),
@@ -250,6 +309,9 @@ impl CairnEngine {
                 Some(v) => v,
             }
         };
+        if crate::fsck::version_damage(&r, bucket.id, &v)?.is_some() {
+            return Err(crate::fsck::damaged_error(&req.key));
+        }
         Ok((v, vg))
     }
 
@@ -343,8 +405,10 @@ impl CairnEngine {
             v.parse::<VersionId>()?;
         }
         let inner = self.inner.clone();
+        let em = self.emitter(by);
         let (id, bn, key, by) = (b.id, bucket.to_string(), key.to_string(), by.clone());
-        self.inner
+        let res = self
+            .inner
             .meta
             .write(move |txn| {
                 let b = active_bucket(txn, id, &bn)?;
@@ -364,6 +428,14 @@ impl CairnEngine {
                     };
                     check_lock(&v, now)?;
                     let dm = v.is_delete_marker();
+                    em.emit(
+                        txn,
+                        &b,
+                        EventName::ObjectRemovedDelete,
+                        &key,
+                        Some(&v),
+                        Vec::new(),
+                    )?;
                     soft_delete(txn, &b, &inner.cfg, v, now, &by)?;
                     txn.refresh_latest(id, &key)?;
                     return Ok(DeleteRes {
@@ -374,6 +446,14 @@ impl CairnEngine {
                 match b.versioning {
                     Versioning::Off => {
                         if let Some(head) = txn.latest(id, &key)? {
+                            em.emit(
+                                txn,
+                                &b,
+                                EventName::ObjectRemovedDelete,
+                                &key,
+                                Some(&head),
+                                Vec::new(),
+                            )?;
                             soft_delete(txn, &b, &inner.cfg, head, now, &by)?;
                             txn.refresh_latest(id, &key)?;
                         }
@@ -396,6 +476,14 @@ impl CairnEngine {
                             &by,
                             &WriteConditions::default(),
                         )?;
+                        em.emit(
+                            txn,
+                            &b,
+                            EventName::ObjectRemovedDeleteMarkerCreated,
+                            &key,
+                            Some(&v),
+                            Vec::new(),
+                        )?;
                         Ok(DeleteRes {
                             delete_marker: true,
                             version_id: s3_version_id(&v, b.versioning),
@@ -403,7 +491,11 @@ impl CairnEngine {
                     }
                 }
             })
-            .await
+            .await;
+        if res.is_ok() {
+            self.notify();
+        }
+        res
     }
 
     /// DeleteObjects: per-key results in request order.
@@ -505,6 +597,8 @@ impl CairnEngine {
                 body,
                 &req.owner,
                 req.conditions.clone(),
+                EventName::ObjectCreatedCopy,
+                None,
             )
             .await?;
         Ok(CopyObjectRes {
@@ -584,5 +678,52 @@ impl CairnEngine {
             })
             .await?;
         Ok(reported)
+    }
+
+    /// Write a replicated delete marker with the given version id (`x-cairn-version-id` on a
+    /// DELETE without `versionId`). Idempotent.
+    pub async fn delete_marker_replica(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: VersionId,
+        by: &PrincipalId,
+    ) -> S3Result<DeleteRes> {
+        let b = self.bucket(bucket)?;
+        let inner = self.inner.clone();
+        let em = self.emitter(by);
+        let (id, bn, key, by) = (b.id, bucket.to_string(), key.to_string(), by.clone());
+        let res = self
+            .inner
+            .meta
+            .write(move |txn| {
+                let (v, b) = commit_replica(
+                    txn,
+                    &inner.blobs,
+                    id,
+                    &bn,
+                    &key,
+                    VersionKind::DeleteMarker,
+                    &by,
+                    version_id,
+                )?;
+                if let Some(v) = &v {
+                    em.emit(
+                        txn,
+                        &b,
+                        EventName::ObjectRemovedDeleteMarkerCreated,
+                        &key,
+                        Some(v),
+                        Vec::new(),
+                    )?;
+                }
+                Ok::<_, S3Error>(DeleteRes {
+                    delete_marker: true,
+                    version_id: Some(version_id.to_string()),
+                })
+            })
+            .await?;
+        self.notify();
+        Ok(res)
     }
 }

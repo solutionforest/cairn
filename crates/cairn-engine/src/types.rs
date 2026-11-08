@@ -500,3 +500,36 @@ pub struct GcStats {
 
 /// Bucket info for listings.
 pub type BucketInfo = BucketRecord;
+
+/// Where a point-in-time restore writes (default: in place).
+#[derive(Debug, Clone, Default)]
+pub struct PitrTarget {
+    /// Destination bucket (must exist); `None` = the source bucket.
+    pub bucket: Option<String>,
+    /// Replace the source prefix with this one in destination keys.
+    pub prefix: Option<String>,
+}
+
+/// One key changed (or to be changed) by a point-in-time restore.
+#[derive(Debug, Clone)]
+pub struct PitrChange {
+    /// Destination key.
+    pub key: String,
+    /// What the restore does to it.
+    pub kind: DiffKind,
+    /// Source version restored (head at `at`).
+    pub then: Option<VersionId>,
+    /// Current head before the restore.
+    pub now: Option<VersionId>,
+    /// S3 version id written by the restore (`None` on dry runs and unversioned buckets).
+    pub new_version: Option<String>,
+}
+
+/// Outcome of [`crate::CairnEngine::pitr_restore`].
+#[derive(Debug, Clone, Default)]
+pub struct PitrReport {
+    /// Keys changed (or that would change on a dry run).
+    pub changes: Vec<PitrChange>,
+    /// Keys already in their target state.
+    pub unchanged: u64,
+}

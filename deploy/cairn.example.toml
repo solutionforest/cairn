@@ -66,8 +66,8 @@ max_parts = 10000
 max_metadata_size = 2048
 
 [events]
-# Enable the durable event outbox and bucket notifications (webhooks, function sinks, SSE).
-enabled = false
+# Run delivery workers for configured sinks (webhooks, function sinks). No sinks = no-op.
+enabled = true
 
 [mcp]
 # Serve the MCP (Model Context Protocol) endpoint at /mcp.

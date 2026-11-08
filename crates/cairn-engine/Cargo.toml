@@ -11,6 +11,7 @@ description = "Cairn object storage: engine"
 cairn-core.workspace = true
 cairn-meta.workspace = true
 cairn-blob.workspace = true
+cairn-events.workspace = true
 tokio.workspace = true
 bytes.workspace = true
 futures.workspace = true

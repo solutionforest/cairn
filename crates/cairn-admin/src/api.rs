@@ -882,8 +882,42 @@ async fn auth_inner(s: &AdminState, req: Request) -> R<Request> {
     Ok(req)
 }
 
+async fn authorize_extra(
+    State((s, action)): State<(AdminState, &'static str)>,
+    req: Request,
+    next: Next,
+) -> Response {
+    let Some(c) = req.extensions().get::<Caller>().cloned() else {
+        return AdminError::new(
+            StatusCode::UNAUTHORIZED,
+            "AccessDenied",
+            "not authenticated",
+        )
+        .into_response();
+    };
+    match s.allow(&c, action, None) {
+        Ok(()) => next.run(req).await,
+        Err(e) => e.into_response(),
+    }
+}
+
 /// The admin router; mount at the server root (paths already start with `/_cairn/v1`).
 pub fn router(state: AdminState) -> Router {
+    router_with_extra(state, None, "cairn:GetServerInfo")
+}
+
+/// [`router`] plus `extra` routes (paths relative to `/_cairn/v1`, e.g. `/events`) behind the
+/// same SigV4 authentication, each request authorised for `action` on the server ARN. Used by
+/// the server to mount the SSE event stream (`cairn:SubscribeEvents`).
+pub fn router_with_extra(state: AdminState, extra: Option<Router>, action: &'static str) -> Router {
+    let extra = extra
+        .map(|r| {
+            r.route_layer(axum::middleware::from_fn_with_state(
+                (state.clone(), action),
+                authorize_extra,
+            ))
+        })
+        .unwrap_or_default();
     let v1 = Router::new()
         .route("/whoami", get(whoami))
         .route("/info", get(server_info))
@@ -963,7 +997,8 @@ pub fn router(state: AdminState) -> Router {
                 "method not allowed",
             )
         })
-        .with_state(state.clone());
+        .with_state(state.clone())
+        .merge(extra);
     // The auth layer sits outside `nest` so it sees the full path that the client signed.
     Router::new()
         .nest(PREFIX, v1)

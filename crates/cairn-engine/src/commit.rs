@@ -77,6 +77,7 @@ pub(crate) fn hide(
     state: VersionState,
     expires: Ts,
 ) -> S3Result<()> {
+    crate::usage::on_hide(txn, b, &v)?;
     v.state = state;
     txn.put_version(b, &v)?;
     txn.trash_add(expires, b, &v.key, &v.version_id)?;
@@ -92,11 +93,24 @@ pub(crate) fn soft_delete(
     now: Ts,
     by: &PrincipalId,
 ) -> S3Result<()> {
+    soft_delete_as(txn, b, cfg, v, now, by, cairn_meta::DeleteReason::Api)
+}
+
+/// [`soft_delete`] with an explicit reason (lifecycle, admin).
+pub(crate) fn soft_delete_as(
+    txn: &WriteTxn,
+    b: &BucketRecord,
+    cfg: &EngineConfig,
+    v: VersionRecord,
+    now: Ts,
+    by: &PrincipalId,
+    reason: cairn_meta::DeleteReason,
+) -> S3Result<()> {
     let (soft, _) = retention(b, cfg);
     let state = VersionState::SoftDeleted {
         at: now,
         by: by.clone(),
-        reason: cairn_meta::DeleteReason::Api,
+        reason,
     };
     hide(txn, b.id, v, state, now.plus(soft))
 }
@@ -134,6 +148,7 @@ pub(crate) fn commit_version(
     check_write_conditions(conds, head.as_ref())?;
     let now = now_for_key(txn, bucket_id, key)?;
     if let VersionKind::Object(body) = &kind {
+        crate::usage::check_quota(txn, &bucket, body.size)?;
         for p in &body.parts {
             incref_checked(txn, blobs, &p.blob, p.size)?;
         }
@@ -160,6 +175,7 @@ pub(crate) fn commit_version(
         legal_hold: false,
         owner: owner.clone(),
     };
+    crate::usage::on_create(txn, bucket_id, &v)?;
     txn.put_version(bucket_id, &v)?;
     txn.refresh_latest(bucket_id, key)?;
     Ok((v, bucket))
@@ -170,4 +186,51 @@ pub(crate) fn unlink_blob(blobs: &FsBlobStore, id: &BlobId) {
     for p in [blobs.plain_path(id), blobs.enc_path(id)] {
         let _ = std::fs::remove_file(p);
     }
+}
+
+/// Write a replica version with a caller-chosen id (Cairn→Cairn replication via
+/// `x-cairn-version-id`). Requires versioning `Enabled`; returns `None` when that version id is
+/// already stored (idempotent re-delivery). Blobs referenced by `kind` are increfed.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn commit_replica(
+    txn: &WriteTxn,
+    blobs: &FsBlobStore,
+    bucket_id: BucketId,
+    bucket_name: &str,
+    key: &str,
+    kind: VersionKind,
+    owner: &PrincipalId,
+    vid: VersionId,
+) -> S3Result<(Option<VersionRecord>, BucketRecord)> {
+    let bucket = active_bucket(txn, bucket_id, bucket_name)?;
+    if bucket.versioning != Versioning::Enabled {
+        return Err(S3Error::new(
+            S3ErrorCode::InvalidRequest,
+            "replica bucket must have versioning enabled",
+        ));
+    }
+    if txn.version(bucket_id, key, &vid)?.is_some() {
+        return Ok((None, bucket));
+    }
+    if let VersionKind::Object(body) = &kind {
+        crate::usage::check_quota(txn, &bucket, body.size)?;
+        for p in &body.parts {
+            incref_checked(txn, blobs, &p.blob, p.size)?;
+        }
+    }
+    let v = VersionRecord {
+        key: key.to_string(),
+        version_id: vid,
+        created_at: vid.created_at(),
+        is_null: false,
+        kind,
+        state: VersionState::Live,
+        lock: None,
+        legal_hold: false,
+        owner: owner.clone(),
+    };
+    crate::usage::on_create(txn, bucket_id, &v)?;
+    txn.put_version(bucket_id, &v)?;
+    txn.refresh_latest(bucket_id, key)?;
+    Ok((Some(v), bucket))
 }

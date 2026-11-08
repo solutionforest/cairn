@@ -10,7 +10,7 @@ pub mod client;
 pub mod engine;
 pub mod error;
 
-pub use api::{AdminState, Caller, PREFIX, router};
+pub use api::{AdminState, Caller, PREFIX, router, router_with_extra};
 pub use client::{AdminClient, ClientError};
 pub use engine::{AdminEngine, MockAdminEngine};
 pub use error::{AdminError, REQUEST_ID_HEADER};

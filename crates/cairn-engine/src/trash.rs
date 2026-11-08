@@ -62,6 +62,7 @@ impl CairnEngine {
     ) -> S3Result<PutObjectRes> {
         let b = self.bucket(bucket)?;
         let inner = self.inner.clone();
+        let em = self.emitter(by);
         let (bn, k, by) = (bucket.to_string(), key.to_string(), by.clone());
         let (v, br) = self
             .inner
@@ -77,7 +78,7 @@ impl CairnEngine {
                 }
                 .filter(|v| !v.is_live() && !v.is_delete_marker())
                 .ok_or_else(|| not_in_trash(&k))?;
-                commit_version(
+                let (v, br) = commit_version(
                     txn,
                     &inner.blobs,
                     &inner.cfg,
@@ -87,9 +88,22 @@ impl CairnEngine {
                     src.kind.clone(),
                     &by,
                     &WriteConditions::default(),
-                )
+                )?;
+                em.emit(
+                    txn,
+                    &br,
+                    cairn_events::EventName::CairnTrashRestored,
+                    &k,
+                    Some(&v),
+                    vec![(
+                        "restored_from_version_id".into(),
+                        src.version_id.to_string(),
+                    )],
+                )?;
+                Ok::<_, S3Error>((v, br))
             })
             .await?;
+        self.notify();
         let body = v.body().expect("restored object");
         Ok(PutObjectRes {
             etag: body.etag.clone(),
@@ -154,5 +168,126 @@ impl CairnEngine {
             Ok(true)
         })?;
         Ok(out)
+    }
+
+    /// Point-in-time restore (DESIGN §7.4): make `prefix` of `bucket` look as it did at `at` by
+    /// writing new versions that share the old versions' blobs (and deleting keys created
+    /// since). With a different target bucket or prefix, every key that existed at `at` is
+    /// written there and nothing is deleted. Each key is one ordinary, reversible write that
+    /// emits `cairn:PitrRestore` (deletes emit `s3:ObjectRemoved:*`).
+    pub async fn pitr_restore(
+        &self,
+        bucket: &str,
+        prefix: &str,
+        at: Ts,
+        target: PitrTarget,
+        dry_run: bool,
+        by: &PrincipalId,
+    ) -> S3Result<PitrReport> {
+        let src = self.bucket(bucket)?;
+        let dst_name = target.bucket.clone().unwrap_or_else(|| bucket.to_string());
+        let dst = self.bucket(&dst_name)?;
+        let in_place = dst.id == src.id && target.prefix.as_deref().is_none_or(|p| p == prefix);
+        let dest_key = |k: &str| match &target.prefix {
+            Some(p) => format!("{p}{}", &k[prefix.len().min(k.len())..]),
+            None => k.to_string(),
+        };
+        let mut report = PitrReport::default();
+        {
+            let r = self.read()?;
+            pitr::keys_with_history(&r, src.id, prefix, |key| {
+                let then = pitr::head_at(&r, src.id, key, at)?;
+                let dk = dest_key(key);
+                let now = r.latest(dst.id, &dk)?.filter(|v| !v.is_delete_marker());
+                let kind = match (&then, &now) {
+                    (Some(_), None) => Some(DiffKind::Recreate),
+                    (None, Some(_)) if in_place => Some(DiffKind::Remove),
+                    (Some(t), Some(n)) if t.version_id != n.version_id && t.body() != n.body() => {
+                        Some(DiffKind::Revert)
+                    }
+                    _ => None,
+                };
+                match kind {
+                    Some(kind) => report.changes.push(PitrChange {
+                        key: dk,
+                        kind,
+                        then: then.map(|v| v.version_id),
+                        now: now.map(|v| v.version_id),
+                        new_version: None,
+                    }),
+                    None => report.unchanged += 1,
+                }
+                Ok(true)
+            })?;
+        }
+        if dry_run {
+            return Ok(report);
+        }
+        let src_keys: Vec<Option<String>> = {
+            let r = self.read()?;
+            let mut out = Vec::new();
+            pitr::keys_with_history(&r, src.id, prefix, |key| {
+                out.push(Some(key.to_string()));
+                Ok(true)
+            })?;
+            out
+        };
+        for c in &mut report.changes {
+            match c.kind {
+                DiffKind::Remove => {
+                    let d = self.delete_object(&dst_name, &c.key, None, by).await?;
+                    c.new_version = d.version_id;
+                }
+                DiffKind::Recreate | DiffKind::Revert => {
+                    let vid = c.then.expect("then version");
+                    let src_key = src_keys
+                        .iter()
+                        .flatten()
+                        .find(|k| dest_key(k) == c.key)
+                        .cloned()
+                        .unwrap_or_else(|| c.key.clone());
+                    let inner = self.inner.clone();
+                    let em = self.emitter(by);
+                    let (dn, dk, owner) = (dst_name.clone(), c.key.clone(), by.clone());
+                    let (src_id, dst_id) = (src.id, dst.id);
+                    let as_of = at.to_rfc3339();
+                    let (v, b) = self
+                        .inner
+                        .meta
+                        .write(move |txn| {
+                            let old = txn
+                                .version(src_id, &src_key, &vid)?
+                                .ok_or_else(|| not_in_trash(&src_key))?;
+                            let (v, b) = commit_version(
+                                txn,
+                                &inner.blobs,
+                                &inner.cfg,
+                                dst_id,
+                                &dn,
+                                &dk,
+                                old.kind.clone(),
+                                &owner,
+                                &WriteConditions::default(),
+                            )?;
+                            em.emit(
+                                txn,
+                                &b,
+                                cairn_events::EventName::CairnPitrRestore,
+                                &dk,
+                                Some(&v),
+                                vec![
+                                    ("as_of".into(), as_of.clone()),
+                                    ("restored_from_version_id".into(), vid.to_string()),
+                                ],
+                            )?;
+                            Ok::<_, S3Error>((v, b))
+                        })
+                        .await?;
+                    self.notify();
+                    c.new_version = crate::util::s3_version_id(&v, b.versioning);
+                }
+            }
+        }
+        Ok(report)
     }
 }

@@ -46,14 +46,18 @@ fn init_check_serve_sigterm() {
         .unwrap();
     assert!(check.status.success());
     let shown = String::from_utf8_lossy(&check.stdout);
-    assert!(shown.contains("********"));
-    let secret = std::fs::read_to_string(&cfg)
-        .unwrap()
+    let raw_secret = stdout
         .lines()
-        .find(|l| l.starts_with("root_secret_key"))
-        .unwrap()
+        .find_map(|l| l.trim().strip_prefix("secret key: "))
+        .expect("init prints the root secret once")
+        .trim()
         .to_string();
-    assert!(!shown.contains(&secret), "secret must be masked");
+    let secret = format!("root_secret_key = \"{raw_secret}\"");
+    assert!(!shown.contains(&raw_secret), "secret must not be shown");
+    assert!(
+        !std::fs::read_to_string(&cfg).unwrap().contains(&raw_secret),
+        "root secret must not be written to the config file"
+    );
 
     let mut child = Command::new(bin)
         .args(["serve", "--log-format", "json", "--config"])
@@ -116,6 +120,10 @@ fn example_config_parses() {
         cairn_core::Config {
             storage: cairn_core::config::StorageConfig {
                 data_dir: "/var/lib/cairn".into(),
+                ..Default::default()
+            },
+            events: cairn_core::config::EventsConfig {
+                enabled: false,
                 ..Default::default()
             },
             ..Default::default()

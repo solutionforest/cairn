@@ -243,6 +243,24 @@ impl CairnEngine {
 
     /// CompleteMultipartUpload: validates parts, assembles the object, ETag = `md5(md5s)-N`.
     pub async fn complete_multipart_upload(&self, req: CompleteReq) -> S3Result<PutObjectRes> {
+        self.complete_multipart_upload_with(req, None).await
+    }
+
+    /// CompleteMultipartUpload writing a replica with the given version id.
+    pub async fn complete_multipart_upload_replica(
+        &self,
+        req: CompleteReq,
+        version_id: cairn_core::VersionId,
+    ) -> S3Result<PutObjectRes> {
+        self.complete_multipart_upload_with(req, Some(version_id))
+            .await
+    }
+
+    async fn complete_multipart_upload_with(
+        &self,
+        req: CompleteReq,
+        replica: Option<cairn_core::VersionId>,
+    ) -> S3Result<PutObjectRes> {
         let upload = self.upload_for(&req.bucket, &req.key, &req.upload_id)?;
         if req.parts.is_empty() {
             return Err(S3Error::new(
@@ -318,6 +336,7 @@ impl CairnEngine {
             _ => None,
         };
         let inner = self.inner.clone();
+        let em = self.emitter(&req.owner);
         let (bn, key, uid, owner, conds, bid) = (
             req.bucket.clone(),
             req.key.clone(),
@@ -331,25 +350,56 @@ impl CairnEngine {
             .meta
             .write(move |txn| {
                 let u = txn.upload(bid, &uid)?.ok_or_else(|| no_such_upload(&uid))?;
-                let r = commit_version(
-                    txn,
-                    &inner.blobs,
-                    &inner.cfg,
-                    bid,
-                    &bn,
-                    &key,
-                    VersionKind::Object(Box::new(body.clone())),
-                    &owner,
-                    &conds,
-                )?;
+                let kind = VersionKind::Object(Box::new(body.clone()));
+                let r = match replica {
+                    Some(vid) => {
+                        let (v, b) = crate::commit::commit_replica(
+                            txn,
+                            &inner.blobs,
+                            bid,
+                            &bn,
+                            &key,
+                            kind,
+                            &owner,
+                            vid,
+                        )?;
+                        let v = match v {
+                            Some(v) => v,
+                            None => txn
+                                .version(bid, &key, &vid)?
+                                .ok_or_else(|| S3Error::code(S3ErrorCode::InternalError))?,
+                        };
+                        (v, b)
+                    }
+                    None => commit_version(
+                        txn,
+                        &inner.blobs,
+                        &inner.cfg,
+                        bid,
+                        &bn,
+                        &key,
+                        kind,
+                        &owner,
+                        &conds,
+                    )?,
+                };
                 let now = Ts::now();
                 for p in u.parts.values() {
                     txn.blob_decref(&p.blob, now)?;
                 }
                 txn.del_upload(&u)?;
+                em.emit(
+                    txn,
+                    &r.1,
+                    cairn_events::EventName::ObjectCreatedCompleteMultipartUpload,
+                    &key,
+                    Some(&r.0),
+                    Vec::new(),
+                )?;
                 Ok::<_, S3Error>(r)
             })
             .await?;
+        self.notify();
         let body = v.body().expect("object");
         Ok(PutObjectRes {
             etag: body.etag.clone(),

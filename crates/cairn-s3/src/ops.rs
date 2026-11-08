@@ -4,7 +4,7 @@ use crate::CairnS3;
 use crate::convert::*;
 use base64::Engine as _;
 use cairn_core::{ChecksumAlgo, PrincipalId, S3ErrorCode as Code, S3Result as CResult};
-use cairn_engine::cairn_meta::{ObjectBody, Versioning};
+use cairn_engine::cairn_meta::{self, ObjectBody, Versioning};
 use cairn_engine::{
     CompletePart, CompleteReq, CopyObjectReq, CreateUploadReq, Directive, GetObjectReq, ListReq,
     ListVersionsReq, PutObjectReq, RangeSpec, UploadPartCopyReq, UploadPartReq,
@@ -171,6 +171,11 @@ impl CairnS3 {
     async fn do_delete_bucket(&self, req: S3Request<DeleteBucketInput>) -> Res<DeleteBucketOutput> {
         let who = self.principal(&req);
         self.engine.delete_bucket(&req.input.bucket, &who).await?;
+        if let Some(p) = &self.policies
+            && let Err(e) = p.forget_bucket(&req.input.bucket).await
+        {
+            tracing::warn!(bucket = %req.input.bucket, error = %e, "could not drop bucket policy");
+        }
         ok(DeleteBucketOutput::default())
     }
 
@@ -276,6 +281,16 @@ impl CairnS3 {
                     .await?
             }
             Some(BucketVersioningStatus::SUSPENDED) => {
+                if self
+                    .engine
+                    .get_bucket_replication(&req.input.bucket)?
+                    .is_some()
+                {
+                    return Err(err(
+                        Code::InvalidBucketState,
+                        "Versioning cannot be suspended while a replication configuration is present.",
+                    ));
+                }
                 self.engine
                     .put_bucket_versioning(&req.input.bucket, false)
                     .await?
@@ -349,21 +364,25 @@ impl CairnS3 {
             i.website_redirect_location.as_ref(),
             self.max_meta(),
         )?;
-        let r = self
-            .engine
-            .put_object(PutObjectReq {
-                bucket: i.bucket,
-                key: i.key,
-                body: body_in(i.body),
-                content_length: i.content_length.and_then(|n| u64::try_from(n).ok()),
-                content_md5: i.content_md5,
-                checksum,
-                meta,
-                tags: parse_tagging(i.tagging.as_deref())?,
-                conditions: write_conditions(i.if_match.as_ref(), i.if_none_match.as_ref()),
-                owner: who,
-            })
+        let replica = self
+            .replica_version(&req.headers, &req.extensions, &i.bucket, &i.key)
             .await?;
+        let preq = PutObjectReq {
+            bucket: i.bucket,
+            key: i.key,
+            body: body_in(i.body),
+            content_length: i.content_length.and_then(|n| u64::try_from(n).ok()),
+            content_md5: i.content_md5,
+            checksum,
+            meta,
+            tags: parse_tagging(i.tagging.as_deref())?,
+            conditions: write_conditions(i.if_match.as_ref(), i.if_none_match.as_ref()),
+            owner: who,
+        };
+        let r = match replica {
+            Some(vid) => self.engine.put_object_replica(preq, vid).await?,
+            None => self.engine.put_object(preq).await?,
+        };
         let mut out = PutObjectOutput {
             e_tag: Some(etag_out(&r.etag)),
             version_id: r.version_id,
@@ -423,6 +442,7 @@ impl CairnS3 {
 
     async fn do_get_object(&self, req: S3Request<GetObjectInput>) -> Res<GetObjectOutput> {
         let i = req.input;
+        let bucket = i.bucket.clone();
         let conds = read_conditions(
             i.if_match.as_ref(),
             i.if_none_match.as_ref(),
@@ -436,7 +456,7 @@ impl CairnS3 {
         let mut r = self
             .read_object(
                 &req.headers,
-                i.bucket,
+                bucket.clone(),
                 i.key,
                 i.version_id,
                 i.range,
@@ -452,6 +472,7 @@ impl CairnS3 {
             ..Default::default()
         };
         fill_read!(out, r, body, checksum_mode);
+        out.replication_status = self.replication_status(&bucket, &r.version);
         let mut resp = S3Response::new(out);
         add_blob_hash(&mut resp.headers, &body);
         Ok(resp)
@@ -459,6 +480,7 @@ impl CairnS3 {
 
     async fn do_head_object(&self, req: S3Request<HeadObjectInput>) -> Res<HeadObjectOutput> {
         let i = req.input;
+        let bucket = i.bucket.clone();
         let conds = read_conditions(
             i.if_match.as_ref(),
             i.if_none_match.as_ref(),
@@ -472,7 +494,7 @@ impl CairnS3 {
         let r = self
             .read_object(
                 &req.headers,
-                i.bucket,
+                bucket.clone(),
                 i.key,
                 i.version_id,
                 i.range,
@@ -485,6 +507,7 @@ impl CairnS3 {
         let body = r.version.body().expect("object").clone();
         let mut out = HeadObjectOutput::default();
         fill_read!(out, r, body, checksum_mode);
+        out.replication_status = self.replication_status(&bucket, &r.version);
         let mut resp = S3Response::new(out);
         add_blob_hash(&mut resp.headers, &body);
         Ok(resp)
@@ -492,11 +515,31 @@ impl CairnS3 {
 
     async fn do_delete_object(&self, req: S3Request<DeleteObjectInput>) -> Res<DeleteObjectOutput> {
         let who = self.principal(&req);
+        let replica = match &req.input.version_id {
+            None => {
+                self.replica_version(
+                    &req.headers,
+                    &req.extensions,
+                    &req.input.bucket,
+                    &req.input.key,
+                )
+                .await?
+            }
+            Some(_) => None,
+        };
         let i = req.input;
-        let d = self
-            .engine
-            .delete_object(&i.bucket, &i.key, i.version_id, &who)
-            .await?;
+        let d = match replica {
+            Some(vid) => {
+                self.engine
+                    .delete_marker_replica(&i.bucket, &i.key, vid, &who)
+                    .await?
+            }
+            None => {
+                self.engine
+                    .delete_object(&i.bucket, &i.key, i.version_id, &who)
+                    .await?
+            }
+        };
         ok(DeleteObjectOutput {
             delete_marker: d.delete_marker.then_some(true),
             version_id: d.version_id,
@@ -1040,6 +1083,14 @@ impl CairnS3 {
         req: S3Request<CompleteMultipartUploadInput>,
     ) -> Res<CompleteMultipartUploadOutput> {
         let who = self.principal(&req);
+        let replica = self
+            .replica_version(
+                &req.headers,
+                &req.extensions,
+                &req.input.bucket,
+                &req.input.key,
+            )
+            .await?;
         let i = req.input;
         reject_sse_c(i.sse_customer_algorithm.as_ref())?;
         let parts = i
@@ -1069,17 +1120,22 @@ impl CairnS3 {
                 })
             })
             .collect::<CResult<Vec<_>>>()?;
-        let r = self
-            .engine
-            .complete_multipart_upload(CompleteReq {
-                bucket: i.bucket.clone(),
-                key: i.key.clone(),
-                upload_id: i.upload_id,
-                parts,
-                conditions: write_conditions(i.if_match.as_ref(), i.if_none_match.as_ref()),
-                owner: who,
-            })
-            .await?;
+        let creq = CompleteReq {
+            bucket: i.bucket.clone(),
+            key: i.key.clone(),
+            upload_id: i.upload_id,
+            parts,
+            conditions: write_conditions(i.if_match.as_ref(), i.if_none_match.as_ref()),
+            owner: who,
+        };
+        let r = match replica {
+            Some(vid) => {
+                self.engine
+                    .complete_multipart_upload_replica(creq, vid)
+                    .await?
+            }
+            None => self.engine.complete_multipart_upload(creq).await?,
+        };
         let mut out = CompleteMultipartUploadOutput {
             location: Some(format!("/{}/{}", i.bucket, i.key)),
             bucket: Some(i.bucket),
@@ -1239,6 +1295,113 @@ impl CairnS3 {
     }
 }
 
+impl CairnS3 {
+    fn replication_status(
+        &self,
+        bucket: &str,
+        v: &cairn_meta::VersionRecord,
+    ) -> Option<ReplicationStatus> {
+        let b = self.engine.bucket(bucket).ok()?;
+        match self.engine.replication_status(&b, v) {
+            Ok(s) => s.map(|s| ReplicationStatus::from(s.as_str().to_string())),
+            Err(e) => {
+                tracing::warn!(error = %e, "replication status lookup failed");
+                None
+            }
+        }
+    }
+
+    /// `x-cairn-version-id` on a write: the replica version id, after checking that the caller
+    /// may perform `cairn:ReplicateObject` on the object.
+    pub(crate) async fn replica_version(
+        &self,
+        headers: &HeaderMap,
+        ext: &http::Extensions,
+        bucket: &str,
+        key: &str,
+    ) -> CResult<Option<cairn_core::VersionId>> {
+        let Some(h) = headers.get(cairn_engine::replication::VERSION_ID_HEADER) else {
+            return Ok(None);
+        };
+        let vid: cairn_core::VersionId = h
+            .to_str()
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .ok_or_else(|| err(Code::InvalidArgument, "invalid x-cairn-version-id"))?;
+        let caller = ext.get::<cairn_auth::AuthenticatedCaller>();
+        let allowed = match (caller, &self.access) {
+            (Some(c), _) if c.principal.as_ref().is_some_and(|p| p.is_root) => true,
+            (Some(c), Some(a)) => {
+                let ctx = cairn_auth::ConditionContext::new();
+                a.authorize_action(
+                    c,
+                    "cairn:ReplicateObject",
+                    Some(bucket),
+                    &cairn_auth::arn::object(bucket, key),
+                    &ctx,
+                )
+                .await
+                .is_ok()
+            }
+            (None, None) => true,
+            _ => false,
+        };
+        if !allowed {
+            return Err(err(
+                Code::AccessDenied,
+                "cairn:ReplicateObject is required to write replicas",
+            ));
+        }
+        Ok(Some(vid))
+    }
+
+    async fn do_put_bucket_replication(
+        &self,
+        req: S3Request<PutBucketReplicationInput>,
+    ) -> Res<PutBucketReplicationOutput> {
+        let i = req.input;
+        let mut buf = Vec::new();
+        {
+            let mut ser = s3s::xml::Serializer::new(&mut buf);
+            s3s::xml::Serialize::serialize(&i.replication_configuration, &mut ser)
+                .map_err(cairn_core::S3Error::internal)?;
+        }
+        let xml = String::from_utf8(buf).map_err(cairn_core::S3Error::internal)?;
+        self.engine.put_bucket_replication(&i.bucket, &xml).await?;
+        ok(PutBucketReplicationOutput::default())
+    }
+
+    async fn do_get_bucket_replication(
+        &self,
+        req: S3Request<GetBucketReplicationInput>,
+    ) -> Res<GetBucketReplicationOutput> {
+        let b = req.input.bucket;
+        let Some(cfg) = self.engine.get_bucket_replication(&b)? else {
+            return Err(
+                cairn_core::S3Error::code(Code::ReplicationConfigurationNotFoundError)
+                    .with_resource(b),
+            );
+        };
+        let xml = cfg.to_xml();
+        let mut de = s3s::xml::Deserializer::new(xml.as_bytes());
+        let rc: ReplicationConfiguration =
+            s3s::xml::Deserialize::deserialize(&mut de).map_err(cairn_core::S3Error::internal)?;
+        ok(GetBucketReplicationOutput {
+            replication_configuration: Some(rc),
+        })
+    }
+
+    async fn do_delete_bucket_replication(
+        &self,
+        req: S3Request<DeleteBucketReplicationInput>,
+    ) -> Res<DeleteBucketReplicationOutput> {
+        self.engine
+            .delete_bucket_replication(&req.input.bucket)
+            .await?;
+        ok(DeleteBucketReplicationOutput::default())
+    }
+}
+
 fn part_no(n: i32) -> CResult<u32> {
     u32::try_from(n).ok().filter(|n| *n >= 1).ok_or_else(|| {
         err(
@@ -1323,7 +1486,17 @@ macro_rules! forward {
             $(
                 async fn $name(&self, req: S3Request<$in>) -> S3Result<S3Response<$out>> {
                     let id = req.extensions.get::<RequestId>().cloned();
-                    self.$imp(req).await.map_err(|e| to_s3s(e, id.as_ref()))
+                    let ctx = cairn_engine::RequestCtx {
+                        request_id: id.as_ref().map(|r| r.0.clone()).unwrap_or_default(),
+                        source_ip: req
+                            .extensions
+                            .get::<cairn_auth::RequestMeta>()
+                            .and_then(|m| m.source_ip)
+                            .map(|ip| ip.to_string()),
+                    };
+                    cairn_engine::with_request_ctx(ctx, self.$imp(req))
+                        .await
+                        .map_err(|e| to_s3s(e, id.as_ref()))
                 }
             )*
         }
@@ -1360,4 +1533,19 @@ forward! {
     abort_multipart_upload => do_abort_multipart_upload: AbortMultipartUploadInput => AbortMultipartUploadOutput;
     list_parts => do_list_parts: ListPartsInput => ListPartsOutput;
     list_multipart_uploads => do_list_multipart_uploads: ListMultipartUploadsInput => ListMultipartUploadsOutput;
+    put_bucket_policy => do_put_bucket_policy: PutBucketPolicyInput => PutBucketPolicyOutput;
+    get_bucket_policy => do_get_bucket_policy: GetBucketPolicyInput => GetBucketPolicyOutput;
+    delete_bucket_policy => do_delete_bucket_policy: DeleteBucketPolicyInput => DeleteBucketPolicyOutput;
+    get_bucket_policy_status => do_get_bucket_policy_status: GetBucketPolicyStatusInput => GetBucketPolicyStatusOutput;
+    put_public_access_block => do_put_public_access_block: PutPublicAccessBlockInput => PutPublicAccessBlockOutput;
+    get_public_access_block => do_get_public_access_block: GetPublicAccessBlockInput => GetPublicAccessBlockOutput;
+    delete_public_access_block => do_delete_public_access_block: DeletePublicAccessBlockInput => DeletePublicAccessBlockOutput;
+    put_bucket_notification_configuration => do_put_bucket_notification_configuration: PutBucketNotificationConfigurationInput => PutBucketNotificationConfigurationOutput;
+    get_bucket_notification_configuration => do_get_bucket_notification_configuration: GetBucketNotificationConfigurationInput => GetBucketNotificationConfigurationOutput;
+    put_bucket_lifecycle_configuration => do_put_bucket_lifecycle_configuration: PutBucketLifecycleConfigurationInput => PutBucketLifecycleConfigurationOutput;
+    get_bucket_lifecycle_configuration => do_get_bucket_lifecycle_configuration: GetBucketLifecycleConfigurationInput => GetBucketLifecycleConfigurationOutput;
+    delete_bucket_lifecycle => do_delete_bucket_lifecycle: DeleteBucketLifecycleInput => DeleteBucketLifecycleOutput;
+    put_bucket_replication => do_put_bucket_replication: PutBucketReplicationInput => PutBucketReplicationOutput;
+    get_bucket_replication => do_get_bucket_replication: GetBucketReplicationInput => GetBucketReplicationOutput;
+    delete_bucket_replication => do_delete_bucket_replication: DeleteBucketReplicationInput => DeleteBucketReplicationOutput;
 }

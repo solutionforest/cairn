@@ -765,15 +765,22 @@ name = "cairn-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cairn-admin",
+ "cairn-auth",
+ "cairn-blob",
  "cairn-core",
+ "cairn-mcp",
  "cairn-server",
  "clap",
  "rand 0.9.5",
+ "serde",
+ "serde_json",
  "tempfile",
  "tokio",
  "toml",
  "tracing",
  "tracing-subscriber",
+ "zeroize",
 ]
 
 [[package]]
@@ -804,6 +811,7 @@ dependencies = [
  "bytes",
  "cairn-blob",
  "cairn-core",
+ "cairn-events",
  "cairn-meta",
  "cairn-server",
  "chacha20poly1305",
@@ -900,6 +908,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "bytes",
+ "cairn-auth",
  "cairn-core",
  "cairn-engine",
  "futures",
@@ -919,31 +928,42 @@ name = "cairn-server"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "aws-credential-types",
  "aws-sdk-s3",
  "aws-smithy-http-client",
  "axum",
  "base64 0.22.1",
+ "blake3",
  "bytes",
+ "cairn-admin",
+ "cairn-auth",
  "cairn-blob",
  "cairn-core",
  "cairn-engine",
+ "cairn-events",
+ "cairn-mcp",
+ "cairn-meta",
  "cairn-s3",
  "futures",
  "http 1.5.0",
  "http-body-util",
  "hyper",
  "hyper-util",
+ "jiff",
  "md-5 0.10.6",
+ "prometheus",
  "rand 0.9.5",
  "reqwest",
  "rustls",
  "rustls-pemfile",
  "s3s",
+ "serde",
  "serde_json",
  "tempfile",
  "tokio",
  "tokio-rustls",
+ "toml",
  "tower",
  "tower-http",
  "tracing",
@@ -2648,6 +2668,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "prometheus"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3ca5326d8d0b950a9acd87e6a3f94745394f62e4dae1b1ee22b2bc0c394af43a"
+dependencies = [
+ "cfg-if",
+ "fnv",
+ "lazy_static",
+ "memchr",
+ "parking_lot",
+ "thiserror",
 ]
 
 [[package]]

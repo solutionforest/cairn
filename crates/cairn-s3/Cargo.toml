@@ -10,6 +10,7 @@ description = "Cairn object storage: s3"
 [dependencies]
 cairn-core.workspace = true
 cairn-engine.workspace = true
+cairn-auth.workspace = true
 s3s.workspace = true
 async-trait.workspace = true
 tokio.workspace = true

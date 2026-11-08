@@ -72,6 +72,7 @@ impl CairnEngine {
         let b = self.bucket(name)?;
         let (id, name, by) = (b.id, name.to_string(), by.clone());
         let soft = retention(&b, &self.inner.cfg).0;
+        let em = self.emitter(&by);
         self.inner
             .meta
             .write(move |txn| {
@@ -103,9 +104,19 @@ impl CairnEngine {
                 let mut k = keys::ts_bytes(now.plus(soft)).to_vec();
                 k.extend_from_slice(&id.to_bytes());
                 txn.put(Table::BucketTrashIdx, &k, &[])?;
-                Ok(())
+                em.emit(
+                    txn,
+                    &b,
+                    cairn_events::EventName::CairnBucketDeleted,
+                    "",
+                    None,
+                    vec![("bucket_id".into(), id.to_string())],
+                )?;
+                Ok::<_, S3Error>(())
             })
-            .await
+            .await?;
+        self.notify();
+        Ok(())
     }
 
     async fn update_bucket(
@@ -289,5 +300,53 @@ impl CairnEngine {
             Ok(Flow::Continue)
         })?;
         Ok(out)
+    }
+
+    /// Set or clear the bucket quota (bytes of non-trashed data; writes past it get 507).
+    pub async fn set_bucket_quota(&self, name: &str, quota: Option<u64>) -> S3Result<()> {
+        let doc = quota.map(|q| q.to_be_bytes().to_vec());
+        self.put_bucket_config(name, crate::usage::QUOTA_CONFIG, doc)
+            .await
+    }
+
+    /// Usage counters of an active bucket.
+    pub fn bucket_usage(&self, name: &str) -> S3Result<crate::usage::BucketUsage> {
+        let r = self.read()?;
+        let b = resolve_bucket(&r, name)?;
+        Ok(crate::usage::load(&r, b.id)?)
+    }
+
+    /// Usage counters of any bucket record (active or trashed).
+    pub fn usage_of(&self, b: &BucketRecord) -> S3Result<crate::usage::BucketUsage> {
+        Ok(crate::usage::load(&self.read()?, b.id)?)
+    }
+
+    /// Replace the bucket's notification configuration (empty = remove).
+    pub async fn put_bucket_notification(
+        &self,
+        name: &str,
+        cfg: cairn_events::NotificationConfiguration,
+    ) -> S3Result<()> {
+        cfg.validate()?;
+        let id = self.bucket(name)?.id;
+        let name = name.to_string();
+        self.inner
+            .meta
+            .write(move |txn| {
+                active_bucket(txn, id, &name)?;
+                cairn_events::notification::store(txn, id, &cfg)?;
+                Ok::<_, S3Error>(())
+            })
+            .await
+    }
+
+    /// The bucket's notification configuration (empty when none is set).
+    pub fn get_bucket_notification(
+        &self,
+        name: &str,
+    ) -> S3Result<cairn_events::NotificationConfiguration> {
+        let r = self.read()?;
+        let b = resolve_bucket(&r, name)?;
+        Ok(cairn_events::notification::load(&r, b.id)?.unwrap_or_default())
     }
 }

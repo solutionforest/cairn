@@ -50,6 +50,7 @@ codes! {
     IllegalVersioningConfigurationException = 400, "The versioning configuration specified in the request is invalid.";
     IncompleteBody = 400, "You did not provide the number of bytes specified by the Content-Length HTTP header.";
     IncorrectNumberOfFilesInPostRequest = 400, "POST requires exactly one file upload per request.";
+    InsufficientStorage = 507, "Insufficient storage space.";
     InlineDataTooLarge = 400, "Inline data exceeds the maximum allowed size.";
     InternalError = 500, "We encountered an internal error. Please try again.";
     InvalidAccessKeyId = 403, "The AWS access key ID that you provided does not exist in our records.";

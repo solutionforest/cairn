@@ -146,6 +146,7 @@ pub const CAIRN_ACTIONS: &[&str] = &[
     "cairn:GetRetention",
     // Operations
     "cairn:ManageReplication",
+    "cairn:ReplicateObject",
     "cairn:ManageQuota",
     "cairn:ManageKms",
     "cairn:ManageEvents",
