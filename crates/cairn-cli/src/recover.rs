@@ -71,8 +71,9 @@ pub enum TrashCmd {
         /// Version id to restore.
         #[arg(long, requires = "key")]
         version: Option<String>,
-        /// Undelete everything: bring the bucket back if it was deleted, then restore the
-        /// newest hidden version of every key (under `--prefix`) that has no live version.
+        /// Undelete everything: bring the bucket back if it was deleted (replaying every
+        /// version of every key), then restore the newest hidden version of every key (under
+        /// `--prefix`) that still has no live version.
         #[arg(long)]
         all: bool,
         /// Limit `--all` to keys under this prefix.
@@ -402,6 +403,7 @@ async fn restore_all(b: &Backend, bucket: &str, prefix: Option<String>) -> anyho
             .restore_bucket(RestoreBucketRequest {
                 bucket_id: t.id.clone(),
                 as_name: Some(bucket.to_string()),
+                all_versions: prefix.is_none(),
                 ..Default::default()
             })
             .await?;
