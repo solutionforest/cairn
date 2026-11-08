@@ -7,9 +7,10 @@ repository.workspace = true
 rust-version.workspace = true
 description = "Cairn object storage: auth"
 
+# NOTE: cairn-core / cairn-meta are intentionally not dependencies yet (phase 1b runs in parallel
+# with phase 1a). Shared types live in `types` with TODO(agent-a) markers; persistence goes
+# through the `CredentialBackend` trait which cairn-meta will implement.
 [dependencies]
-cairn-core.workspace = true
-cairn-meta.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 postcard.workspace = true
@@ -24,11 +25,9 @@ aes-gcm.workspace = true
 url.workspace = true
 globset.workspace = true
 ipnet.workspace = true
-regex.workspace = true
 jiff.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-tokio.workspace = true
 
 [dev-dependencies]
-tempfile.workspace = true
+tokio.workspace = true
