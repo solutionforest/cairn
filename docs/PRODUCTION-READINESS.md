@@ -7,16 +7,16 @@ orchestrator; agents report which rows they closed in commit messages.
 Legend: `[ ]` todo · `[~]` partial · `[x]` done (proof in parentheses).
 
 ## A. Correctness and S3 compatibility
-- [ ] A1 Server boots from `cairn init` + `cairn serve` with one TOML file; data dir layout per DESIGN §4.
-- [ ] A2 Every S3 operation in BUILD-PLAN 1c has an `aws-sdk-s3` integration test in `crates/cairn-server/tests/` and a row in `docs/COMPAT.md`.
-- [ ] A3 Multipart: 7 ops, part size/count limits, `UploadPartCopy` ranges, abort cleans parts, complete validates ETags and order.
-- [ ] A4 Conditional requests (`If-Match`, `If-None-Match`, `If-Modified-Since`, `If-Unmodified-Since`) on GET/HEAD/PUT/Copy; `Range` incl. suffix ranges; `412`/`304`/`416` correct.
-- [ ] A5 Checksums: CRC32, CRC32C, SHA1, SHA256, CRC64NVME on put/get/multipart (composite), `x-amz-checksum-mode`.
-- [ ] A6 Versioning semantics match AWS: delete markers, `versionId=null` for unversioned, `ListObjectVersions` ordering, suspended state.
-- [ ] A7 Error XML bodies match AWS shape (Code/Message/Resource/RequestId) for every error path; `x-amz-request-id` on every response.
+- [x] A1 Server boots from `cairn init` + `cairn serve` with one TOML file; data dir layout per DESIGN §4. (crates/cairn-cli/tests/cli.rs)
+- [x] A2 Every S3 operation in BUILD-PLAN 1c has an `aws-sdk-s3` integration test in `crates/cairn-server/tests/` and a row in `docs/COMPAT.md`. (crates/cairn-server/tests/*.rs, docs/COMPAT.md)
+- [x] A3 Multipart: 7 ops, part size/count limits, `UploadPartCopy` ranges, abort cleans parts, complete validates ETags and order. (crates/cairn-server/tests/multipart.rs)
+- [x] A4 Conditional requests (`If-Match`, `If-None-Match`, `If-Modified-Since`, `If-Unmodified-Since`) on GET/HEAD/PUT/Copy; `Range` incl. suffix ranges; `412`/`304`/`416` correct. (crates/cairn-server/tests/range_conditional.rs)
+- [x] A5 Checksums: CRC32, CRC32C, SHA1, SHA256, CRC64NVME on put/get/multipart (composite), `x-amz-checksum-mode`. (crates/cairn-server/tests/objects.rs, multipart.rs)
+- [x] A6 Versioning semantics match AWS: delete markers, `versionId=null` for unversioned, `ListObjectVersions` ordering, suspended state. (crates/cairn-server/tests/versioning.rs)
+- [x] A7 Error XML bodies match AWS shape (Code/Message/Resource/RequestId) for every error path; `x-amz-request-id` on every response. (crates/cairn-server/tests/buckets.rs)
 - [ ] A8 `aws s3 cp/sync/ls/rm/mb/rb`, `rclone sync`, `mc` (MinIO client) work end-to-end (manual run recorded in `docs/COMPAT.md`).
 - [ ] A9 ceph `s3-tests` tagged subset ≥ 80% pass with an allowed-failure list (`scripts/s3-tests/`).
-- [ ] A10 Soft delete, trash list/restore/purge, PITR `head_at` + `x-cairn-as-of`, retention window GC all have integration tests.
+- [~] A10 Soft delete, trash list/restore/purge, PITR `head_at` + `x-cairn-as-of`, retention window GC all have integration tests. (soft delete + `x-cairn-as-of` + `x-cairn-include-trash`: crates/cairn-server/tests/pitr.rs; trash list/restore/purge and retention GC are engine-tested only (crates/cairn-engine/tests/engine.rs) until the admin API / `x-cairn-restore` surface lands)
 
 ## B. Security
 - [~] B1 SigV4 header and query (presigned) verification via `s3s` + `cairn-auth` secret lookup; clock skew ±15 min; replay of expired presign rejected. (B side: `CairnS3Auth` secret lookup incl. STS sessions, token check in `CairnS3Access`, s3s enforces skew/presign expiry; own verifier for STS/admin tested in `cairn-auth/src/sigv4/tests.rs`. Remains: A wires it into the server + aws-sdk test with an expired presign.)
@@ -31,18 +31,18 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done (proof in parentheses).
 - [x] B10 Admin API (`/_cairn/v1`) requires root or `cairn:*` policy; CORS default-deny; no debug endpoints exposed by default. (`cairn-admin/src/tests.rs`: `policy_controls_admin_access`, `unauthenticated_and_bad_signature_get_error_envelope`, `cors_default_deny_and_unknown_routes`; the auth layer is inside `cairn_admin::router`, so it holds wherever A mounts it.)
 
 ## C. Durability and recovery
-- [ ] C1 Crash consistency: kill -9 during put / multipart complete / delete leaves no half-committed object or orphan visible (test injects abort between blob fsync and meta commit; recovery sweeps `tmp/`).
-- [ ] C2 GC never deletes a referenced blob (property test over random op sequences + gc ticks).
+- [~] C1 Crash consistency: kill -9 during put / multipart complete / delete leaves no half-committed object or orphan visible (test injects abort between blob fsync and meta commit; recovery sweeps `tmp/`). (recovery after unclean shutdown (tmp sweep, orphan blob sweep, orphan uploads, `latest` repair): crates/cairn-engine/tests/engine.rs `recovery_after_unclean_shutdown`; no fault-injection kill -9 test yet)
+- [x] C2 GC never deletes a referenced blob (property test over random op sequences + gc ticks). (crates/cairn-engine/tests/engine.rs `gc_never_deletes_referenced_blobs`)
 - [ ] C3 `cairn fsck` detects orphan blobs, missing blobs, refcount drift, corrupt blobs (injected), and `--repair` fixes what is safe.
 - [ ] C4 `cairn scrub` verifies blob hashes on a schedule with IO throttling.
 - [ ] C5 `cairn backup` (snapshot + incremental blobs, encrypted) and `cairn restore` round-trip test.
 - [ ] C6 Async replication to a second Cairn / any S3 endpoint with a durable cursor; round-trip test between two in-process servers.
 - [~] C7 Metadata schema migrations: version in `kv`, pre-upgrade snapshot, `cairn migrate --dry-run`, test from a committed v1 fixture. (`cairn_meta::migrate` + `docs/OPERATIONS.md` "Upgrades"; tests incl. committed `crates/cairn-meta/tests/fixtures/meta-v1.redb`. Remains: `cairn migrate --dry-run` subcommand and calling `migrate()` at server start, A.)
 - [ ] C8 Disk-full handling: writes fail with `507 InsufficientStorage`/`SlowDown`, server stays up, GC can run.
-- [ ] C9 Graceful shutdown: in-flight requests drain with timeout; writer thread flushes; redb closes cleanly; `SIGTERM` test.
+- [x] C9 Graceful shutdown: in-flight requests drain with timeout; writer thread flushes; redb closes cleanly; `SIGTERM` test. (crates/cairn-cli/tests/cli.rs (SIGTERM), crates/cairn-server/tests/server.rs)
 
 ## D. Operability
-- [ ] D1 `/healthz` (process up) and `/readyz` (meta open, blob dir writable, not shutting down) with tests.
+- [x] D1 `/healthz` (process up) and `/readyz` (meta open, blob dir writable, not shutting down) with tests. (crates/cairn-server/tests/server.rs)
 - [ ] D2 `/metrics` Prometheus: request count/latency by op and status, bytes in/out, blob count/bytes, trash bytes, gc runs, outbox depth, replication lag.
 - [ ] D3 Structured `tracing` logs (JSON option), request id correlation, audit JSONL for mutating + auth-denied ops with rotation.
 - [ ] D4 Config: full reference generated by `cairn config schema`; every key has a default; env overlay `CAIRN_*`; `cairn config check` validates and prints effective config with secrets masked.

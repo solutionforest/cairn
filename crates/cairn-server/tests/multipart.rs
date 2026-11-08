@@ -260,6 +260,18 @@ async fn abort_and_checksummed_parts() {
         .send()
         .await
         .unwrap();
+    for bad in [0, 10_001] {
+        let r = s3
+            .upload_part()
+            .bucket("mpu")
+            .key("gone")
+            .upload_id(uid)
+            .part_number(bad)
+            .body(ByteStream::from_static(b"x"))
+            .send()
+            .await;
+        assert_eq!(code(r), "InvalidArgument", "part number {bad}");
+    }
     s3.abort_multipart_upload()
         .bucket("mpu")
         .key("gone")

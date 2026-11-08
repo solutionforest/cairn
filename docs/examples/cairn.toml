@@ -1,0 +1,62 @@
+# Example Cairn configuration. `cairn init --data-dir DIR` writes a minimal one for you.
+# Every key is optional and shown with its default unless noted. Any key can be overridden by
+# CAIRN_<SECTION>_<FIELD> (e.g. CAIRN_SERVER_LISTEN), plus the aliases CAIRN_DATA_DIR,
+# CAIRN_ROOT_ACCESS_KEY and CAIRN_ROOT_SECRET. Validate with `cairn config check --config FILE`.
+# Durations accept 500ms, 10s, 15m, 12h, 30d, 1w or a bare number of seconds.
+
+[server]
+listen = "127.0.0.1:9000"
+# Base domain for virtual-host-style requests (bucket.s3.example.com). Path-style always works.
+# domain = "s3.example.com"
+region = "us-east-1"
+# Serve HTTPS directly (PEM files). Leave unset behind a TLS-terminating proxy.
+# tls_cert = "/etc/cairn/tls/fullchain.pem"
+# tls_key = "/etc/cairn/tls/privkey.pem"
+# How long in-flight requests may drain after SIGTERM / ctrl-c.
+shutdown_grace = "30s"
+
+[storage]
+data_dir = "/var/lib/cairn"
+# fsync blobs before they become visible. Only disable for throwaway test data.
+fsync = true
+verify_on_read = false
+# Encrypt every blob with a key derived from <data_dir>/keys/master.key (created on first use).
+encrypt_at_rest = false
+
+[retention]
+# Soft-deleted versions stay restorable (and readable via x-cairn-as-of) this long.
+soft_delete = "30d"
+# Overwritten versions in unversioned buckets ("shadow history") are kept this long.
+shadow_history = "30d"
+min_versions_kept = 1
+# Extra delay between a blob's last reference disappearing and its file being unlinked.
+gc_grace = "1h"
+gc_interval = "1m"
+
+[auth]
+# Root credential (required). `cairn init` generates one; keep this file mode 0600.
+# root_access_key = "CAIRNXXXXXXXXXXXXXXX"
+# root_secret_key = "..."
+allow_anonymous = false
+
+[limits]
+max_object_size = 5368709120   # 5 GiB single PUT
+max_part_size = 5368709120     # 5 GiB
+min_part_size = 5242880        # 5 MiB (all but the last part)
+max_parts = 10000
+max_metadata_size = 2048       # bytes of x-amz-meta-* names + values
+
+[events]
+enabled = false
+
+[mcp]
+enabled = false
+
+[metrics]
+enabled = true
+
+[log]
+# tracing env-filter directive; RUST_LOG overrides it.
+level = "info"
+# JSON lines (same as `cairn serve --log-format json`).
+json = false

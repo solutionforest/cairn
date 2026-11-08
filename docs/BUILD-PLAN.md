@@ -103,7 +103,7 @@ MCP, **C** = events/replication-adjacent/tooling. Status dates are UTC.
 | 0 | Workspace scaffold, `cairn-core` types/errors/config, CI, Dockerfile skeleton | A | **done** 2026-11-08 | `cargo check --workspace` green |
 | 1a | `cairn-meta` (redb tables, writer thread, list iterators, `head_at`), `cairn-blob` (fs, hashing writer, range reader, AEAD, GC primitives) | A | **done** 2026-11-08 | tests green |
 | 1b | `cairn-auth`: policy parse/validate/compile/evaluate, credential store, STS sessions, SigV4 + presign | B | **done** 2026-11-08 (143 evaluator cases, store + sigv4 tests) | tests green |
-| 1c | `cairn-engine` (bucket/object/multipart/commit landed; **recovery, GC tick, lifecycle hooks pending**) + `cairn-s3` (s3s impl) + `cairn-server` + `cairn-cli serve/init`: bucket CRUD, Put/Get/Head/Delete(s), Copy, ListObjects v1/v2, ListObjectVersions, versioning, multipart (7 ops), tagging, metadata, range/conditional, checksums, soft delete + shadow versioning, root-only `S3Auth`. Create `docs/COMPAT.md` and `docs/EXTENSIONS.md`, example `cairn.toml`. | A | in progress | `crates/cairn-server/tests/` with aws-sdk-s3 cover every op; `aws s3 cp/sync/ls/rm` and `rclone` work manually |
+| 1c | `cairn-engine` (bucket/object/multipart/commit, listing, recovery, GC tick, trash/PITR helpers; lifecycle hooks → 2a) + `cairn-s3` (s3s impl) + `cairn-server` + `cairn-cli serve/init`: bucket CRUD, Put/Get/Head/Delete(s), Copy, ListObjects v1/v2, ListObjectVersions, versioning, multipart (7 ops), tagging, metadata, range/conditional, checksums, soft delete + shadow versioning, root-only `S3Auth`. Create `docs/COMPAT.md` and `docs/EXTENSIONS.md`, example `cairn.toml`. | A | **done** 2026-11-08 (29 ops, 17 aws-sdk-s3 integration tests + 11 engine tests + CLI e2e; manual aws-cli/rclone run still pending → A8) | `crates/cairn-server/tests/` with aws-sdk-s3 cover every op; `aws s3 cp/sync/ls/rm` and `rclone` work manually |
 | 2a | Engine/S3 features: trash list/restore/purge, PITR restore + `x-cairn-as-of`, lifecycle worker (expiration, noncurrent, abort-mpu), GC worker, Object Lock (governance/compliance/legal hold), SSE-S3 / SSE-C (key-scoped blob ids, DESIGN §15 Q5) / named KMS keys, CORS, PublicAccessBlock, bucket quota (507), rate limiting (§8.3), `/metrics` `/healthz` `/readyz`, audit JSONL, graceful shutdown | A | todo | integration tests per feature; `s3-tests` tagged subset ≥ 80% |
 | 2b | Wire `cairn-auth` into s3s `S3Auth`/`S3Access` (bucket policy ∪ identity ∪ PAB); Put/Get/Delete BucketPolicy + GetBucketPolicyStatus; STS endpoint (`/?Action=AssumeRole|GetSessionToken`); `cairn-admin` REST API (`/_cairn/v1/...`) + `cairn admin` CLI (users/keys/groups/policies/roles/buckets/trash/pitr/quota/lock); metadata **migrations framework** (schema version in `kv`, pre-upgrade snapshot, `cairn migrate --dry-run`) | B | **B side done** 2026-11-08 (bridge 19 + STS 5 + SigV4 3 + admin 11 + migrate 4 tests); server wiring, S3 bucket-policy ops and aws-sdk integration tests pending on A (see decisions log "phase 2b wiring") | policy/STS/admin integration tests; migration test from a v1 fixture |
 | 3a | `cairn-events`: event types (S3 schema 2.1 + `cairn:`), durable outbox + cursor, delivery worker with backoff + DLQ, sinks: webhook (HMAC), **function sinks** (bearer / sigv4-lambda / cf-access, §10), SSE stream `/_cairn/v1/events`; `Put/GetBucketNotificationConfiguration` mapping incl. `LambdaFunctionConfigurations` | C | **done (library)** 2026-11-08: 30 tests incl. crash test + per-auth-mode fake HTTP sinks; wiring into engine/s3/server (A) and admin SSE mount (B) pending, see decisions log | outbox delivers exactly the committed set after crash (test); fake HTTP sink tests per auth mode |
@@ -334,3 +334,37 @@ Entries are dated (UTC) and name the author. Newest last.
   already start with `/_cairn/v1`). (6) In cairn-cli: `.subcommand(cairn_admin::cli())`; on
   `("admin", m)`: `let c = cairn_admin::cli::client_from_matches(m)?; cairn_admin::cli::run(m,
   &c).await`.
+- **2026-11-08 (Agent A) — phase 1c engine/S3/server contract notes.**
+  (1) Engine additions: `list_objects(bucket, &ListReq)`, `list_object_versions(bucket,
+  &ListVersionsReq)`, `recover(full) -> RecoveryReport` (call after `open`, before serving),
+  `cleanup_orphan_uploads`, `check_latest(sample)`, `sweep_orphan_blobs(min_age)`,
+  `gc_tick(now: Ts) -> GcStats` (explicit clock so tests can fake time), `trash_list`,
+  `trash_restore`, `trash_purge`, `pitr_head_at`, `pitr_diff`, `data_dir()`, `is_shut_down()`.
+  `CreateUploadReq` gained `full_object_checksum`, `CompletePart` gained `checksum`.
+  (2) **Trash restore writes a new version** sharing the hidden version's blobs (DESIGN §7.3
+  "always creates a new latest pointer"); it never flips a version back to Live, so stale
+  `trash_idx` rows are harmless. GC re-derives each hidden version's due time from the bucket's
+  *current* retention and re-queues entries that are not due (or are locked).
+  (3) Unclean-shutdown detection is a `meta/RUNNING` marker file written at `open` and removed by
+  `shutdown()`; when present at startup, recovery also sweeps unreferenced blob files.
+  (4) FULL_OBJECT multipart checksums are marked by `MultipartRecord.template.checksum =
+  Some(StoredChecksum { value: "", composite: false })` — no record schema change. The final
+  value is computed at Complete by re-reading the assembled object (O(object) extra read, only
+  when requested; CRC64NVME uploads always use it, as AWS does).
+  (5) `ready()` used to call `clean_tmp()`, which deleted in-flight uploads' temp files; it now
+  probes `tmp/` writability instead.
+  (6) s3s 0.17 does not emit `<Resource>`/`<RequestId>` in error XML nor any request-id header:
+  `cairn-server` generates a 16-hex request id per request (`cairn_s3::RequestId` in request
+  extensions), stamps `x-amz-request-id`/`x-amz-id-2` on every response and splices missing
+  `Resource`/`RequestId` into error bodies.
+  (7) `cairn-s3` caller identity: a `cairn_core::PrincipalId` in the request extensions wins
+  (Agent B's `S3Access` should insert one); otherwise the root key → `root`, any other key →
+  `user:<access key>`, unsigned → `anonymous`. Hooks: `CairnS3Builder::with_auth(Arc<dyn
+  S3Auth>)` and `with_access(impl S3Access)` (generic, so per-operation `S3Access` hooks are kept).
+  (8) `/healthz` and `/readyz` are answered only for unsigned, query-less GET/HEAD so buckets with
+  those names stay reachable. `cairn_server::ConnInfo { peer, secure }` is in request extensions
+  for the auth bridge's `RequestMeta`.
+  (9) New config key `server.shutdown_grace` (default 30s); `Config::validate()` and
+  `Config::to_redacted_toml()` back `cairn config check`. Until phase 2b moves root credentials
+  into the credential store, `cairn init` writes them to `cairn.toml` (mode 0600).
+  (10) `x-cairn-blob-hash` is emitted only for single-blob objects.
