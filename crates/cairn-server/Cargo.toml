@@ -10,11 +10,7 @@ description = "Cairn object storage: server"
 [dependencies]
 cairn-core.workspace = true
 cairn-engine.workspace = true
-cairn-auth.workspace = true
 cairn-s3.workspace = true
-cairn-admin.workspace = true
-cairn-events.workspace = true
-cairn-mcp.workspace = true
 s3s.workspace = true
 tokio.workspace = true
 hyper.workspace = true

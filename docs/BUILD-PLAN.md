@@ -112,3 +112,48 @@ pub struct BlobWriter { .. } impl AsyncWrite; fn finish(self) -> Result<BlobDige
   current as behaviour lands.
 - When a DESIGN decision proves wrong, change DESIGN.md in the same commit and say why in
   §15 "Open questions" → "Decisions log".
+
+## Decisions log
+
+Entries are dated (UTC) and name the author. Newest last.
+
+- **2026-11-08 (Agent A) — `cairn-meta` write API is closure-based, not a `WriteTxn` future.**
+  The contract sketched `fn write(&self) -> impl Future<Output = WriteTxn>`. redb write
+  transactions are `!Send`-hostile across awaits and must stay on one thread, so the store runs a
+  dedicated `cairn-meta-writer` thread instead. API:
+  `RedbMetaStore::open(path)`, `store.read() -> ReadTxn` (`MetaStore` trait),
+  `store.write(|txn: &WriteTxn| -> Result<T, E> { .. }).await` where `E: From<MetaError>`.
+  Group commit: the writer drains up to 128 queued jobs into one redb transaction; if any job
+  returns `Err` (or panics) the batch is aborted and each job is re-run alone, so **write closures
+  must be `FnMut` and deterministic over the state they read** (no side effects outside the txn).
+  Results resolve only after the commit is durable.
+- **2026-11-08 (Agent A) — every table is `&[u8] → &[u8]`.** `Table` enum (`cairn_meta::Table`)
+  lists all tables from DESIGN §4.3 plus `blob_gc_idx` (`unref_at ‖ BlobId`, so GC finds
+  refcount-0 blobs without a full scan) and `bucket_trash_idx`. Values are
+  `[SCHEMA_VERSION=1] ‖ postcard(record)` via `cairn_meta::records::{encode, decode}`. Generic
+  access: `Reader::{get, scan, scan_prefix}` (implemented by both `ReadTxn` and `WriteTxn`, scans
+  can `Flow::Seek` to skip subtrees) and `WriteTxn::{put, del}`. Agent B: `principals`,
+  `access_keys`, `policies`, `sessions` tables exist for `cairn-auth`; use `encode`/`decode` with
+  your own record types.
+- **2026-11-08 (Agent A) — `latest` stores the full `VersionRecord` inline** (DESIGN §15 Q3:
+  yes). It always equals the newest `Live` version of the key (may be a delete marker) and is
+  recomputed with `WriteTxn::refresh_latest` after every mutation of that key. `BucketNotEmpty`
+  is therefore an O(1) prefix probe of `latest`.
+- **2026-11-08 (Agent A) — object keys may not contain NUL.** `versions` keys are
+  `BucketId ‖ key ‖ 0x00 ‖ VersionId`; a NUL inside a key would break per-key range scans. S3
+  technically allows it; no real client relies on it. Rejected with `InvalidArgument`.
+- **2026-11-08 (Agent A) — VersionId string form is 40 lowercase hex chars** (order-preserving).
+- **2026-11-08 (Agent A) — blob encryption layout.** Encrypted blobs are stored as
+  `blobs/ab/cd/<hex>.enc` (plaintext blobs have no suffix and no header, so they stay
+  `sendfile`-able): 48-byte header (`CRNB`, version, 32-byte salt, plaintext size) then 64 KiB
+  chunks sealed with AES-256-GCM, per-blob key = BLAKE3-derive(data key ‖ salt),
+  nonce = `0u32 ‖ index`, AAD = `blob id ‖ index`. Because the blob id (BLAKE3 of plaintext) is
+  only known at the end of the stream, the writer first seals chunks into `tmp/` with an
+  ephemeral random key, then re-seals them under the final key/AAD in `finish()` — plaintext never
+  touches disk, at the cost of a second crypto pass. Dedup is by plaintext hash, so an existing
+  blob wins regardless of encryption; per-customer keys (SSE-C) will need key-scoped blob ids in
+  phase 2.
+- **2026-11-08 (Agent A) — phase-1 crates do not depend on `cairn-auth` / `cairn-admin` /
+  `cairn-events` / `cairn-mcp`.** These edges were removed from `cairn-engine`, `cairn-s3` and
+  `cairn-server` so that Agent A's builds are not broken by in-progress work in parallel crates.
+  Re-add them in phase 2 when wiring `S3Access` and the admin API.
