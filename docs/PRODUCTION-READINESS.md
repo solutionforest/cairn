@@ -19,16 +19,16 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done (proof in parentheses).
 - [ ] A10 Soft delete, trash list/restore/purge, PITR `head_at` + `x-cairn-as-of`, retention window GC all have integration tests.
 
 ## B. Security
-- [ ] B1 SigV4 header and query (presigned) verification via `s3s` + `cairn-auth` secret lookup; clock skew ±15 min; replay of expired presign rejected.
-- [ ] B2 Policy evaluation on every S3 and admin request: identity ∪ group ∪ bucket policy ∪ PublicAccessBlock; explicit deny wins; anonymous only via bucket policy.
-- [ ] B3 STS `AssumeRole` / `GetSessionToken`; session tokens expire and are revocable.
-- [ ] B4 Root credentials bootstrapped at `cairn init`, never logged; all secrets `zeroize`d; `Authorization`, `x-amz-security-token`, secret keys redacted in logs (test asserts).
+- [~] B1 SigV4 header and query (presigned) verification via `s3s` + `cairn-auth` secret lookup; clock skew ±15 min; replay of expired presign rejected. (B side: `CairnS3Auth` secret lookup incl. STS sessions, token check in `CairnS3Access`, s3s enforces skew/presign expiry; own verifier for STS/admin tested in `cairn-auth/src/sigv4/tests.rs`. Remains: A wires it into the server + aws-sdk test with an expired presign.)
+- [~] B2 Policy evaluation on every S3 and admin request: identity ∪ group ∪ bucket policy ∪ PublicAccessBlock; explicit deny wins; anonymous only via bucket policy. (Evaluator + bridge done: `cairn-auth/src/s3s_bridge/tests.rs`, 19 tests incl. 45-row op→action table, deny/allow/anonymous/PAB/conditions/copy/DeleteObjects; admin requests evaluated per `cairn:*` action. Remains: server wiring + `crates/cairn-server/tests/` policy tests.)
+- [~] B3 STS `AssumeRole` / `GetSessionToken`; session tokens expire and are revocable. (`cairn_auth::sts::router`: AssumeRole/GetSessionToken/GetCallerIdentity, `cairn-auth/src/sts/tests.rs`; expiry + revocation via `revoke_session` / admin `DELETE /_cairn/v1/sessions/{id}`, revoked on user/role delete. Remains: mount in server.)
+- [~] B4 Root credentials bootstrapped at `cairn init`, never logged; all secrets `zeroize`d; `Authorization`, `x-amz-security-token`, secret keys redacted in logs (test asserts). (Secrets are `SecretString`/`MasterKey`/s3s `SecretKey`, zeroized and redacted in `Debug`; `cairn-admin/src/tests.rs::secrets_never_logged` asserts no secret/token/signature in TRACE logs. Remains: root bootstrap in `cairn init` (A, `CredentialStore::ensure_root` ready); response bodies carrying new secrets are plain `String`s.)
 - [ ] B5 Rate limiting per key / per IP / anonymous (DESIGN §8.3), `503 SlowDown`, configurable; request body size limits; header count/size limits.
 - [ ] B6 TLS via rustls with PEM reload; HTTP→HTTPS not assumed (document reverse-proxy mode, trust `X-Forwarded-For` only from configured CIDRs).
 - [ ] B7 SSE-S3 (server master key from file/env), SSE-C with key-scoped blob ids (DESIGN §15 Q5); keys never persisted in metadata in plaintext.
 - [ ] B8 Object Lock governance/compliance + legal hold enforced on delete/overwrite/GC.
 - [x] B9 `cargo deny` (licenses, advisories, bans) and `cargo audit` in CI; `SECURITY.md` with disclosure policy; no `unsafe`. (`.github/workflows/security.yml` on push + weekly; `deny.toml` with reasoned exceptions; local run 2026-11-08: `cargo deny check` advisories/bans/licenses/sources ok, `cargo audit` 0 vulnerabilities; `SECURITY.md`; `#![forbid(unsafe_code)]` in every crate root. Enable GitHub private vulnerability reporting when the repo goes public.)
-- [ ] B10 Admin API (`/_cairn/v1`) requires root or `cairn:*` policy; CORS default-deny; no debug endpoints exposed by default.
+- [x] B10 Admin API (`/_cairn/v1`) requires root or `cairn:*` policy; CORS default-deny; no debug endpoints exposed by default. (`cairn-admin/src/tests.rs`: `policy_controls_admin_access`, `unauthenticated_and_bad_signature_get_error_envelope`, `cors_default_deny_and_unknown_routes`; the auth layer is inside `cairn_admin::router`, so it holds wherever A mounts it.)
 
 ## C. Durability and recovery
 - [ ] C1 Crash consistency: kill -9 during put / multipart complete / delete leaves no half-committed object or orphan visible (test injects abort between blob fsync and meta commit; recovery sweeps `tmp/`).
@@ -37,7 +37,7 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done (proof in parentheses).
 - [ ] C4 `cairn scrub` verifies blob hashes on a schedule with IO throttling.
 - [ ] C5 `cairn backup` (snapshot + incremental blobs, encrypted) and `cairn restore` round-trip test.
 - [ ] C6 Async replication to a second Cairn / any S3 endpoint with a durable cursor; round-trip test between two in-process servers.
-- [ ] C7 Metadata schema migrations: version in `kv`, pre-upgrade snapshot, `cairn migrate --dry-run`, test from a committed v1 fixture.
+- [~] C7 Metadata schema migrations: version in `kv`, pre-upgrade snapshot, `cairn migrate --dry-run`, test from a committed v1 fixture. (`cairn_meta::migrate` + `docs/OPERATIONS.md` "Upgrades"; tests incl. committed `crates/cairn-meta/tests/fixtures/meta-v1.redb`. Remains: `cairn migrate --dry-run` subcommand and calling `migrate()` at server start, A.)
 - [ ] C8 Disk-full handling: writes fail with `507 InsufficientStorage`/`SlowDown`, server stays up, GC can run.
 - [ ] C9 Graceful shutdown: in-flight requests drain with timeout; writer thread flushes; redb closes cleanly; `SIGTERM` test.
 
@@ -49,7 +49,7 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done (proof in parentheses).
 - [ ] D5 Lifecycle worker (expiration, noncurrent expiration, abort-incomplete-mpu) and GC worker run on schedule, are observable in metrics, and are tested with a fake clock.
 - [ ] D6 Bucket quotas (`507`) and per-bucket retention windows enforced and visible in admin API.
 - [~] D7 Events: durable outbox, webhook + function sinks with retry/backoff/DLQ, exactly-the-committed-set-after-crash test. (Library done: `crates/cairn-events/tests/outbox.rs::crash_mid_batch_delivers_exactly_the_committed_set`, `tests/sinks.rs` per auth mode, 30 tests. Remaining: engine calls `Outbox::append` in its commit closures (A), `Put/GetBucketNotificationConfiguration` in cairn-s3 (A), server spawns `DeliveryWorker`s from `[[events.sinks]]` (A, needs `EventsConfig.sinks`), SSE router mounted under admin auth (B), outbox depth/DLQ metrics wired to `/metrics`.)
-- [ ] D8 Admin CLI covers users/keys/groups/policies/roles/buckets/trash/pitr/quota/lock; `--json` output.
+- [~] D8 Admin CLI covers users/keys/groups/policies/roles/buckets/trash/pitr/quota/lock; `--json` output. (`cairn_admin::cli` covers all listed areas + sessions/service accounts, `--json`; e2e test `cli_end_to_end_over_loopback`. Remains: mount in cairn-cli and a real `AdminEngine` for buckets/trash/pitr.)
 - [ ] D9 MCP server (stdio + streamable HTTP) exposing DESIGN §11.1 tools under policy; tested with an rmcp client.
 
 ## E. Performance

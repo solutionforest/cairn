@@ -105,7 +105,7 @@ MCP, **C** = events/replication-adjacent/tooling. Status dates are UTC.
 | 1b | `cairn-auth`: policy parse/validate/compile/evaluate, credential store, STS sessions, SigV4 + presign | B | **done** 2026-11-08 (143 evaluator cases, store + sigv4 tests) | tests green |
 | 1c | `cairn-engine` (bucket/object/multipart/commit landed; **recovery, GC tick, lifecycle hooks pending**) + `cairn-s3` (s3s impl) + `cairn-server` + `cairn-cli serve/init`: bucket CRUD, Put/Get/Head/Delete(s), Copy, ListObjects v1/v2, ListObjectVersions, versioning, multipart (7 ops), tagging, metadata, range/conditional, checksums, soft delete + shadow versioning, root-only `S3Auth`. Create `docs/COMPAT.md` and `docs/EXTENSIONS.md`, example `cairn.toml`. | A | in progress | `crates/cairn-server/tests/` with aws-sdk-s3 cover every op; `aws s3 cp/sync/ls/rm` and `rclone` work manually |
 | 2a | Engine/S3 features: trash list/restore/purge, PITR restore + `x-cairn-as-of`, lifecycle worker (expiration, noncurrent, abort-mpu), GC worker, Object Lock (governance/compliance/legal hold), SSE-S3 / SSE-C (key-scoped blob ids, DESIGN §15 Q5) / named KMS keys, CORS, PublicAccessBlock, bucket quota (507), rate limiting (§8.3), `/metrics` `/healthz` `/readyz`, audit JSONL, graceful shutdown | A | todo | integration tests per feature; `s3-tests` tagged subset ≥ 80% |
-| 2b | Wire `cairn-auth` into s3s `S3Auth`/`S3Access` (bucket policy ∪ identity ∪ PAB); Put/Get/Delete BucketPolicy + GetBucketPolicyStatus; STS endpoint (`/?Action=AssumeRole|GetSessionToken`); `cairn-admin` REST API (`/_cairn/v1/...`) + `cairn admin` CLI (users/keys/groups/policies/roles/buckets/trash/pitr/quota/lock); metadata **migrations framework** (schema version in `kv`, pre-upgrade snapshot, `cairn migrate --dry-run`) | B | todo | policy/STS/admin integration tests; migration test from a v1 fixture |
+| 2b | Wire `cairn-auth` into s3s `S3Auth`/`S3Access` (bucket policy ∪ identity ∪ PAB); Put/Get/Delete BucketPolicy + GetBucketPolicyStatus; STS endpoint (`/?Action=AssumeRole|GetSessionToken`); `cairn-admin` REST API (`/_cairn/v1/...`) + `cairn admin` CLI (users/keys/groups/policies/roles/buckets/trash/pitr/quota/lock); metadata **migrations framework** (schema version in `kv`, pre-upgrade snapshot, `cairn migrate --dry-run`) | B | **B side done** 2026-11-08 (bridge 19 + STS 5 + SigV4 3 + admin 11 + migrate 5 tests); server wiring, S3 bucket-policy ops and aws-sdk integration tests pending on A (see decisions log "phase 2b wiring") | policy/STS/admin integration tests; migration test from a v1 fixture |
 | 3a | `cairn-events`: event types (S3 schema 2.1 + `cairn:`), durable outbox + cursor, delivery worker with backoff + DLQ, sinks: webhook (HMAC), **function sinks** (bearer / sigv4-lambda / cf-access, §10), SSE stream `/_cairn/v1/events`; `Put/GetBucketNotificationConfiguration` mapping incl. `LambdaFunctionConfigurations` | C | **done (library)** 2026-11-08: 30 tests incl. crash test + per-auth-mode fake HTTP sinks; wiring into engine/s3/server (A) and admin SSE mount (B) pending, see decisions log | outbox delivers exactly the committed set after crash (test); fake HTTP sink tests per auth mode |
 | 3b | Replication worker + Put/Get/DeleteBucketReplication, `x-cairn-version-id` on Cairn→Cairn; **blob tiering** `BlobStore` (hot local / cold remote S3, age+size rules, transparent read-through); `cairn backup/restore` (snapshot + incremental blobs, age-style encryption); `cairn fsck` / `cairn scrub` | A | todo | replication round-trip between two in-process servers; tiered GET of a cold blob; fsck detects an injected orphan and a corrupt blob |
 | 3c | `cairn-mcp` (stdio + streamable HTTP, tools in DESIGN §11.1, `cairn:McpTool` condition key); OIDC federation for STS (`AssumeRoleWithWebIdentity`); PostObject (browser form upload) | B | todo | MCP tools exercised with an rmcp client under a restricted policy; OIDC test with a local JWKS |
@@ -268,3 +268,69 @@ Entries are dated (UTC) and name the author. Newest last.
   (`5b39871`, 2026-10-12) and deselects unimplemented feature markers (list in its README).
   Benchmarks use MinIO `warp` v1.8.2 via `bench/run.sh` rather than a custom Rust harness (no
   extra compile on the 1-vCPU host, results comparable with published MinIO numbers).
+- **2026-11-08 (Agent B) — `cairn-auth` depends on `cairn-meta`, `s3s`, `axum`, `http`,
+  `async-trait`, always on (no cargo feature).** The only consumer that links cairn-auth is the
+  server binary, which links s3s and axum anyway; a feature gate would only add a test matrix on
+  a 1-vCPU host. `async-trait` added to `[workspace.dependencies]` (s3s traits need it).
+- **2026-11-08 (Agent B) — IAM persistence layout.** `MetaCredentialBackend` (redb
+  `CredentialBackend`) routes the store's key prefixes to the DESIGN §4.3 tables: `u/ g/ r/` →
+  `principals`, `k/ x/` → `access_keys`, `p/` → `policies` (managed policies), `s/` → `sessions`.
+  Bucket policies and PublicAccessBlock live in `policies` under `b/<bucket>`
+  (`BucketPolicyStore`), not in the engine's bucket record; the bridge reads them through the
+  `BucketAuthzSource` trait so the engine can become the source later without touching the
+  bridge. The backend trait is synchronous, so writes `block_on` the cairn-meta writer future on
+  the calling thread (safe: the writer is an OS thread, not a tokio task); this blocks one tokio
+  worker for one commit on IAM writes and STS issuance, which are rare.
+- **2026-11-08 (Agent B) — s3s does not check `x-amz-security-token`.** `CairnS3Access::check`
+  re-resolves the access key and verifies the session token in constant time (`InvalidToken`),
+  so STS credentials are only usable with their token. `CairnS3Auth` maps unknown / inactive /
+  expired / revoked / orphaned keys to `InvalidAccessKeyId`; a key that disappears between
+  signature check and access check yields `ExpiredToken`. Clock skew (±15 min) and presign
+  expiry stay with s3s (`presigned_url_max_skew_time_secs` default 900).
+- **2026-11-08 (Agent B) — S3 authorisation details.** Resource ARNs: `arn:aws:s3:::*` for
+  ListBuckets, `arn:aws:s3:::bucket` for bucket ops, `arn:aws:s3:::bucket/key` for object ops;
+  `?versionId=` selects the `*Version*` action. CopyObject/UploadPartCopy also require
+  `s3:GetObject[Version]` on the copy source. `DeleteObjects` is checked per key in the
+  `delete_objects` access hook and is **all-or-nothing** (any denied key → `AccessDenied` for the
+  request; AWS reports per-key errors instead). `BlockPublicAcls` rejects public canned ACLs and
+  `x-amz-grant-*` to AllUsers/AuthenticatedUsers on ACL-carrying ops; `BlockPublicPolicy` is
+  enforced in `BucketPolicyStore::put_policy`; `RestrictPublicBuckets` in the evaluator.
+  s3s operations without an IAM mapping are allowed for root and denied for everyone else.
+  `s3:ExistingObjectTag/*` is not populated (needs an engine lookup; phase 2a+).
+- **2026-11-08 (Agent B) — STS and admin authentication.** STS is served on `GET /?Action=` and
+  form-encoded `POST /` (`cairn_auth::sts::is_sts_request` decides, before s3s); also implements
+  `GetCallerIdentity`. AssumeRole on a missing role answers `AccessDenied` (no existence leak).
+  STS and the admin API share `cairn_auth::sts::authenticate` (Cairn's own SigV4 verifier: host
+  must be signed, body hash computed server-side, ±15 min skew, presign ≤ 7 days). The admin API
+  answers authentication failures with **401** (AWS-style codes in the JSON envelope) and policy
+  denials with 403. Admin actions are evaluated on `arn:cairn:admin:::server`, bucket-scoped ones
+  (trash, purge, PITR, quota, retention) on `arn:aws:s3:::bucket` (restore on the object ARN).
+  New actions: `cairn:UpdatePolicy`, `cairn:ListSessions`, `cairn:RevokeSession`.
+- **2026-11-08 (Agent B) — `cairn-admin` does not depend on `cairn-engine` in phase 2b.** Storage
+  operations go through `cairn_admin::AdminEngine` (DTOs use RFC 3339 strings); A implements it
+  for `CairnEngine` when wiring. The CLI module returns `anyhow::Result` because only the binary
+  consumes it.
+- **2026-11-08 (Agent B) — migrations API takes the database path.** `cairn_meta::migrate::
+  migrate(path, dry_run)` (not `migrate(store, …)`): it must copy the redb file before any write
+  and redb holds an exclusive lock, so it opens/closes the store itself and must run before the
+  server opens it. `schema_version` is a raw big-endian `u32` in `kv` (not a postcard record); a
+  database with data but no stamp is v1; an empty one is stamped with `CURRENT_SCHEMA`.
+  Committed fixture: `crates/cairn-meta/tests/fixtures/meta-v1.redb` (force-added past the
+  `*.redb` ignore rule).
+- **2026-11-08 (Agent B) — phase 2b wiring for Agent A.** (1) `RedbMetaStore` → run
+  `cairn_meta::migrate::migrate(&db_path, false)` before `open`; `cairn migrate --dry-run` =
+  `migrate(&db_path, true)` printing the report. (2) `let store = Arc::new(CredentialStore::new(
+  Arc::new(MetaCredentialBackend::new(meta.clone())), master_key))`; `store.ensure_root(ak, &sk)`
+  at boot/`cairn init`. (3) `let policies = Arc::new(BucketPolicyStore::new(meta.clone()))`;
+  `builder.set_auth(CairnS3Auth::new(store.clone()))`, `builder.set_access(CairnS3Access::new(
+  store.clone(), policies.clone()))`; insert `cairn_auth::RequestMeta { source_ip, secure }` into
+  request extensions before s3s; read `cairn_auth::AuthenticatedCaller` from
+  `S3Request::extensions` in ops. Put/Get/DeleteBucketPolicy, GetBucketPolicyStatus and
+  Put/Get/DeletePublicAccessBlock call `BucketPolicyStore` (map `AuthError::Policy` →
+  `MalformedPolicy`, `AccessDenied` → `AccessDenied`); call `forget_bucket` on bucket purge.
+  (4) Route `cairn_auth::sts::is_sts_request(..)` requests to
+  `cairn_auth::sts::router(StsState::new(store.clone()))`. (5) Merge
+  `cairn_admin::router(AdminState::new(store, Arc::new(<engine impl AdminEngine>)))` (paths
+  already start with `/_cairn/v1`). (6) In cairn-cli: `.subcommand(cairn_admin::cli())`; on
+  `("admin", m)`: `let c = cairn_admin::cli::client_from_matches(m)?; cairn_admin::cli::run(m,
+  &c).await`.
