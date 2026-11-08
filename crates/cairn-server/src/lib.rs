@@ -223,29 +223,6 @@ fn sinks(cfg: &Config) -> anyhow::Result<Vec<WebhookSink>> {
         .collect()
 }
 
-fn oidc(cfg: &Config) -> anyhow::Result<Option<Arc<cairn_auth::OidcVerifier>>> {
-    if cfg.auth.oidc_providers.is_empty() {
-        return Ok(None);
-    }
-    let providers = cfg
-        .auth
-        .oidc_providers
-        .iter()
-        .map(|p| {
-            Ok(cairn_auth::OidcProviderConfig {
-                issuer: p.issuer.clone(),
-                audiences: p.audiences.clone(),
-                jwks_url: p.jwks_url.clone(),
-                jwks: p.jwks.clone().map(serde_json::Value::String),
-                claim_tags: p.claim_tags.clone(),
-            })
-        })
-        .collect::<anyhow::Result<Vec<_>>>()?;
-    Ok(Some(Arc::new(
-        cairn_auth::OidcVerifier::new(providers).context("auth.oidc_providers")?,
-    )))
-}
-
 impl Server {
     /// Open the data directory (after migrations), run startup recovery, bootstrap IAM, build
     /// the S3 / STS / admin / MCP services and bind the listener.
@@ -294,11 +271,14 @@ impl Server {
             let mcp = cairn_mcp::McpState::new(engine.clone(), store.clone(), policies.clone());
             cairn = cairn.merge(cairn_mcp::http_router(mcp));
         }
-        let mut sts_state = cairn_auth::sts::StsState::new(store.clone());
-        if let Some(v) = oidc(&config)? {
-            sts_state = sts_state.with_oidc(v);
+        // OIDC federation is shelved for v0.1 (BUILD-PLAN): AssumeRoleWithWebIdentity is never
+        // given a verifier, so it answers "not configured" whatever the config says.
+        if !config.auth.oidc_providers.is_empty() {
+            tracing::warn!(
+                "auth.oidc_providers is set but OIDC federation is not part of v0.1; ignoring it"
+            );
         }
-        let sts = cairn_auth::sts::router(sts_state);
+        let sts = cairn_auth::sts::router(cairn_auth::sts::StsState::new(store.clone()));
         let metrics = Arc::new(Metrics::new());
         let audit = if config.audit.enabled {
             let path = config

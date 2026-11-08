@@ -372,3 +372,28 @@ async fn mcp_http_is_mounted_and_authenticated() {
     );
     handle.shutdown().await.unwrap();
 }
+
+#[tokio::test]
+async fn oidc_federation_is_not_wired_even_when_configured() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = cairn_server::test_support::test_config(dir.path());
+    cfg.auth.oidc_providers = vec![cairn_core::config::OidcProviderEntry {
+        issuer: "https://idp.example".into(),
+        audiences: vec!["cairn".into()],
+        jwks_url: None,
+        jwks: Some(r#"{"keys":[]}"#.into()),
+        claim_tags: Default::default(),
+    }];
+    let (addr, _creds, handle) = cairn_server::test_support::spawn_with(cfg).await;
+    let r = reqwest::Client::new()
+        .post(format!("http://{addr}/"))
+        .header("content-type", "application/x-www-form-urlencoded")
+        .body("Action=AssumeRoleWithWebIdentity&Version=2011-06-15&RoleArn=arn%3Aaws%3Aiam%3A%3A000000000000%3Arole%2Fr&RoleSessionName=s&WebIdentityToken=x.y.z")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+    let body = r.text().await.unwrap();
+    assert!(body.contains("not configured"), "{body}");
+    handle.shutdown().await.unwrap();
+}
