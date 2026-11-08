@@ -100,3 +100,27 @@ enforced yet beyond "root may do anything".
 `GET /healthz` (process up) and `GET /readyz` (metadata readable, `tmp/` writable, not shutting
 down; `503` otherwise). They answer only unsigned, query-less GET/HEAD requests, so a bucket
 named `healthz` or `readyz` remains reachable with signed requests.
+
+## Condition keys and MCP (Agent B, phase 3c)
+
+Cairn-specific IAM condition keys, usable in identity, bucket and session policies:
+
+| Key | Set on | Value |
+|---|---|---|
+| `cairn:McpTool` | every call made through the MCP server (`/_cairn/mcp`, `cairn mcp --stdio`) | the tool name (`list_buckets`, `list_objects`, `get_object`, `head_object`, `put_object`, `delete_object`, `copy_object`, `search`, `trash_list`, `trash_restore`, `pitr_head_at`, `pitr_diff`, `pitr_restore`, `bucket_info`). Absent on plain S3 / admin requests, so `"StringEquals": {"cairn:McpTool": [...]}` on an Allow grants only via MCP, and on a Deny blocks only those tools. |
+| `cairn:AsOf` | S3 requests with `x-cairn-as-of`; MCP `as_of` / `at` arguments | the requested instant (RFC 3339), for `Date*` conditions. |
+
+`x-cairn-as-of` reads (and MCP `as_of`, `pitr_head_at`) need the normal read action **and**
+`cairn:TimeTravel` on the same resource (object ARN for GetObject/HeadObject, bucket ARN for
+ListObjects/ListObjectsV2); not checked when a `versionId` is given. Enforced by
+`cairn_auth::CairnS3Access` from phase 3c.
+
+MCP tools map onto the same actions as their S3 equivalents (`s3:GetObject`, `s3:PutObject`,
+`s3:ListBucket`, …) plus `cairn:ListTrash`, `cairn:Restore`, `cairn:PitrDiff`, `cairn:Pitr` for
+the recovery tools; see `docs/MCP.md` for the full table.
+
+Standard AWS keys added in phase 3c: `aws:PrincipalTag/<tag>` (session tags of web-identity
+sessions, mapped from OIDC claims) and, in role trust policies for `AssumeRoleWithWebIdentity`,
+`<provider>:sub`, `<provider>:aud`, `<provider>:iss`, `<provider>:azp`, `<provider>:email`,
+`<provider>:amr`, `aws:FederatedProvider`, `aws:RequestTag/<tag>`, `aws:TagKeys` (OPERATIONS,
+"OIDC federation").

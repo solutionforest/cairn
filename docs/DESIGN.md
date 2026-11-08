@@ -485,8 +485,8 @@ Admin-only actions are in the `cairn:` namespace (`cairn:CreateUser`, `cairn:Lis
 
 ### 11.1 MCP server (`cairn-mcp`, rmcp)
 Transports: `cairn mcp --stdio` (local agents; authenticates with an access key from env/config)
-and Streamable HTTP at `/mcp` (remote agents; `Authorization: Bearer <access-key-id>:<secret>` or
-an STS session token, or SigV4). Every tool call is turned into an IAM authorisation with
+and Streamable HTTP at `/_cairn/mcp` (remote agents; every request carries
+`Authorization: Bearer <access-key-id>:<secret>[:<session-token>]` or SigV4; see `docs/MCP.md`). Every tool call is turned into an IAM authorisation with
 `cairn:McpTool` = tool name as a condition key, so an agent can be given
 "read-only on bucket `docs/*`, never `purge`" with ordinary policies.
 
@@ -503,6 +503,10 @@ Tools (names are stable API):
 | `bucket_info`, `storage_stats`, `set_bucket_policy` (admin-scoped) | admin | |
 Resources: `s3://bucket/key` (read via `resources/read`, list via templates), `cairn://trash/…`.
 Prompts: `summarize_bucket`, `audit_access`.
+Phase 3c shipped the object, search (metadata), trash and PITR tools plus `bucket_info`, and
+`pitr_head_at`; deferred: `get_object` `mode=url` / `presign` (server does not know the
+client-facing endpoint), `storage_stats`, `set_bucket_policy`, resources and prompts (BUILD-PLAN
+decisions log, 2026-11-08 Agent B).
 
 ### 11.2 Optional `ai` feature (Phase 4)
 - Content extraction for text-like objects (markdown, json, csv, pdf, docx) into a derived

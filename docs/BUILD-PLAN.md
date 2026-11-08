@@ -50,7 +50,11 @@ impl CredentialStore {
     pub async fn create_user / delete_user / create_access_key / revoke_access_key / rotate_root ...
     pub async fn assume_role(&self, caller: &Principal, role: &str, duration: Duration) -> Result<StsCredentials>;
     pub async fn get_session_token(&self, caller: &Principal, duration: Duration) -> Result<StsCredentials>;
+    // phase 3c
+    pub async fn assume_role_with_web_identity(&self, id: &oidc::WebIdentity, req: AssumeRoleRequest) -> Result<StsCredentials>;
+    pub async fn authenticate_secret(&self, akid: &str, secret: &str, token: Option<&str>) -> Result<Option<Credential>>;
 }
+pub struct OidcVerifier { .. }  // ::new(Vec<OidcProviderConfig>)?, .verify(jwt).await -> Result<WebIdentity, OidcError>
 pub struct Credential { pub access_key_id: String, pub secret_key: SecretString, pub principal: Principal,
                         pub session: Option<SessionInfo> /* token, expiry */ }
 pub struct Principal { pub id: PrincipalId, pub arn: String, pub groups: Vec<String>, pub is_root: bool }
@@ -108,7 +112,7 @@ MCP, **C** = events/replication-adjacent/tooling. Status dates are UTC.
 | 2b | Wire `cairn-auth` into s3s `S3Auth`/`S3Access` (bucket policy ∪ identity ∪ PAB); Put/Get/Delete BucketPolicy + GetBucketPolicyStatus; STS endpoint (`/?Action=AssumeRole|GetSessionToken`); `cairn-admin` REST API (`/_cairn/v1/...`) + `cairn admin` CLI (users/keys/groups/policies/roles/buckets/trash/pitr/quota/lock); metadata **migrations framework** (schema version in `kv`, pre-upgrade snapshot, `cairn migrate --dry-run`) | B | **B side done** 2026-11-08 (bridge 19 + STS 5 + SigV4 3 + admin 11 + migrate 4 tests); server wiring, S3 bucket-policy ops and aws-sdk integration tests pending on A (see decisions log "phase 2b wiring") | policy/STS/admin integration tests; migration test from a v1 fixture |
 | 3a | `cairn-events`: event types (S3 schema 2.1 + `cairn:`), durable outbox + cursor, delivery worker with backoff + DLQ, sinks: webhook (HMAC), **function sinks** (bearer / sigv4-lambda / cf-access, §10), SSE stream `/_cairn/v1/events`; `Put/GetBucketNotificationConfiguration` mapping incl. `LambdaFunctionConfigurations` | C | **done (library)** 2026-11-08: 30 tests incl. crash test + per-auth-mode fake HTTP sinks; wiring into engine/s3/server (A) and admin SSE mount (B) pending, see decisions log | outbox delivers exactly the committed set after crash (test); fake HTTP sink tests per auth mode |
 | 3b | Replication worker + Put/Get/DeleteBucketReplication, `x-cairn-version-id` on Cairn→Cairn; **blob tiering** `BlobStore` (hot local / cold remote S3, age+size rules, transparent read-through); `cairn backup/restore` (snapshot + incremental blobs, age-style encryption); `cairn fsck` / `cairn scrub` | A | todo | replication round-trip between two in-process servers; tiered GET of a cold blob; fsck detects an injected orphan and a corrupt blob |
-| 3c | `cairn-mcp` (stdio + streamable HTTP, tools in DESIGN §11.1, `cairn:McpTool` condition key); OIDC federation for STS (`AssumeRoleWithWebIdentity`); PostObject (browser form upload) | B | todo | MCP tools exercised with an rmcp client under a restricted policy; OIDC test with a local JWKS |
+| 3c | `cairn-mcp` (stdio + streamable HTTP, tools in DESIGN §11.1, `cairn:McpTool` condition key); OIDC federation for STS (`AssumeRoleWithWebIdentity`); PostObject (browser form upload) | B (PostObject: A) | **B side done** 2026-11-08: `cairn-mcp` 14 tools (10 integration tests, rmcp client + HTTP), OIDC federation (8 tests, local JWKS); **PostObject still owed by A**; server mount + `cairn mcp --stdio` + `[[auth.oidc_providers]]` config pending on A (decisions log "phase 3c wiring") | MCP tools exercised with an rmcp client under a restricted policy; OIDC test with a local JWKS |
 | 3d | Tooling: `bench/` harness (warp or custom, reproducing §13 targets, results committed as markdown); `s3-tests` (ceph) runner script + tag list + CI job (nightly, allowed-failure list); config reference generator (`cairn config schema`) | C | in progress 2026-11-08: `bench/run.sh` (warp) + `RESULTS.md` template, `scripts/s3-tests/` runner + nightly workflow (gated by `S3_TESTS_ENABLED`) landed; no runs yet (needs `cairn serve`); `cairn config schema` not started (cairn-cli, A) | bench runs on the dev host; `s3-tests` subset ≥ 95% by end of phase 3 |
 | R | Release engineering: `cargo deny` + `cargo audit` in CI; release workflow (tags → static musl x86_64/aarch64, Docker image to GHCR, SBOM, checksums); CHANGELOG; **name check** on crates.io / Docker Hub / GitHub before first public tag; `SECURITY.md` with disclosure policy | C | in progress 2026-11-08: `cargo deny` green + `security.yml`, `release.yml`, SECURITY.md, CHANGELOG.md, name check run (rename recommended); remaining: first `v0.1.0-alpha` tag once `cairn serve` exists | `v0.1.0-alpha` tag produces downloadable binaries |
 | 4 | Admin UI (`/_cairn/ui`); `ai` feature (extraction, embeddings, search); ACME; otel; WASM GET-hook experiment; Helm; docs site | later | todo | |
@@ -368,3 +372,75 @@ Entries are dated (UTC) and name the author. Newest last.
   `Config::to_redacted_toml()` back `cairn config check`. Until phase 2b moves root credentials
   into the credential store, `cairn init` writes them to `cairn.toml` (mode 0600).
   (10) `x-cairn-blob-hash` is emitted only for single-blob objects.
+- **2026-11-08 (Agent B) — MCP authorisation model.** Each tool authorises the IAM action and
+  resource of its S3 / admin equivalent through `CairnS3Access::authorize_action` (bucket policy
+  and PAB included) with `cairn:McpTool` = tool name, `aws:SecureTransport`, `aws:SourceIp` (HTTP)
+  and the S3 keys the equivalent request would carry (`s3:prefix`, `s3:VersionId`,
+  `s3:RequestObjectTag/*`, `cairn:AsOf`). Time travel (`as_of` without a version id,
+  `pitr_head_at`) needs the base read action **and** `cairn:TimeTravel` on the same resource, with
+  `cairn:AsOf` in the context; the s3s bridge now enforces the same for `x-cairn-as-of` on
+  Get/HeadObject and ListObjects(V2) (it was documented in EXTENSIONS but not checked);
+  trash/PITR use the admin API's actions (`cairn:ListTrash` / `cairn:Restore` on the object /
+  `cairn:PitrDiff` / `cairn:Pitr`). Authorisation runs before any lookup, so a denied call is
+  always `AccessDenied` (no bucket/key existence oracle). `list_buckets` needs
+  `s3:ListAllMyBuckets` and then returns only buckets where `list_objects` would be allowed.
+  Tool failures are `isError: true` results with `{"error": <S3 code>, "message"}`; bad JSON
+  arguments are JSON-RPC errors.
+- **2026-11-08 (Agent B) — MCP transports and session binding.** HTTP authenticates *every*
+  request (bearer `ak:secret[:token]` via `CredentialStore::authenticate_secret`, or SigV4 via
+  `sts::authenticate` with the body buffered up to `max_http_body`); the resolved `McpCaller` goes
+  into request extensions and tools read it from the `http::request::Parts` rmcp injects. The
+  `Mcp-Session-Id` is not a credential. rmcp's Host allow-list (DNS-rebinding guard) is disabled
+  by default because credentials are mandatory; `McpConfig::allowed_hosts` re-enables it. stdio
+  holds the env credentials (zeroized) and re-verifies them on every call so revocation is
+  immediate. Path is `/_cairn/mcp` (DESIGN §11.1 said `/mcp`; changed so all Cairn extensions
+  live under `/_cairn/`).
+- **2026-11-08 (Agent B) — MCP tool set.** Shipped: `list_buckets`, `list_objects`, `get_object`
+  (text/base64/auto, 1 MiB cap with truncation, ranges), `head_object`, `put_object` (≤ 4 MiB),
+  `delete_object`, `copy_object`, `search` (metadata scan, ≤ 10k keys/call), `trash_list`,
+  `trash_restore`, `pitr_head_at`, `pitr_diff`, `pitr_restore` (dry-run default, `confirm`
+  required, ≤ 1000 changes/call), `bucket_info`. The engine has no PITR-restore primitive, so
+  `pitr_restore` applies `pitr_diff` with existing writes: hidden "then" versions via
+  `trash_restore`, still-live ones (versioned buckets) via `copy_object` with `src_version`,
+  removals via `delete_object` — each a normal new version, so the restore is reversible. When A
+  adds `CairnEngine::pitr_restore` for the admin API, switch the tool to it. Dropped: `presign` and
+  `get_object mode=url` (the MCP server does not know the client-facing S3 endpoint),
+  `storage_stats` (needs the admin stats source), `set_bucket_policy` (use S3/admin), tag/metadata
+  filters in `search` (would leak tag values to callers without `s3:GetObjectTagging`), semantic
+  search (phase 4), MCP resources and prompts.
+- **2026-11-08 (Agent B) — OIDC federation.** `jsonwebtoken` 11 with the RustCrypto backend
+  (`rust_crypto`; no OpenSSL / aws-lc). It pulls `rsa` 0.9 (RUSTSEC-2023-0071, Marvin) and
+  `crypto-bigint` 0.5 (RUSTSEC-2026-0387); both concern secret-key timing and Cairn only verifies
+  with public keys, so they are ignored in `deny.toml` and `security.yml` with that reason
+  (re-check when jsonwebtoken moves to rsa 0.10). Accepted algorithms: RS256/384/512,
+  PS256/384/512, ES256/384; JWKs must be asymmetric and not `use: enc`. No OIDC discovery:
+  `jwks_url` or inline `jwks` is required. Trust evaluation is separate from `PolicySet` because
+  the caller is not a Cairn principal: Allow needs an explicit `Federated` match (issuer URL,
+  provider id, or `oidc-provider` ARN), `Principal: "*"` never grants, Deny (federated or `*`)
+  wins. Condition keys follow AWS: `<provider>:sub|aud|iss|azp|amr|email`,
+  `aws:FederatedProvider`, `aws:RequestTag/*`, `aws:TagKeys`; mapped claims become session tags
+  (`Principal.tags`, `aws:PrincipalTag/<k>` in `AuthzEngine::enrich`, caller-supplied values
+  stripped). Sessions are `SessionKind::WebIdentity` — an appended enum variant, so existing
+  records decode unchanged and no migration is needed (older binaries cannot read the new
+  variant; downgrade = revoke those sessions first).
+- **2026-11-08 (Agent B) — phase 3c wiring for Agent A.** (1) MCP over HTTP:
+  `let mcp = cairn_mcp::McpState::new(engine.clone(), store.clone(), policies.clone())` with
+  `engine: CairnEngine`, `store: Arc<CredentialStore>`, `policies: Arc<BucketPolicyStore>` (any
+  `Arc<dyn BucketAuthzSource>`); optionally `.with_config(cairn_mcp::McpConfig { .. })`; when
+  `[mcp] enabled`, `app = app.merge(cairn_mcp::http_router(mcp))` — it serves
+  `cairn_mcp::MCP_PATH` = `/_cairn/mcp` (POST/GET/DELETE) and must be routed *before* s3s (a
+  bucket named `_cairn` is invalid anyway). Insert `cairn_auth::RequestMeta` into request
+  extensions upstream, as for s3s. Update the `[mcp]` doc comment in cairn-core config (`/mcp` →
+  `/_cairn/mcp`). (2) stdio: `cairn mcp --stdio [--config]` opens the engine + credential store
+  like `serve` (no listener) and calls `cairn_mcp::serve_stdio(mcp).await` (`Result<(),
+  cairn_mcp::McpError>`); it reads `CAIRN_ACCESS_KEY_ID` / `CAIRN_SECRET_ACCESS_KEY` /
+  `CAIRN_SESSION_TOKEN`. Logs must go to stderr in this mode (stdout is the protocol). (3) OIDC:
+  add `[[auth.oidc_providers]]` to `AuthConfig` with fields `issuer: String`,
+  `audiences: Vec<String>`, `jwks_url: Option<String>`, `jwks: Option<String>` (inline JSON),
+  `claim_tags: BTreeMap<String, String>`; convert each to `cairn_auth::OidcProviderConfig` (same
+  field names; `jwks` accepts a JSON string), then `let v = Arc::new(cairn_auth::OidcVerifier::
+  new(providers)?)` (validates at boot: https-only, ≥ 1 audience) and mount
+  `cairn_auth::sts::router(StsState::new(store.clone()).with_oidc(v))` instead of the plain STS
+  state when the list is non-empty. `AssumeRoleWithWebIdentity` is unsigned, so STS routing must
+  not require SigV4 before dispatch (`is_sts_request` already matches it). (4) PostObject is
+  still A's (BUILD-PLAN 3c row).

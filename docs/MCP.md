@@ -99,8 +99,8 @@ caller cannot probe which buckets or keys exist.
 | Tool | Arguments | IAM action → resource | Notes |
 |------|-----------|-----------------------|-------|
 | `list_buckets` | — | `s3:ListAllMyBuckets` → `arn:aws:s3:::*` | Returns only buckets on which `list_objects` (`s3:ListBucket`, `cairn:McpTool = list_objects`) would be allowed. |
-| `list_objects` | `bucket, prefix?, delimiter?, start_after?, max_keys? (≤1000, default 100), as_of?` | `s3:ListBucket` → bucket | `s3:prefix`, `s3:delimiter`, `s3:max-keys`, `cairn:AsOf` in context. Paginate with `next_start_after`. |
-| `get_object` | `bucket, key, version_id?, as_of?, range? (first-last, first-, -N), mode? (auto/text/base64)` | `s3:GetObject` (`s3:GetObjectVersion` with `version_id`) → object | Body capped (default 1 MiB): larger objects return the first bytes with `truncated: true`; an explicit range larger than the cap is refused. |
+| `list_objects` | `bucket, prefix?, delimiter?, start_after?, max_keys? (≤1000, default 100), as_of?` | `s3:ListBucket` → bucket (+ `cairn:TimeTravel` → bucket with `as_of`) | `s3:prefix`, `s3:delimiter`, `s3:max-keys`, `cairn:AsOf` in context. Paginate with `next_start_after`. |
+| `get_object` | `bucket, key, version_id?, as_of?, range? (first-last, first-, -N), mode? (auto/text/base64)` | `s3:GetObject` (`s3:GetObjectVersion` with `version_id`) → object; `as_of` without `version_id` also needs `cairn:TimeTravel` → object | Body capped (default 1 MiB): larger objects return the first bytes with `truncated: true`; an explicit range larger than the cap is refused. |
 | `head_object` | `bucket, key, version_id?, as_of?` | as `get_object` | Metadata, user metadata, tag count; no body. |
 | `put_object` | `bucket, key, content \| content_base64, content_type?, metadata?, tags?` | `s3:PutObject` → object | `s3:RequestObjectTag/<k>`, `s3:RequestObjectTagKeys`. Body ≤ 4 MiB (decoded). |
 | `delete_object` | `bucket, key, version_id?` | `s3:DeleteObject` / `s3:DeleteObjectVersion` → object | Soft delete: recoverable with `trash_restore`. |
@@ -108,7 +108,7 @@ caller cannot probe which buckets or keys exist.
 | `search` | `bucket, query?, prefix?, content_type?, min_size?, max_size?, modified_after?, modified_before?, limit? (≤500)` | `s3:ListBucket` → bucket | Metadata scan of current objects (≤10 000 keys per call; `complete: false` when the budget ran out). |
 | `trash_list` | `bucket, prefix?, limit? (≤1000)` | `cairn:ListTrash` → bucket | Soft-deleted and superseded versions with `expires_at`. |
 | `trash_restore` | `bucket, key, version_id?` | `cairn:Restore` → object | Writes a new live version sharing the old blobs; history is not rewritten. |
-| `pitr_head_at` | `bucket, key, at` | `s3:GetObject` → object, `cairn:AsOf = at` | The version that was current at `at`. |
+| `pitr_head_at` | `bucket, key, at` | `s3:GetObject` + `cairn:TimeTravel` → object, `cairn:AsOf = at` | The version that was current at `at`. |
 | `pitr_diff` | `bucket, at, prefix?` | `cairn:PitrDiff` → bucket | `recreate` / `revert` / `remove` per key. |
 | `pitr_restore` | `bucket, at, prefix?, dry_run? (default true), confirm` | `cairn:Pitr` → bucket | Applying needs `dry_run: false` **and** `confirm: true`; ≤1000 changes per call. Every change is a normal new version or delete marker, so the restore is itself reversible. |
 | `bucket_info` | `bucket` | `s3:ListBucket` → bucket | Versioning, object lock, retention; `tags` only if `s3:GetBucketTagging` is also allowed. |
@@ -124,7 +124,8 @@ Not implemented (DESIGN §11.1 items dropped for now): `get_object` `mode = url`
 
 ## Example: a restricted agent
 
-Read the `docs` bucket except `private/`, write only under `inbox/`, browse and restore the trash,
+Read the `docs` bucket except `private/` (time travel back to 2026 only), write only under
+`inbox/`, browse and restore the trash,
 and never run `pitr_restore` or `delete_object` through MCP even though the same user may delete
 via S3:
 
@@ -139,6 +140,9 @@ via S3:
      "Resource": "arn:aws:s3:::docs/inbox/*"},
     {"Effect": "Allow", "Action": ["cairn:ListTrash", "cairn:PitrDiff"],
      "Resource": "arn:aws:s3:::docs"},
+    {"Effect": "Allow", "Action": "cairn:TimeTravel",
+     "Resource": ["arn:aws:s3:::docs", "arn:aws:s3:::docs/*"],
+     "Condition": {"DateGreaterThanEquals": {"cairn:AsOf": "2026-01-01T00:00:00Z"}}},
     {"Effect": "Allow", "Action": "cairn:Restore", "Resource": "arn:aws:s3:::docs/inbox/*"},
     {"Effect": "Deny", "Action": "s3:GetObject", "Resource": "arn:aws:s3:::docs/private/*"},
     {"Effect": "Deny", "Action": "*", "Resource": "*",
