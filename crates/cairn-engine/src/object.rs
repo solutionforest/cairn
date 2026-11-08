@@ -340,6 +340,17 @@ impl CairnEngine {
             (None, None) => None,
         };
         let (start, end) = range.unwrap_or((0, body.size));
+        if with_body {
+            for p in &body.parts {
+                if p.offset + p.size > start
+                    && p.offset < end
+                    && !self.inner.blobs.exists(&p.blob).await
+                {
+                    tracing::error!(key = %req.key, blob = %p.blob.to_hex(), "GET of a version whose blob is missing");
+                    return Err(crate::fsck::damaged_error(&req.key));
+                }
+            }
+        }
         let stream = if with_body {
             Some(self.stream_object(&body, start, end))
         } else {
@@ -369,6 +380,10 @@ impl CairnEngine {
                     continue;
                 }
                 let local = start.max(ps) - ps..end.min(pe) - ps;
+                // A whole-blob read is checked against its BLAKE3 id; the last chunk is held
+                // back until the hash matches, so a damaged blob never streams to completion.
+                let mut hasher =
+                    (local.start == 0 && local.end == p.size).then(blake3::Hasher::new);
                 let mut rd = match blobs.open(&p.blob, local, key.as_ref()).await {
                     Ok(r) => r,
                     Err(e) => {
@@ -376,11 +391,44 @@ impl CairnEngine {
                         return;
                     }
                 };
+                let mut held: Option<bytes::Bytes> = None;
                 while let Some(item) = rd.next().await {
-                    let failed = item.is_err();
-                    if tx.send(item).await.is_err() || failed {
+                    let chunk = match item {
+                        Ok(c) => c,
+                        Err(e) => {
+                            let _ = tx.send(Err(e)).await;
+                            return;
+                        }
+                    };
+                    let Some(h) = hasher.as_mut() else {
+                        if tx.send(Ok(chunk)).await.is_err() {
+                            return;
+                        }
+                        continue;
+                    };
+                    h.update(&chunk);
+                    if let Some(prev) = held.replace(chunk)
+                        && tx.send(Ok(prev)).await.is_err()
+                    {
                         return;
                     }
+                }
+                if let Some(h) = hasher
+                    && h.finalize().as_bytes() != p.blob.as_bytes()
+                {
+                    tracing::error!(blob = %p.blob.to_hex(), "blob content does not match its hash; aborting GET");
+                    let _ = tx
+                        .send(Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("blob {} is damaged (see `cairn fsck`)", p.blob.to_hex()),
+                        )))
+                        .await;
+                    return;
+                }
+                if let Some(last) = held
+                    && tx.send(Ok(last)).await.is_err()
+                {
+                    return;
                 }
             }
         });
