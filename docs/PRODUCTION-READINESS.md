@@ -41,8 +41,8 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done.
 - [ ] D3 JSON logs with request-id correlation; audit JSONL for mutating and denied requests.
 - [ ] D4 Lifecycle expiration + abort-incomplete-multipart and GC run on schedule; tested with a fake clock.
 - [ ] D5 `cairn config check` prints the effective config with secrets masked; every key has a default and a `CAIRN_*` env override.
-- [~] D6 Admin CLI: users, keys, groups, policies, roles, buckets, trash, pitr; `--json`. (cairn_admin::cli + loopback e2e test; not mounted in the binary)
-- [~] D7 **claim 4** MCP server (stdio + HTTP) with the DESIGN §11 tools under policy: a principal denied `s3:GetObject` on a key is denied the same key through MCP `get_object`, and `as_of` tools require `cairn:TimeTravel`. (crates/cairn-mcp/tests/tools.rs 10 tests; not mounted; cross-channel deny test pending)
+- [~] D6 Admin CLI: users, keys, groups, policies, roles, buckets, trash, pitr; `--json`. (cairn_admin::cli + loopback e2e test; mounted as `cairn admin` in crates/cairn-cli/src/main.rs; test through the binary pending)
+- [~] D7 **claim 4** MCP server (stdio + HTTP) with the DESIGN §11 tools under policy: a principal denied `s3:GetObject` on a key is denied the same key through MCP `get_object`, and `as_of` tools require `cairn:TimeTravel`. (crates/cairn-mcp/tests/tools.rs; HTTP mounted at `/_cairn/mcp` when `[mcp] enabled` (crates/cairn-server/src/lib.rs), stdio via `cairn mcp --stdio`; cross-channel deny over HTTP: crates/cairn-server/tests/auth_wire.rs::mcp_http_applies_the_same_explicit_deny_as_s3; `cairn:TimeTravel` through the server and stdio binary test pending)
 
 ## E. Limits
 - [~] E1 A 10 GiB upload and download complete with RSS under 256 MiB (streaming end to end); number recorded in OPERATIONS.md and README. (measured by scripts/footprint.sh, default 10 GiB streamed through `aws s3 cp -` with sha256 round-trip check; release-build run pending)
