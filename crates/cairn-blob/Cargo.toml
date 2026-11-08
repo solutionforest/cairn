@@ -28,6 +28,10 @@ hex.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 uuid.workspace = true
+aws-sdk-s3.workspace = true
+aws-smithy-http-client.workspace = true
+aws-credential-types.workspace = true
+rustix.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

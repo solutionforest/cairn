@@ -6,6 +6,9 @@
 
 pub mod crypto;
 pub mod hash;
+pub mod remote_s3;
+pub mod space;
+pub mod tiered;
 
 use bytes::Bytes;
 use cairn_core::{BlobId, ChecksumAlgo};

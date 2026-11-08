@@ -712,6 +712,9 @@ name = "cairn-blob"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",
+ "aws-credential-types",
+ "aws-sdk-s3",
+ "aws-smithy-http-client",
  "blake3",
  "bytes",
  "cairn-core",
@@ -724,6 +727,7 @@ dependencies = [
  "md-5 0.10.6",
  "proptest",
  "rand 0.9.5",
+ "rustix",
  "sha1 0.10.7",
  "sha2 0.10.9",
  "tempfile",
