@@ -53,7 +53,9 @@ impl CairnEngine {
         let meta = RedbMetaStore::open(&data_dir.join("meta").join("cairn.redb"))?;
         let blobs = FsBlobStore::open(data_dir, cfg.fsync)?;
         blobs.clean_tmp()?;
-        Ok(CairnEngine { inner: Arc::new(Inner { meta, blobs, cfg }) })
+        Ok(CairnEngine {
+            inner: Arc::new(Inner { meta, blobs, cfg }),
+        })
     }
 
     /// Metadata store handle (shared with `cairn-auth`).

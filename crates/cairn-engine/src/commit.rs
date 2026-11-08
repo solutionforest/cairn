@@ -4,8 +4,8 @@ use crate::{EngineConfig, no_such_bucket};
 use cairn_blob::FsBlobStore;
 use cairn_core::{BlobId, BucketId, PrincipalId, S3Error, S3ErrorCode, S3Result, Ts, VersionId};
 use cairn_meta::{
-    BucketRecord, BucketState, Flow, ReadExt, Reader, Table, VersionKind, VersionRecord, VersionState, Versioning, WriteTxn,
-    decode, keys,
+    BucketRecord, BucketState, Flow, ReadExt, Reader, Table, VersionKind, VersionRecord,
+    VersionState, Versioning, WriteTxn, decode, keys,
 };
 use std::time::Duration;
 
@@ -23,8 +23,12 @@ pub(crate) fn active_bucket(txn: &WriteTxn, id: BucketId, name: &str) -> S3Resul
 /// (soft_delete, shadow_history) windows for a bucket.
 pub(crate) fn retention(b: &BucketRecord, cfg: &EngineConfig) -> (Duration, Duration) {
     (
-        b.retention.soft_delete_secs.map_or(cfg.retention.soft_delete, Duration::from_secs),
-        b.retention.shadow_history_secs.map_or(cfg.retention.shadow_history, Duration::from_secs),
+        b.retention
+            .soft_delete_secs
+            .map_or(cfg.retention.soft_delete, Duration::from_secs),
+        b.retention
+            .shadow_history_secs
+            .map_or(cfg.retention.shadow_history, Duration::from_secs),
     )
 }
 
@@ -49,16 +53,30 @@ pub(crate) fn now_for_key(txn: &WriteTxn, b: BucketId, key: &str) -> S3Result<Ts
 
 /// Increment a blob refcount; if it had no live references, require the file to still exist
 /// (GC unlinks only from inside write jobs, so this check is race-free).
-pub(crate) fn incref_checked(txn: &WriteTxn, blobs: &FsBlobStore, id: &BlobId, size: u64) -> S3Result<()> {
+pub(crate) fn incref_checked(
+    txn: &WriteTxn,
+    blobs: &FsBlobStore,
+    id: &BlobId,
+    size: u64,
+) -> S3Result<()> {
     let prev = txn.blob_incref(id, size)?;
     if prev.is_none_or(|r| r.refcount == 0) && !blobs.exists_sync(id) {
-        return Err(S3Error::new(S3ErrorCode::InternalError, "blob was garbage collected concurrently; retry the request"));
+        return Err(S3Error::new(
+            S3ErrorCode::InternalError,
+            "blob was garbage collected concurrently; retry the request",
+        ));
     }
     Ok(())
 }
 
 /// Move a version out of Live and into the trash index.
-pub(crate) fn hide(txn: &WriteTxn, b: BucketId, mut v: VersionRecord, state: VersionState, expires: Ts) -> S3Result<()> {
+pub(crate) fn hide(
+    txn: &WriteTxn,
+    b: BucketId,
+    mut v: VersionRecord,
+    state: VersionState,
+    expires: Ts,
+) -> S3Result<()> {
     v.state = state;
     txn.put_version(b, &v)?;
     txn.trash_add(expires, b, &v.key, &v.version_id)?;
@@ -66,16 +84,30 @@ pub(crate) fn hide(txn: &WriteTxn, b: BucketId, mut v: VersionRecord, state: Ver
 }
 
 /// Soft-delete a version on behalf of `by`.
-pub(crate) fn soft_delete(txn: &WriteTxn, b: &BucketRecord, cfg: &EngineConfig, v: VersionRecord, now: Ts, by: &PrincipalId) -> S3Result<()> {
+pub(crate) fn soft_delete(
+    txn: &WriteTxn,
+    b: &BucketRecord,
+    cfg: &EngineConfig,
+    v: VersionRecord,
+    now: Ts,
+    by: &PrincipalId,
+) -> S3Result<()> {
     let (soft, _) = retention(b, cfg);
-    let state = VersionState::SoftDeleted { at: now, by: by.clone(), reason: cairn_meta::DeleteReason::Api };
+    let state = VersionState::SoftDeleted {
+        at: now,
+        by: by.clone(),
+        reason: cairn_meta::DeleteReason::Api,
+    };
     hide(txn, b.id, v, state, now.plus(soft))
 }
 
 /// Object Lock / legal hold guard for version-specific deletes.
 pub(crate) fn check_lock(v: &VersionRecord, now: Ts) -> S3Result<()> {
     if v.legal_hold || v.lock.is_some_and(|l| l.retain_until > now) {
-        return Err(S3Error::new(S3ErrorCode::AccessDenied, "Access Denied because object protected by object lock."));
+        return Err(S3Error::new(
+            S3ErrorCode::AccessDenied,
+            "Access Denied because object protected by object lock.",
+        ));
     }
     Ok(())
 }
@@ -96,7 +128,9 @@ pub(crate) fn commit_version(
     conds: &WriteConditions,
 ) -> S3Result<(VersionRecord, BucketRecord)> {
     let bucket = active_bucket(txn, bucket_id, bucket_name)?;
-    let head = txn.latest(bucket_id, key)?.filter(|v| !v.is_delete_marker());
+    let head = txn
+        .latest(bucket_id, key)?
+        .filter(|v| !v.is_delete_marker());
     check_write_conditions(conds, head.as_ref())?;
     let now = now_for_key(txn, bucket_id, key)?;
     if let VersionKind::Object(body) = &kind {
@@ -107,7 +141,13 @@ pub(crate) fn commit_version(
     let is_null = bucket.versioning != Versioning::Enabled;
     if is_null && let Some(old) = txn.null_version(bucket_id, key, false)? {
         let (_, shadow) = retention(&bucket, cfg);
-        hide(txn, bucket_id, old, VersionState::Superseded { at: now }, now.plus(shadow))?;
+        hide(
+            txn,
+            bucket_id,
+            old,
+            VersionState::Superseded { at: now },
+            now.plus(shadow),
+        )?;
     }
     let v = VersionRecord {
         key: key.to_string(),

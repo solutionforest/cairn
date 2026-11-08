@@ -10,7 +10,9 @@ pub(crate) fn b64(b: &[u8]) -> String {
 }
 
 pub(crate) fn unb64(s: &str) -> Option<Vec<u8>> {
-    base64::engine::general_purpose::STANDARD.decode(s.trim()).ok()
+    base64::engine::general_purpose::STANDARD
+        .decode(s.trim())
+        .ok()
 }
 
 /// Strip quotes / weak prefix from an ETag as clients send it.
@@ -28,7 +30,11 @@ fn etag_list_matches(list: &str, etag: &str) -> bool {
 }
 
 /// Evaluate GET/HEAD preconditions per RFC 7232 / S3 rules.
-pub(crate) fn check_read_conditions(c: &ReadConditions, etag: &str, last_modified: Ts) -> S3Result<()> {
+pub(crate) fn check_read_conditions(
+    c: &ReadConditions,
+    etag: &str,
+    last_modified: Ts,
+) -> S3Result<()> {
     let lm = last_modified.secs();
     if let Some(m) = &c.if_match {
         if !etag_list_matches(m, etag) {
@@ -56,19 +62,32 @@ fn not_modified(etag: &str) -> S3Error {
 }
 
 /// Copy-source preconditions: every failure is 412.
-pub(crate) fn check_copy_source_conditions(c: &ReadConditions, etag: &str, last_modified: Ts) -> S3Result<()> {
+pub(crate) fn check_copy_source_conditions(
+    c: &ReadConditions,
+    etag: &str,
+    last_modified: Ts,
+) -> S3Result<()> {
     check_read_conditions(c, etag, last_modified).map_err(|e| {
-        if e.code == S3ErrorCode::NotModified { S3Error::code(S3ErrorCode::PreconditionFailed) } else { e }
+        if e.code == S3ErrorCode::NotModified {
+            S3Error::code(S3ErrorCode::PreconditionFailed)
+        } else {
+            e
+        }
     })
 }
 
 /// Evaluate PUT/Complete preconditions against the current head.
-pub(crate) fn check_write_conditions(c: &WriteConditions, head: Option<&VersionRecord>) -> S3Result<()> {
+pub(crate) fn check_write_conditions(
+    c: &WriteConditions,
+    head: Option<&VersionRecord>,
+) -> S3Result<()> {
     let cur = head.and_then(|v| v.body()).map(|b| b.etag.as_str());
     if let Some(m) = &c.if_match {
         match cur {
             None => return Err(S3Error::code(S3ErrorCode::NoSuchKey)),
-            Some(e) if !etag_list_matches(m, e) => return Err(S3Error::code(S3ErrorCode::PreconditionFailed)),
+            Some(e) if !etag_list_matches(m, e) => {
+                return Err(S3Error::code(S3ErrorCode::PreconditionFailed));
+            }
             _ => {}
         }
     }
@@ -83,7 +102,10 @@ pub(crate) fn check_write_conditions(c: &WriteConditions, head: Option<&VersionR
 
 /// Resolve a range request against an object size into `start..end`.
 pub(crate) fn resolve_range(r: RangeSpec, size: u64) -> S3Result<(u64, u64)> {
-    let bad = || S3Error::code(S3ErrorCode::InvalidRange).with_header("content-range", format!("bytes */{size}"));
+    let bad = || {
+        S3Error::code(S3ErrorCode::InvalidRange)
+            .with_header("content-range", format!("bytes */{size}"))
+    };
     match r {
         RangeSpec::Int { first, last } => {
             if first >= size {
@@ -114,7 +136,11 @@ pub(crate) fn s3_version_id(v: &VersionRecord, versioning: Versioning) -> Option
 
 /// `null` or hex.
 pub(crate) fn display_vid(v: &VersionRecord) -> String {
-    if v.is_null { "null".to_string() } else { v.version_id.to_string() }
+    if v.is_null {
+        "null".to_string()
+    } else {
+        v.version_id.to_string()
+    }
 }
 
 /// Resolve a client-supplied version id to a Live version.
@@ -133,25 +159,47 @@ pub(crate) fn resolve_version<R: ReadExt + ?Sized>(
     found.ok_or_else(|| S3Error::code(S3ErrorCode::NoSuchVersion).with_resource(key))
 }
 
-pub(crate) fn verify_checksum(algo: ChecksumAlgo, computed: &[u8], expected_b64: &str) -> S3Result<()> {
+pub(crate) fn verify_checksum(
+    algo: ChecksumAlgo,
+    computed: &[u8],
+    expected_b64: &str,
+) -> S3Result<()> {
     match unb64(expected_b64) {
         Some(e) if e == computed => Ok(()),
         Some(_) => Err(S3Error::new(
             S3ErrorCode::BadDigest,
-            format!("The {} you specified did not match the calculated checksum.", algo.as_str()),
+            format!(
+                "The {} you specified did not match the calculated checksum.",
+                algo.as_str()
+            ),
         )),
-        None => Err(S3Error::new(S3ErrorCode::InvalidRequest, format!("Value for x-amz-checksum-{} header is invalid.", algo.as_str().to_lowercase()))),
+        None => Err(S3Error::new(
+            S3ErrorCode::InvalidRequest,
+            format!(
+                "Value for x-amz-checksum-{} header is invalid.",
+                algo.as_str().to_lowercase()
+            ),
+        )),
     }
 }
 
 /// Validate a tag set (S3 limits).
-pub(crate) fn validate_tags(tags: &std::collections::BTreeMap<String, String>, max: usize) -> S3Result<()> {
+pub(crate) fn validate_tags(
+    tags: &std::collections::BTreeMap<String, String>,
+    max: usize,
+) -> S3Result<()> {
     if tags.len() > max {
-        return Err(S3Error::new(S3ErrorCode::InvalidTag, "Object tags cannot be greater than 10"));
+        return Err(S3Error::new(
+            S3ErrorCode::InvalidTag,
+            "Object tags cannot be greater than 10",
+        ));
     }
     for (k, v) in tags {
         if k.is_empty() || k.chars().count() > 128 || v.chars().count() > 256 {
-            return Err(S3Error::new(S3ErrorCode::InvalidTag, "The TagKey/TagValue you have provided is invalid"));
+            return Err(S3Error::new(
+                S3ErrorCode::InvalidTag,
+                "The TagKey/TagValue you have provided is invalid",
+            ));
         }
     }
     Ok(())
@@ -163,14 +211,61 @@ mod tests {
 
     #[test]
     fn ranges() {
-        assert_eq!(resolve_range(RangeSpec::Int { first: 0, last: Some(9) }, 100).unwrap(), (0, 10));
-        assert_eq!(resolve_range(RangeSpec::Int { first: 90, last: None }, 100).unwrap(), (90, 100));
-        assert_eq!(resolve_range(RangeSpec::Int { first: 90, last: Some(500) }, 100).unwrap(), (90, 100));
-        assert_eq!(resolve_range(RangeSpec::Suffix(10), 100).unwrap(), (90, 100));
-        assert_eq!(resolve_range(RangeSpec::Suffix(1000), 100).unwrap(), (0, 100));
-        let e = resolve_range(RangeSpec::Int { first: 100, last: None }, 100).unwrap_err();
+        assert_eq!(
+            resolve_range(
+                RangeSpec::Int {
+                    first: 0,
+                    last: Some(9)
+                },
+                100
+            )
+            .unwrap(),
+            (0, 10)
+        );
+        assert_eq!(
+            resolve_range(
+                RangeSpec::Int {
+                    first: 90,
+                    last: None
+                },
+                100
+            )
+            .unwrap(),
+            (90, 100)
+        );
+        assert_eq!(
+            resolve_range(
+                RangeSpec::Int {
+                    first: 90,
+                    last: Some(500)
+                },
+                100
+            )
+            .unwrap(),
+            (90, 100)
+        );
+        assert_eq!(
+            resolve_range(RangeSpec::Suffix(10), 100).unwrap(),
+            (90, 100)
+        );
+        assert_eq!(
+            resolve_range(RangeSpec::Suffix(1000), 100).unwrap(),
+            (0, 100)
+        );
+        let e = resolve_range(
+            RangeSpec::Int {
+                first: 100,
+                last: None,
+            },
+            100,
+        )
+        .unwrap_err();
         assert_eq!(e.code, S3ErrorCode::InvalidRange);
-        assert!(e.headers.iter().any(|(k, v)| k == "content-range" && v == "bytes */100"));
+        assert!(
+            e.headers
+                .iter()
+                .any(|(k, v)| k == "content-range" && v == "bytes */100")
+        );
         assert!(resolve_range(RangeSpec::Suffix(5), 0).is_err());
     }
 
@@ -178,14 +273,54 @@ mod tests {
     fn conditions() {
         let t = Ts::from_secs(1000);
         let ok = |c: ReadConditions| check_read_conditions(&c, "abc", t).map_err(|e| e.code);
-        assert_eq!(ok(ReadConditions { if_match: Some("\"abc\"".into()), ..Default::default() }), Ok(()));
-        assert_eq!(ok(ReadConditions { if_match: Some("\"x\"".into()), ..Default::default() }), Err(S3ErrorCode::PreconditionFailed));
-        assert_eq!(ok(ReadConditions { if_none_match: Some("*".into()), ..Default::default() }), Err(S3ErrorCode::NotModified));
-        assert_eq!(ok(ReadConditions { if_modified_since: Some(Ts::from_secs(1000)), ..Default::default() }), Err(S3ErrorCode::NotModified));
-        assert_eq!(ok(ReadConditions { if_modified_since: Some(Ts::from_secs(999)), ..Default::default() }), Ok(()));
-        assert_eq!(ok(ReadConditions { if_unmodified_since: Some(Ts::from_secs(999)), ..Default::default() }), Err(S3ErrorCode::PreconditionFailed));
         assert_eq!(
-            ok(ReadConditions { if_match: Some("abc".into()), if_unmodified_since: Some(Ts::from_secs(1)), ..Default::default() }),
+            ok(ReadConditions {
+                if_match: Some("\"abc\"".into()),
+                ..Default::default()
+            }),
+            Ok(())
+        );
+        assert_eq!(
+            ok(ReadConditions {
+                if_match: Some("\"x\"".into()),
+                ..Default::default()
+            }),
+            Err(S3ErrorCode::PreconditionFailed)
+        );
+        assert_eq!(
+            ok(ReadConditions {
+                if_none_match: Some("*".into()),
+                ..Default::default()
+            }),
+            Err(S3ErrorCode::NotModified)
+        );
+        assert_eq!(
+            ok(ReadConditions {
+                if_modified_since: Some(Ts::from_secs(1000)),
+                ..Default::default()
+            }),
+            Err(S3ErrorCode::NotModified)
+        );
+        assert_eq!(
+            ok(ReadConditions {
+                if_modified_since: Some(Ts::from_secs(999)),
+                ..Default::default()
+            }),
+            Ok(())
+        );
+        assert_eq!(
+            ok(ReadConditions {
+                if_unmodified_since: Some(Ts::from_secs(999)),
+                ..Default::default()
+            }),
+            Err(S3ErrorCode::PreconditionFailed)
+        );
+        assert_eq!(
+            ok(ReadConditions {
+                if_match: Some("abc".into()),
+                if_unmodified_since: Some(Ts::from_secs(1)),
+                ..Default::default()
+            }),
             Ok(())
         );
     }

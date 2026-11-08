@@ -4,7 +4,8 @@ use crate::commit::{active_bucket, retention};
 use crate::{CairnEngine, resolve_bucket};
 use cairn_core::{BucketId, BucketName, PrincipalId, S3Error, S3ErrorCode, S3Result, Ts};
 use cairn_meta::{
-    BucketRecord, BucketState, Flow, ReadExt, Reader, RetentionPolicy, Table, Versioning, decode, keys,
+    BucketRecord, BucketState, Flow, ReadExt, Reader, RetentionPolicy, Table, Versioning, decode,
+    keys,
 };
 use std::collections::BTreeMap;
 
@@ -23,7 +24,11 @@ impl CairnEngine {
             name: name.to_string(),
             created_at: Ts::now(),
             owner: owner.clone(),
-            versioning: if object_lock { Versioning::Enabled } else { Versioning::Off },
+            versioning: if object_lock {
+                Versioning::Enabled
+            } else {
+                Versioning::Off
+            },
             object_lock_enabled: object_lock,
             retention: RetentionPolicy::default(),
             tags: BTreeMap::new(),
@@ -72,7 +77,9 @@ impl CairnEngine {
             .write(move |txn| {
                 let mut b = active_bucket(txn, id, &name)?;
                 if txn.bucket_has_live_entries(id)? {
-                    return Err(S3Error::code(S3ErrorCode::BucketNotEmpty).with_resource(name.clone()));
+                    return Err(
+                        S3Error::code(S3ErrorCode::BucketNotEmpty).with_resource(name.clone())
+                    );
                 }
                 let now = Ts::now();
                 let mut uploads = Vec::new();
@@ -86,7 +93,10 @@ impl CairnEngine {
                     }
                     txn.del_upload(u)?;
                 }
-                b.state = BucketState::Trashed { at: now, by: by.clone() };
+                b.state = BucketState::Trashed {
+                    at: now,
+                    by: by.clone(),
+                };
                 b.config_seq += 1;
                 txn.put_bucket(&b)?;
                 txn.unbind_bucket_name(&name)?;
@@ -139,7 +149,11 @@ impl CairnEngine {
     }
 
     /// PutBucketTagging.
-    pub async fn put_bucket_tagging(&self, name: &str, tags: BTreeMap<String, String>) -> S3Result<()> {
+    pub async fn put_bucket_tagging(
+        &self,
+        name: &str,
+        tags: BTreeMap<String, String>,
+    ) -> S3Result<()> {
         crate::util::validate_tags(&tags, 50)?;
         self.update_bucket(name, move |b| {
             b.tags = tags.clone();
@@ -169,7 +183,12 @@ impl CairnEngine {
     }
 
     /// Store an opaque bucket configuration document (phase 2 APIs build on this).
-    pub async fn put_bucket_config(&self, name: &str, kind: &str, doc: Option<Vec<u8>>) -> S3Result<()> {
+    pub async fn put_bucket_config(
+        &self,
+        name: &str,
+        kind: &str,
+        doc: Option<Vec<u8>>,
+    ) -> S3Result<()> {
         let kind = kind.to_string();
         self.update_bucket(name, move |b| {
             match &doc {
@@ -196,25 +215,39 @@ impl CairnEngine {
     pub fn trashed_buckets(&self) -> S3Result<Vec<BucketRecord>> {
         let r = self.read()?;
         let mut out = Vec::new();
-        r.scan(Table::BucketMeta, std::ops::Bound::Unbounded, std::ops::Bound::Unbounded, &mut |_, v| {
-            let b: BucketRecord = decode(v)?;
-            if matches!(b.state, BucketState::Trashed { .. }) {
-                out.push(b);
-            }
-            Ok(Flow::Continue)
-        })?;
+        r.scan(
+            Table::BucketMeta,
+            std::ops::Bound::Unbounded,
+            std::ops::Bound::Unbounded,
+            &mut |_, v| {
+                let b: BucketRecord = decode(v)?;
+                if matches!(b.state, BucketState::Trashed { .. }) {
+                    out.push(b);
+                }
+                Ok(Flow::Continue)
+            },
+        )?;
         out.sort_by_key(|b| std::cmp::Reverse(b.created_at));
         Ok(out)
     }
 
     /// Restore a trashed bucket under its old name or `as_name`.
-    pub async fn restore_bucket(&self, id: BucketId, as_name: Option<String>) -> S3Result<BucketRecord> {
+    pub async fn restore_bucket(
+        &self,
+        id: BucketId,
+        as_name: Option<String>,
+    ) -> S3Result<BucketRecord> {
         self.inner
             .meta
             .write(move |txn| {
-                let mut b = txn.bucket(id)?.ok_or_else(|| S3Error::code(S3ErrorCode::NoSuchBucket))?;
+                let mut b = txn
+                    .bucket(id)?
+                    .ok_or_else(|| S3Error::code(S3ErrorCode::NoSuchBucket))?;
                 if !matches!(b.state, BucketState::Trashed { .. }) {
-                    return Err(S3Error::new(S3ErrorCode::InvalidBucketState, "bucket is not in the trash"));
+                    return Err(S3Error::new(
+                        S3ErrorCode::InvalidBucketState,
+                        "bucket is not in the trash",
+                    ));
                 }
                 let name = as_name.clone().unwrap_or_else(|| b.name.clone());
                 BucketName::try_from(name.as_str())?;
@@ -222,12 +255,17 @@ impl CairnEngine {
                     return Err(S3Error::code(S3ErrorCode::BucketAlreadyExists).with_resource(name));
                 }
                 let mut stale = Vec::new();
-                txn.scan(Table::BucketTrashIdx, std::ops::Bound::Unbounded, std::ops::Bound::Unbounded, &mut |k, _| {
-                    if k.len() == 32 && k[16..] == id.to_bytes() {
-                        stale.push(k.to_vec());
-                    }
-                    Ok(Flow::Continue)
-                })?;
+                txn.scan(
+                    Table::BucketTrashIdx,
+                    std::ops::Bound::Unbounded,
+                    std::ops::Bound::Unbounded,
+                    &mut |k, _| {
+                        if k.len() == 32 && k[16..] == id.to_bytes() {
+                            stale.push(k.to_vec());
+                        }
+                        Ok(Flow::Continue)
+                    },
+                )?;
                 for k in stale {
                     txn.del(Table::BucketTrashIdx, &k)?;
                 }

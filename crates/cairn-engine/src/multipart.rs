@@ -5,7 +5,10 @@ use crate::types::*;
 use crate::util::*;
 use crate::{CairnEngine, resolve_bucket};
 use cairn_core::{ObjectKey, S3Error, S3ErrorCode, S3Result, Ts};
-use cairn_meta::{Flow, MultipartRecord, ObjectBody, PartRef, ReadExt, Reader, StoredChecksum, Table, VersionKind, decode, keys};
+use cairn_meta::{
+    Flow, MultipartRecord, ObjectBody, PartRef, ReadExt, Reader, StoredChecksum, Table,
+    VersionKind, decode, keys,
+};
 use md5::{Digest, Md5};
 use std::collections::BTreeMap;
 
@@ -15,7 +18,10 @@ fn no_such_upload(id: &str) -> S3Error {
 
 fn check_part_number(n: u32, max: u32) -> S3Result<()> {
     if n == 0 || n > max {
-        return Err(S3Error::new(S3ErrorCode::InvalidArgument, format!("Part number must be an integer between 1 and {max}, inclusive")));
+        return Err(S3Error::new(
+            S3ErrorCode::InvalidArgument,
+            format!("Part number must be an integer between 1 and {max}, inclusive"),
+        ));
     }
     Ok(())
 }
@@ -69,7 +75,13 @@ impl CairnEngine {
         }
     }
 
-    async fn attach_part(&self, bucket: &str, upload: &MultipartRecord, part: PartRef, fresh: bool) -> S3Result<()> {
+    async fn attach_part(
+        &self,
+        bucket: &str,
+        upload: &MultipartRecord,
+        part: PartRef,
+        fresh: bool,
+    ) -> S3Result<()> {
         let inner = self.inner.clone();
         let (bn, bid, uid) = (bucket.to_string(), upload.bucket, upload.upload_id.clone());
         let blob = part.blob;
@@ -102,7 +114,15 @@ impl CairnEngine {
             (ChecksumInput::None, Some(a)) => ChecksumInput::Compute(a),
             (c, _) => c,
         };
-        let ing = self.ingest(req.body, req.content_length, limits.max_part_size, req.content_md5.as_deref(), checksum).await?;
+        let ing = self
+            .ingest(
+                req.body,
+                req.content_length,
+                limits.max_part_size,
+                req.content_md5.as_deref(),
+                checksum,
+            )
+            .await?;
         let etag = hex::encode(ing.digest.md5);
         let part = PartRef {
             number: req.part_number,
@@ -112,36 +132,70 @@ impl CairnEngine {
             etag: etag.clone(),
             checksum: ing.checksum.as_ref().map(|(_, v)| v.clone()),
         };
-        self.attach_part(&req.bucket, &upload, part, !ing.digest.deduped).await?;
-        Ok(UploadPartRes { etag, checksum: ing.checksum, last_modified: Ts::now() })
+        self.attach_part(&req.bucket, &upload, part, !ing.digest.deduped)
+            .await?;
+        Ok(UploadPartRes {
+            etag,
+            checksum: ing.checksum,
+            last_modified: Ts::now(),
+        })
     }
 
     /// UploadPartCopy. Whole single-part sources reuse the source blob (no data copy).
     pub async fn upload_part_copy(&self, req: UploadPartCopyReq) -> S3Result<UploadPartRes> {
         check_part_number(req.part_number, self.inner.cfg.limits.max_parts)?;
         let upload = self.upload_for(&req.bucket, &req.key, &req.upload_id)?;
-        let (src, _) = self.resolve_source(&req.src_bucket, &req.src_key, req.src_version.as_deref(), &req.src_conditions)?;
+        let (src, _) = self.resolve_source(
+            &req.src_bucket,
+            &req.src_key,
+            req.src_version.as_deref(),
+            &req.src_conditions,
+        )?;
         let body = src.body().expect("object").clone();
         let (start, end) = match req.range {
             Some((first, last)) => {
                 if first > last || last >= body.size {
-                    return Err(S3Error::new(S3ErrorCode::InvalidArgument, "The x-amz-copy-source-range value must be of the form bytes=first-last where first and last are the zero-based offsets of the first and last bytes to copy"));
+                    return Err(S3Error::new(
+                        S3ErrorCode::InvalidArgument,
+                        "The x-amz-copy-source-range value must be of the form bytes=first-last where first and last are the zero-based offsets of the first and last bytes to copy",
+                    ));
                 }
                 (first, last + 1)
             }
             None => (0, body.size),
         };
-        if start == 0 && end == body.size && body.parts.len() == 1 && upload.checksum_algo.is_none() {
+        if start == 0 && end == body.size && body.parts.len() == 1 && upload.checksum_algo.is_none()
+        {
             let p = &body.parts[0];
-            let part = PartRef { number: req.part_number, offset: 0, ..p.clone() };
+            let part = PartRef {
+                number: req.part_number,
+                offset: 0,
+                ..p.clone()
+            };
             let etag = part.etag.clone();
             self.attach_part(&req.bucket, &upload, part, false).await?;
-            return Ok(UploadPartRes { etag, checksum: None, last_modified: Ts::now() });
+            return Ok(UploadPartRes {
+                etag,
+                checksum: None,
+                last_modified: Ts::now(),
+            });
         }
         let stream = self.stream_object(&body, start, end);
-        let as_body: Body = Box::pin(futures::StreamExt::map(stream, |r| r.map_err(S3Error::internal)));
-        let checksum = upload.checksum_algo.map_or(ChecksumInput::None, ChecksumInput::Compute);
-        let ing = self.ingest(as_body, Some(end - start), self.inner.cfg.limits.max_part_size, None, checksum).await?;
+        let as_body: Body = Box::pin(futures::StreamExt::map(stream, |r| {
+            r.map_err(S3Error::internal)
+        }));
+        let checksum = upload
+            .checksum_algo
+            .map_or(ChecksumInput::None, ChecksumInput::Compute);
+        let ing = self
+            .ingest(
+                as_body,
+                Some(end - start),
+                self.inner.cfg.limits.max_part_size,
+                None,
+                checksum,
+            )
+            .await?;
         let etag = hex::encode(ing.digest.md5);
         let part = PartRef {
             number: req.part_number,
@@ -151,15 +205,23 @@ impl CairnEngine {
             etag: etag.clone(),
             checksum: ing.checksum.as_ref().map(|(_, v)| v.clone()),
         };
-        self.attach_part(&req.bucket, &upload, part, !ing.digest.deduped).await?;
-        Ok(UploadPartRes { etag, checksum: ing.checksum, last_modified: Ts::now() })
+        self.attach_part(&req.bucket, &upload, part, !ing.digest.deduped)
+            .await?;
+        Ok(UploadPartRes {
+            etag,
+            checksum: ing.checksum,
+            last_modified: Ts::now(),
+        })
     }
 
     /// CompleteMultipartUpload: validates parts, assembles the object, ETag = `md5(md5s)-N`.
     pub async fn complete_multipart_upload(&self, req: CompleteReq) -> S3Result<PutObjectRes> {
         let upload = self.upload_for(&req.bucket, &req.key, &req.upload_id)?;
         if req.parts.is_empty() {
-            return Err(S3Error::new(S3ErrorCode::MalformedXML, "You must specify at least one part"));
+            return Err(S3Error::new(
+                S3ErrorCode::MalformedXML,
+                "You must specify at least one part",
+            ));
         }
         let min = self.inner.cfg.limits.min_part_size;
         let mut chosen: Vec<PartRef> = Vec::with_capacity(req.parts.len());
@@ -169,12 +231,18 @@ impl CairnEngine {
                 return Err(S3Error::code(S3ErrorCode::InvalidPartOrder));
             }
             last = cp.number;
-            let p = upload.parts.get(&cp.number).ok_or_else(|| S3Error::code(S3ErrorCode::InvalidPart))?;
+            let p = upload
+                .parts
+                .get(&cp.number)
+                .ok_or_else(|| S3Error::code(S3ErrorCode::InvalidPart))?;
             if norm_etag(&cp.etag) != p.etag {
                 return Err(S3Error::code(S3ErrorCode::InvalidPart));
             }
             if i + 1 < req.parts.len() && p.size < min {
-                return Err(S3Error::new(S3ErrorCode::EntityTooSmall, "Your proposed upload is smaller than the minimum allowed object size."));
+                return Err(S3Error::new(
+                    S3ErrorCode::EntityTooSmall,
+                    "Your proposed upload is smaller than the minimum allowed object size.",
+                ));
             }
             chosen.push(p.clone());
         }
@@ -191,21 +259,46 @@ impl CairnEngine {
         }
         let n = chosen.len();
         let etag = format!("{}-{n}", hex::encode(md5s.finalize()));
-        let checksum = upload.checksum_algo.filter(|_| chosen.iter().all(|p| p.checksum.is_some())).map(|a| StoredChecksum {
-            algo: a,
-            value: format!("{}-{n}", b64(&cairn_blob::hash::checksum(a, &ck_concat))),
-            composite: true,
-        });
-        let body = ObjectBody { size: offset, etag, checksum, parts: chosen, ..upload.template.clone() };
+        let checksum = upload
+            .checksum_algo
+            .filter(|_| chosen.iter().all(|p| p.checksum.is_some()))
+            .map(|a| StoredChecksum {
+                algo: a,
+                value: format!("{}-{n}", b64(&cairn_blob::hash::checksum(a, &ck_concat))),
+                composite: true,
+            });
+        let body = ObjectBody {
+            size: offset,
+            etag,
+            checksum,
+            parts: chosen,
+            ..upload.template.clone()
+        };
         let inner = self.inner.clone();
-        let (bn, key, uid, owner, conds, bid) =
-            (req.bucket.clone(), req.key.clone(), req.upload_id.clone(), req.owner.clone(), req.conditions.clone(), upload.bucket);
+        let (bn, key, uid, owner, conds, bid) = (
+            req.bucket.clone(),
+            req.key.clone(),
+            req.upload_id.clone(),
+            req.owner.clone(),
+            req.conditions.clone(),
+            upload.bucket,
+        );
         let (v, b) = self
             .inner
             .meta
             .write(move |txn| {
                 let u = txn.upload(bid, &uid)?.ok_or_else(|| no_such_upload(&uid))?;
-                let r = commit_version(txn, &inner.blobs, &inner.cfg, bid, &bn, &key, VersionKind::Object(Box::new(body.clone())), &owner, &conds)?;
+                let r = commit_version(
+                    txn,
+                    &inner.blobs,
+                    &inner.cfg,
+                    bid,
+                    &bn,
+                    &key,
+                    VersionKind::Object(Box::new(body.clone())),
+                    &owner,
+                    &conds,
+                )?;
                 let now = Ts::now();
                 for p in u.parts.values() {
                     txn.blob_decref(&p.blob, now)?;
@@ -225,7 +318,12 @@ impl CairnEngine {
     }
 
     /// AbortMultipartUpload.
-    pub async fn abort_multipart_upload(&self, bucket: &str, key: &str, upload_id: &str) -> S3Result<()> {
+    pub async fn abort_multipart_upload(
+        &self,
+        bucket: &str,
+        key: &str,
+        upload_id: &str,
+    ) -> S3Result<()> {
         let u = self.upload_for(bucket, key, upload_id)?;
         let (bid, uid) = (u.bucket, u.upload_id);
         self.inner
@@ -243,15 +341,32 @@ impl CairnEngine {
     }
 
     /// ListParts.
-    pub fn list_parts(&self, bucket: &str, key: &str, upload_id: &str, marker: Option<u32>, max: usize) -> S3Result<ListPartsRes> {
+    pub fn list_parts(
+        &self,
+        bucket: &str,
+        key: &str,
+        upload_id: &str,
+        marker: Option<u32>,
+        max: usize,
+    ) -> S3Result<ListPartsRes> {
         let u = self.upload_for(bucket, key, upload_id)?;
         let max = max.clamp(1, 1000);
-        let mut parts: Vec<_> = u.parts.values().filter(|p| marker.is_none_or(|m| p.number > m)).cloned().collect();
+        let mut parts: Vec<_> = u
+            .parts
+            .values()
+            .filter(|p| marker.is_none_or(|m| p.number > m))
+            .cloned()
+            .collect();
         let truncated = parts.len() > max;
         parts.truncate(max);
         let next_marker = truncated.then(|| parts.last().map(|p| p.number)).flatten();
         let at = u.initiated_at;
-        Ok(ListPartsRes { parts: parts.into_iter().map(|p| (p, at)).collect(), truncated, next_marker, upload: Some(u) })
+        Ok(ListPartsRes {
+            parts: parts.into_iter().map(|p| (p, at)).collect(),
+            truncated,
+            next_marker,
+            upload: Some(u),
+        })
     }
 
     /// ListMultipartUploads.
@@ -270,36 +385,48 @@ impl CairnEngine {
         let mut res = ListUploadsRes::default();
         let mut entries: Vec<(String, Option<MultipartRecord>)> = Vec::new();
         let mut err = None;
-        r.scan_prefix(Table::UploadsByKey, &keys::bucket_key(b.id, prefix), &mut |k, _| {
-            let Some((key, uid)) = keys::split_upload_by_key(k) else { return Ok(Flow::Continue) };
-            if let Some(km) = key_marker {
-                let after = match upload_marker {
-                    Some(um) => (key, uid) > (km, um),
-                    None => key > km,
+        r.scan_prefix(
+            Table::UploadsByKey,
+            &keys::bucket_key(b.id, prefix),
+            &mut |k, _| {
+                let Some((key, uid)) = keys::split_upload_by_key(k) else {
+                    return Ok(Flow::Continue);
                 };
-                if !after {
+                if let Some(km) = key_marker {
+                    let after = match upload_marker {
+                        Some(um) => (key, uid) > (km, um),
+                        None => key > km,
+                    };
+                    if !after {
+                        return Ok(Flow::Continue);
+                    }
+                }
+                if let Some(d) = delimiter.filter(|d| !d.is_empty())
+                    && let Some(i) = key[prefix.len()..].find(d)
+                {
+                    let cp = key[..prefix.len() + i + d.len()].to_string();
+                    if key_marker.is_none_or(|km| cp.as_str() > km)
+                        && entries.last().is_none_or(|(k, _)| *k != cp)
+                    {
+                        entries.push((cp, None));
+                    }
                     return Ok(Flow::Continue);
                 }
-            }
-            if let Some(d) = delimiter.filter(|d| !d.is_empty())
-                && let Some(i) = key[prefix.len()..].find(d)
-            {
-                let cp = key[..prefix.len() + i + d.len()].to_string();
-                if key_marker.is_none_or(|km| cp.as_str() > km) && entries.last().is_none_or(|(k, _)| *k != cp) {
-                    entries.push((cp, None));
+                match r.get(Table::Uploads, &keys::upload_key(b.id, uid)) {
+                    Ok(Some(v)) => entries.push((key.to_string(), Some(decode(&v)?))),
+                    Ok(None) => {}
+                    Err(e) => {
+                        err = Some(e);
+                        return Ok(Flow::Stop);
+                    }
                 }
-                return Ok(Flow::Continue);
-            }
-            match r.get(Table::Uploads, &keys::upload_key(b.id, uid)) {
-                Ok(Some(v)) => entries.push((key.to_string(), Some(decode(&v)?))),
-                Ok(None) => {}
-                Err(e) => {
-                    err = Some(e);
-                    return Ok(Flow::Stop);
-                }
-            }
-            Ok(if entries.len() > max { Flow::Stop } else { Flow::Continue })
-        })?;
+                Ok(if entries.len() > max {
+                    Flow::Stop
+                } else {
+                    Flow::Continue
+                })
+            },
+        )?;
         if let Some(e) = err {
             return Err(e.into());
         }

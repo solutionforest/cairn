@@ -14,7 +14,11 @@ pub type Body = Pin<Box<dyn Stream<Item = Result<Bytes, S3Error>> + Send>>;
 /// Build a [`Body`] from bytes (tests, small payloads).
 pub fn body_from_bytes(b: impl Into<Bytes>) -> Body {
     let b = b.into();
-    Box::pin(futures::stream::iter(if b.is_empty() { vec![] } else { vec![Ok(b)] }))
+    Box::pin(futures::stream::iter(if b.is_empty() {
+        vec![]
+    } else {
+        vec![Ok(b)]
+    }))
 }
 
 /// Response body stream (`Send + Sync`, as `s3s::StreamingBlob` requires).
@@ -64,7 +68,9 @@ impl ChecksumInput {
     pub fn algo(&self) -> Option<ChecksumAlgo> {
         match self {
             ChecksumInput::None => None,
-            ChecksumInput::Compute(a) | ChecksumInput::Value(a, _) | ChecksumInput::Trailer(a, _) => Some(*a),
+            ChecksumInput::Compute(a)
+            | ChecksumInput::Value(a, _)
+            | ChecksumInput::Trailer(a, _) => Some(*a),
         }
     }
 }
