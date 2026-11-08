@@ -11,13 +11,15 @@ Raspberry Pi, a homelab, a small team's backup target.
 
 Cairn's difference is a safety net that S3 clones usually leave out: every bucket keeps history
 internally ("shadow versioning"), so deletes are soft, the trash is restorable, and a bucket can
-be read or restored **as of any point in time** inside its retention window. On top: IAM-style
-policies and STS, encryption at rest, Object Lock, event notifications that can call webhooks
-and serverless functions, and a built-in MCP server so AI agents can use your storage under the
-same policies as everyone else.
+be read or restored **as of any point in time** inside its retention window. Identical content is
+stored once. On top: IAM-style policies and STS, encryption at rest, fsck/scrub/backup, and a
+built-in MCP server so AI agents can use your storage under the same policies as everyone else.
 
-> **Status: pre-alpha.** The storage core, IAM and events are built and tested at the crate
-> level; the S3 server is being wired up now. There is no release yet and on-disk formats may
+Not a MinIO or RustFS cluster replacement: Cairn is single-node by design. If you need erasure
+coding across machines, use one of those.
+
+> **Status: pre-alpha.** The storage core, IAM, recovery tooling and MCP are built and tested
+> at the crate level; the server is being wired up now. There is no release yet and on-disk formats may
 > change. Follow [`docs/BUILD-PLAN.md`](docs/BUILD-PLAN.md) for progress and
 > [`docs/PRODUCTION-READINESS.md`](docs/PRODUCTION-READINESS.md) for what "1.0-ready" means.
 > "Cairn" is a working title (see the name-check entry in the BUILD-PLAN decisions log).

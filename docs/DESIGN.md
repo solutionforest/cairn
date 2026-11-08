@@ -8,6 +8,25 @@ stones that marks the path and survives the weather — stacked immutable object
 
 ---
 
+## 0. Scope of v0.1 (2026-11-08, supersedes the v1 phrasing below)
+
+Positioning against RustFS (Apache-2.0, distributed, erasure coding, 1.0 GA 2026-09): we do not
+compete on scale-out. Cairn v0.1 is for one box and wins on **not losing data**:
+
+- **In v0.1:** the S3 operations in `docs/COMPAT.md`; IAM/bucket policies, STS, SigV4; shadow
+  versioning, soft delete, trash, PITR and `x-cairn-as-of` time travel; content-addressed
+  dedup; SSE-S3 at rest; lifecycle expiration + GC; fsck, scrub, backup/restore; healthz,
+  readyz, metrics, JSON + audit logs; MCP server under policy; one binary, one TOML, one CLI.
+- **Shelved (code may exist, nothing ships or is documented as a feature):** replication,
+  tiering, events/webhooks/function sinks, OIDC, Object Lock, SSE-C/KMS, rate limiting, TLS hot
+  reload, quotas, CORS, PostObject, admin UI, `ai` feature, Helm, multi-node.
+
+Where later sections describe a shelved feature, they are design notes for a future version, not
+v0.1 commitments. The build plan is `docs/BUILD-PLAN.md`; dated reasons are in
+`docs/DECISIONS.md`.
+
+---
+
 ## 1. Goals and non-goals
 
 ### Goals

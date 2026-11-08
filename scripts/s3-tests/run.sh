@@ -106,6 +106,26 @@ email = tenant@cairn.invalid
 tenant = cairn
 access_key = $ten_ak
 secret_key = $ten_sk
+
+# The suite reads these at import time; IAM/STS tests are deselected by DEFAULT_MARKERS.
+[iam]
+display_name = cairn iam
+user_id = root
+email = main@cairn.invalid
+access_key = $S3_MAIN_ACCESS_KEY
+secret_key = $S3_MAIN_SECRET_KEY
+
+[iam root]
+user_id = root
+email = main@cairn.invalid
+access_key = $S3_MAIN_ACCESS_KEY
+secret_key = $S3_MAIN_SECRET_KEY
+
+[iam alt root]
+user_id = alt
+email = alt@cairn.invalid
+access_key = $alt_ak
+secret_key = $alt_sk
 CONF
 umask 022
 
@@ -125,7 +145,11 @@ if command -v tox >/dev/null 2>&1; then
 else
   echo "tox not found; using a virtualenv"
   venv="$work/venv"
-  [ -x "$venv/bin/pytest" ] || { python3 -m venv "$venv" && "$venv/bin/pip" install -q -r "$src/requirements.txt" pytest; }
+  if [ ! -x "$venv/bin/pytest" ]; then
+    rm -rf "$venv"
+    python3 -m venv "$venv" && "$venv/bin/pip" install -q -r "$src/requirements.txt" pytest \
+      || { rm -rf "$venv"; echo "virtualenv setup failed (Debian: apt install python3-venv)" >&2; exit 2; }
+  fi
   # shellcheck disable=SC2086
   (cd "$src" && S3TEST_CONF="$conf" S3_USE_SIGV4=true "$venv/bin/pytest" -p no:cacheprovider \
       -o junit_family=xunit2 --junitxml="$junit" -m "$markers" ${S3_TESTS_EXTRA:-} $paths) || true

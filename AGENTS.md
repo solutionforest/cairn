@@ -1,8 +1,8 @@
 # Cairn — agent guide
 
-Read `docs/DESIGN.md` (what we build and why) and `docs/BUILD-PLAN.md` (phases, crate API
-contracts, environment constraints) before touching code. Those two files are the source of truth;
-update them when behaviour or decisions change.
+Read `docs/DESIGN.md` §0 (v0.1 scope: what is in, what is shelved), `docs/BUILD-PLAN.md` (lanes and
+remaining work) and `docs/PRODUCTION-READINESS.md` (definition of done) before touching code.
+Dated reasons for decisions go in `docs/DECISIONS.md`. Do not build shelved features.
 
 ## Hard constraints
 - 1 vCPU build host. Iterate with `cargo check -p <crate>` and `cargo test -p <crate>`; run the whole
