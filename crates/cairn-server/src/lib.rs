@@ -172,17 +172,15 @@ impl Server {
     /// Serve until SIGTERM / ctrl-c or a [`ShutdownTrigger`], then drain in-flight requests for
     /// up to `server.shutdown_grace`, stop background work and close the metadata store.
     pub async fn run(self) -> anyhow::Result<()> {
-        let mut stop_rx = self.stop_tx.subscribe();
-        let signal = async move {
-            tokio::select! {
-                _ = os_signal() => tracing::info!("shutdown signal received"),
-                _ = async { let _ = stop_rx.wait_for(|v| *v).await.map(|_| ()); } => tracing::info!("shutdown requested"),
-            }
-        };
-        self.run_until(signal).await
+        self.run_until(async {
+            os_signal().await;
+            tracing::info!("shutdown signal received");
+        })
+        .await
     }
 
-    /// Like [`Server::run`] but stops when `signal` completes.
+    /// Like [`Server::run`] but stops when `signal` completes (a [`ShutdownTrigger`] also
+    /// always works).
     pub async fn run_until(self, signal: impl Future<Output = ()>) -> anyhow::Result<()> {
         let Server {
             listener,
@@ -190,8 +188,18 @@ impl Server {
             tls,
             grace,
             gc_interval,
+            stop_tx,
             ..
         } = self;
+        let mut stop_rx = stop_tx.subscribe();
+        let signal = async move {
+            tokio::select! {
+                _ = signal => {}
+                _ = async { let _ = stop_rx.wait_for(|v| *v).await.map(|_| ()); } => {
+                    tracing::info!("shutdown requested");
+                }
+            }
+        };
         let (bg_stop, bg_rx) = watch::channel(false);
         let gc = tokio::spawn(gc_loop(state.engine.clone(), gc_interval, bg_rx));
         let graceful = hyper_util::server::graceful::GracefulShutdown::new();
