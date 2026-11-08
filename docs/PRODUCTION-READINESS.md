@@ -20,7 +20,7 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done.
 - [x] B1 SigV4 header + presigned verification with credential-store lookup; expired presign rejected. (crates/cairn-server/tests/auth_wire.rs::unsigned_and_badly_signed_requests_are_rejected, ::expired_presigned_url_is_rejected)
 - [x] B2 Policy evaluation on every S3, admin and MCP request: identity ∪ group ∪ bucket policy ∪ PublicAccessBlock; explicit deny wins. (crates/cairn-server/tests/auth_wire.rs::identity_group_and_bucket_policy_denies_win, ::public_bucket_policy_respects_public_access_block, ::admin_api_is_mounted_and_authenticated, ::admin_api_refuses_non_root_without_policy, ::mcp_http_is_mounted_and_authenticated, ::mcp_http_applies_the_same_explicit_deny_as_s3; cairn-auth/src/s3s_bridge/tests.rs)
 - [x] B3 STS `AssumeRole` / `GetSessionToken`; sessions expire and are revocable. (crates/cairn-server/tests/auth_wire.rs::sts_session_works_and_is_revocable, ::assume_role_through_server_scopes_and_expires; cairn-auth/src/sts/tests.rs)
-- [~] B4 Root credentials sealed in the credential store at `cairn init`, never logged; secrets zeroized and redacted. (cairn-admin/src/tests.rs::secrets_never_logged; `ensure_root` not called from init)
+- [x] B4 Root credentials sealed in the credential store at `cairn init`, never logged; secrets zeroized and redacted. (crates/cairn-cli/tests/recover.rs::init_seals_root_and_cli_undoes_deletes: secret absent from every file under the data dir and from init + debug-level serve logs, serve authenticates from the sealed store; cairn-admin/src/tests.rs::secrets_never_logged)
 - [ ] B5 SSE-S3 at rest with a master key from file or env; plaintext blobs never written when enabled.
 - [x] B6 `cargo deny` + `cargo audit` in CI, `SECURITY.md`, `forbid(unsafe_code)` everywhere. (.github/workflows/security.yml, deny.toml)
 - [x] B7 Admin API requires root or `cairn:*` policy; CORS default-deny. (cairn-admin/src/tests.rs)
@@ -41,7 +41,7 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done.
 - [ ] D3 JSON logs with request-id correlation; audit JSONL for mutating and denied requests.
 - [ ] D4 Lifecycle expiration + abort-incomplete-multipart and GC run on schedule; tested with a fake clock.
 - [ ] D5 `cairn config check` prints the effective config with secrets masked; every key has a default and a `CAIRN_*` env override.
-- [~] D6 Admin CLI: users, keys, groups, policies, roles, buckets, trash, pitr; `--json`. (cairn_admin::cli + loopback e2e test; mounted as `cairn admin` in crates/cairn-cli/src/main.rs; test through the binary pending)
+- [x] D6 Admin CLI: users, keys, groups, policies, roles, buckets, trash, pitr; `--json`. (cairn_admin::cli loopback e2e test; mounted as `cairn admin` and exercised through the binary in crates/cairn-cli/tests/recover.rs; top-level `cairn trash` / `cairn pitr` work online via `--endpoint` and offline via `--data-dir`)
 - [~] D7 **claim 4** MCP server (stdio + HTTP) with the DESIGN §11 tools under policy: a principal denied `s3:GetObject` on a key is denied the same key through MCP `get_object`, and `as_of` tools require `cairn:TimeTravel`. (crates/cairn-mcp/tests/tools.rs; HTTP mounted at `/_cairn/mcp` when `[mcp] enabled` (crates/cairn-server/src/lib.rs), stdio via `cairn mcp --stdio`; cross-channel deny over HTTP: crates/cairn-server/tests/auth_wire.rs::mcp_http_applies_the_same_explicit_deny_as_s3; `cairn:TimeTravel` through the server and stdio binary test pending)
 
 ## E. Limits

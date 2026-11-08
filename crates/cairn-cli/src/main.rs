@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 #![warn(clippy::all)]
 //! `cairn` binary: `init`, `serve`, `config check|schema`, `migrate`, `admin`, `mcp --stdio`,
-//! `fsck`, `scrub`, `backup`, `restore`.
+//! `fsck`, `scrub`, `backup`, `restore`, `trash`, `pitr`.
 
 use anyhow::Context as _;
 use cairn_core::Config;
@@ -10,6 +10,8 @@ use clap::{CommandFactory as _, FromArgMatches as _, Parser, Subcommand, ValueEn
 use rand::Rng as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+mod recover;
 
 #[derive(Parser)]
 #[command(
@@ -132,6 +134,16 @@ enum Cmd {
         /// Upload every blob instead of only new ones.
         #[arg(long)]
         full: bool,
+    },
+    /// Undelete objects and buckets (soft-deleted or superseded versions).
+    Trash {
+        #[command(subcommand)]
+        cmd: recover::TrashCmd,
+    },
+    /// Point-in-time recovery: restore or diff a bucket against any instant in its window.
+    Pitr {
+        #[command(subcommand)]
+        cmd: recover::PitrCmd,
     },
     /// Restore a backup into an empty data directory.
     Restore {
@@ -564,6 +576,14 @@ fn run(cli: Cli) -> anyhow::Result<i32> {
             })?;
             println!("{}", json(&rep)?);
             Ok(0)
+        }
+        Cmd::Trash { cmd } => {
+            init_tracing(cli.log_format, "warn", true);
+            runtime()?.block_on(recover::trash(cmd))
+        }
+        Cmd::Pitr { cmd } => {
+            init_tracing(cli.log_format, "warn", true);
+            runtime()?.block_on(recover::pitr(cmd))
         }
         Cmd::Restore {
             from,

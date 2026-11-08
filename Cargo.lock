@@ -765,6 +765,9 @@ name = "cairn-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "aws-credential-types",
+ "aws-sdk-s3",
+ "aws-smithy-http-client",
  "cairn-admin",
  "cairn-auth",
  "cairn-blob",
@@ -772,7 +775,9 @@ dependencies = [
  "cairn-mcp",
  "cairn-server",
  "clap",
+ "jiff",
  "rand 0.9.5",
+ "reqwest",
  "serde",
  "serde_json",
  "tempfile",
