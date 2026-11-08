@@ -215,3 +215,156 @@ fn presign_with_credential_adds_token_and_clamps_to_session_expiry() {
         assert_eq!(again.as_str().matches(k).count(), 1, "{k}");
     }
 }
+
+mod verify_tests {
+    use super::super::*;
+    use crate::secret::SecretString;
+    use crate::types::Ts;
+
+    fn hs(v: &[(&str, &str)]) -> Vec<(String, String)> {
+        v.iter()
+            .map(|(a, b)| (a.to_string(), b.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn aws_header_auth_get_object_vector() {
+        // AWS S3 docs "Signature Calculations for the Authorization Header", GET Object example.
+        let headers = hs(&[
+            ("host", "examplebucket.s3.amazonaws.com"),
+            ("range", "bytes=0-9"),
+            ("x-amz-content-sha256", EMPTY_SHA256),
+            ("x-amz-date", "20130524T000000Z"),
+            (
+                "authorization",
+                "AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request,SignedHeaders=host;range;x-amz-content-sha256;x-amz-date,Signature=f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41",
+            ),
+        ]);
+        let req = HttpParts {
+            method: "GET",
+            raw_path: "/test.txt",
+            raw_query: "",
+            headers: &headers,
+            body_sha256: EMPTY_SHA256,
+        };
+        let auth = parse(&req).unwrap();
+        assert_eq!(auth.access_key_id, "AKIAIOSFODNN7EXAMPLE");
+        let secret = SecretString::new("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+        let now = Ts::from_secs(1_369_353_600 + 60);
+        verify(&req, &auth, &secret, now).unwrap();
+        assert_eq!(
+            verify(&req, &auth, &SecretString::new("x"), now),
+            Err(SigV4Error::Mismatch)
+        );
+        assert_eq!(
+            verify(&req, &auth, &secret, Ts::from_secs(1_369_353_600 + 3600)),
+            Err(SigV4Error::Skewed)
+        );
+        let tampered = HttpParts {
+            raw_path: "/other.txt",
+            ..req
+        };
+        assert_eq!(
+            verify(&tampered, &auth, &secret, now),
+            Err(SigV4Error::Mismatch)
+        );
+    }
+
+    #[test]
+    fn presigned_url_verifies_and_expires() {
+        let secret = SecretString::new("sekrit-key");
+        let url = url::Url::parse("http://127.0.0.1:9000/b/some%20key.txt?versionId=1").unwrap();
+        let t0 = Ts::from_secs(1_790_000_000);
+        let p = presign_raw(
+            "AK1",
+            &secret,
+            Some("tok"),
+            "GET",
+            &url,
+            &[],
+            Duration::from_secs(600),
+            t0,
+            "us-east-1",
+            "s3",
+        )
+        .unwrap();
+        let headers = hs(&[("host", "127.0.0.1:9000")]);
+        let req = HttpParts {
+            method: "GET",
+            raw_path: p.url.path(),
+            raw_query: p.url.query().unwrap(),
+            headers: &headers,
+            body_sha256: EMPTY_SHA256,
+        };
+        let auth = parse(&req).unwrap();
+        assert_eq!(auth.security_token.as_deref(), Some("tok"));
+        verify(&req, &auth, &secret, Ts::from_secs(1_790_000_300)).unwrap();
+        assert_eq!(
+            verify(&req, &auth, &secret, Ts::from_secs(1_790_000_601)),
+            Err(SigV4Error::Expired)
+        );
+        assert_eq!(
+            verify(&req, &auth, &secret, Ts::from_secs(1_790_000_000 - 1000)),
+            Err(SigV4Error::Skewed)
+        );
+    }
+
+    #[test]
+    fn sign_headers_roundtrip_and_unsigned_host_rejected() {
+        let secret = SecretString::new("s3cr3t");
+        let now = Ts::from_secs(1_790_000_000);
+        let base = hs(&[("host", "h:1"), ("content-type", "application/json")]);
+        let body = br#"{"name":"alice"}"#;
+        let add = sign_headers(
+            "POST",
+            "/_cairn/v1/users",
+            "a=1&b=x%20y",
+            &base,
+            body,
+            "AK",
+            &secret,
+            None,
+            now,
+            "us-east-1",
+            "s3",
+        );
+        let all: Vec<(String, String)> = base.iter().cloned().chain(add).collect();
+        let sha = sha256_hex(body);
+        let req = HttpParts {
+            method: "POST",
+            raw_path: "/_cairn/v1/users",
+            raw_query: "b=x%20y&a=1",
+            headers: &all,
+            body_sha256: &sha,
+        };
+        let auth = parse(&req).unwrap();
+        verify(&req, &auth, &secret, now).unwrap();
+        let other = sha256_hex(b"{}");
+        assert_eq!(
+            verify(
+                &HttpParts {
+                    body_sha256: &other,
+                    ..req
+                },
+                &auth,
+                &secret,
+                now
+            ),
+            Err(SigV4Error::Mismatch)
+        );
+        let mut no_host = auth.clone();
+        no_host.signed_headers.retain(|h| h != "host");
+        assert!(matches!(
+            verify(&req, &no_host, &secret, now),
+            Err(SigV4Error::Malformed(_))
+        ));
+        assert_eq!(
+            parse(&HttpParts {
+                headers: &[],
+                raw_query: "",
+                ..req
+            }),
+            Err(SigV4Error::Missing)
+        );
+    }
+}

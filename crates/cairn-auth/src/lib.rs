@@ -18,6 +18,7 @@ pub mod s3s_bridge;
 pub mod secret;
 pub mod sigv4;
 pub mod store;
+pub mod sts;
 pub mod types;
 
 pub use bucket_policy::{BucketAuthzSource, BucketPolicyStore, MemoryBucketAuthz};

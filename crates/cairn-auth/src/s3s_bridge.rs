@@ -243,10 +243,8 @@ pub fn condition_context(v: &S3RequestView<'_>) -> ConditionContext {
             );
         }
         let date = query(&q, "X-Amz-Date").or_else(|| header(h, "x-amz-date"));
-        if let Some(d) = date.and_then(|d| jiff::fmt::strtime::parse("%Y%m%dT%H%M%SZ", d).ok())
-            && let Ok(ts) = d.to_timestamp()
-        {
-            let age = jiff::Timestamp::now().as_millisecond() - ts.as_millisecond();
+        if let Some(ts) = date.and_then(|d| crate::sigv4::parse_amz_date(d).ok()) {
+            let age = (jiff::Timestamp::now().as_millisecond() as i128) - ts.0 / 1_000_000;
             c.insert("s3:signatureAge", age.max(0).to_string());
         }
     }

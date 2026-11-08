@@ -1,4 +1,10 @@
-//! SigV4 query-string signing (presigned URLs).
+//! SigV4 query-string signing (presigned URLs), header signing and request verification.
+
+mod verify;
+pub use verify::{
+    EMPTY_SHA256, HttpParts, MAX_CLOCK_SKEW, SigV4Auth, SigV4Error, canonical_request, parse,
+    parse_amz_date, sha256_hex, sign_headers, verify,
+};
 
 use crate::error::PresignError;
 use crate::secret::SecretString;
