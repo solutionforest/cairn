@@ -191,10 +191,31 @@ pub async fn credential_store(
     cfg: &Config,
     engine: &CairnEngine,
 ) -> anyhow::Result<Arc<CredentialStore>> {
-    let store = Arc::new(CredentialStore::new(
+    credential_store_with_clock(cfg, engine, None).await
+}
+
+/// Adapts a server [`Clock`] to the IAM store's clock.
+struct AuthClock(Arc<dyn Clock>);
+
+impl cairn_auth::Clock for AuthClock {
+    fn now(&self) -> cairn_auth::Ts {
+        cairn_auth::Ts(self.0.now().0)
+    }
+}
+
+async fn credential_store_with_clock(
+    cfg: &Config,
+    engine: &CairnEngine,
+    clock: Option<Arc<dyn Clock>>,
+) -> anyhow::Result<Arc<CredentialStore>> {
+    let mut store = CredentialStore::new(
         Arc::new(MetaCredentialBackend::new(engine.meta().clone())),
         iam_master_key(cfg)?,
-    ));
+    );
+    if let Some(c) = clock {
+        store = store.with_clock(Arc::new(AuthClock(c)));
+    }
+    let store = Arc::new(store);
     match (&cfg.auth.root_access_key, &cfg.auth.root_secret_key) {
         (Some(ak), Some(sk)) => store
             .ensure_root(ak, &SecretString::new(sk.clone()))
@@ -232,6 +253,16 @@ impl Server {
 
     /// [`Server::bind`] with an explicit clock for the GC and lifecycle workers.
     pub async fn bind_with_clock(config: Config, clock: Arc<dyn Clock>) -> anyhow::Result<Server> {
+        Server::bind_with_clocks(config, clock, None).await
+    }
+
+    /// [`Server::bind_with_clock`] plus a clock for IAM (signature time checks, session and
+    /// presign expiry). Tests only: production always uses the system clock for IAM.
+    pub async fn bind_with_clocks(
+        config: Config,
+        clock: Arc<dyn Clock>,
+        auth_clock: Option<Arc<dyn Clock>>,
+    ) -> anyhow::Result<Server> {
         let problems = config.validate();
         if !problems.is_empty() {
             anyhow::bail!("invalid configuration:\n  - {}", problems.join("\n  - "));
@@ -239,7 +270,7 @@ impl Server {
         let sinks = sinks(&config)?;
         let outbox = Outbox::new(config.events.sse);
         let engine = open_engine(&config, outbox.clone()).await?;
-        let store = credential_store(&config, &engine).await?;
+        let store = credential_store_with_clock(&config, &engine, auth_clock).await?;
         let policies = Arc::new(BucketPolicyStore::new(engine.meta().clone()));
         let access = CairnS3Access::new(store.clone(), policies.clone());
         let mut sink_arns = Vec::new();

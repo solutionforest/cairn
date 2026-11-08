@@ -585,3 +585,192 @@ async fn mcp_http_applies_the_same_explicit_deny_as_s3() {
     );
     handle.shutdown().await.unwrap();
 }
+
+async fn sts_post(addr: std::net::SocketAddr, ak: &str, sk: &str, body: &str) -> (u16, String) {
+    let hs = vec![
+        ("host".to_string(), addr.to_string()),
+        (
+            "content-type".to_string(),
+            "application/x-www-form-urlencoded; charset=utf-8".to_string(),
+        ),
+    ];
+    let add = cairn_auth::sigv4::sign_headers(
+        "POST",
+        "/",
+        "",
+        &hs,
+        body.as_bytes(),
+        ak,
+        &SecretString::new(sk),
+        None,
+        cairn_auth::Ts::now(),
+        "us-east-1",
+        "sts",
+    );
+    let mut rb = reqwest::Client::new().post(format!("http://{addr}/"));
+    for (k, v) in hs.iter().skip(1).chain(add.iter()) {
+        rb = rb.header(k.as_str(), v.as_str());
+    }
+    let r = rb.body(body.to_string()).send().await.unwrap();
+    (r.status().as_u16(), r.text().await.unwrap())
+}
+
+fn session_client(addr: std::net::SocketAddr, xml: &str) -> aws_sdk_s3::Client {
+    let conf = aws_sdk_s3::Config::builder()
+        .behavior_version(aws_sdk_s3::config::BehaviorVersion::latest())
+        .region(aws_sdk_s3::config::Region::new("us-east-1"))
+        .endpoint_url(format!("http://{addr}"))
+        .force_path_style(true)
+        .credentials_provider(aws_credential_types::Credentials::new(
+            xml_field(xml, "AccessKeyId"),
+            xml_field(xml, "SecretAccessKey"),
+            Some(xml_field(xml, "SessionToken").to_string()),
+            None,
+            "sts",
+        ))
+        .http_client(aws_smithy_http_client::Builder::new().build_http())
+        .build();
+    aws_sdk_s3::Client::from_conf(conf)
+}
+
+#[tokio::test]
+async fn assume_role_through_server_scopes_and_expires() {
+    let dir = tempfile::tempdir().unwrap();
+    let clock = std::sync::Arc::new(cairn_server::OffsetClock::new());
+    let server = cairn_server::Server::bind_with_clocks(
+        cairn_server::test_support::test_config(dir.path()),
+        std::sync::Arc::new(cairn_server::SystemClock),
+        Some(clock.clone()),
+    )
+    .await
+    .unwrap();
+    let addr = server.local_addr();
+    let trigger = server.shutdown_trigger();
+    let join = tokio::spawn(server.run_until(std::future::pending::<()>()));
+    let root = creds(
+        cairn_server::test_support::TEST_ACCESS_KEY,
+        cairn_server::test_support::TEST_SECRET_KEY,
+    );
+    let s3 = client(addr, &root);
+    s3.create_bucket().bucket("wire").send().await.unwrap();
+    s3.put_object()
+        .bucket("wire")
+        .key("k")
+        .body(aws_sdk_s3::primitives::ByteStream::from_static(b"v"))
+        .send()
+        .await
+        .unwrap();
+    let a = AdminClient::new(
+        &format!("http://{addr}"),
+        &root.access_key,
+        SecretString::new(root.secret_key.clone()),
+        None,
+        "us-east-1",
+    )
+    .unwrap();
+    a.call("POST", "/users", &[], Some(&json!({"name": "alice"})))
+        .await
+        .unwrap();
+    a.call(
+        "PUT",
+        "/users/alice/policies/sts",
+        &[],
+        Some(&json!({"document": {"Version":"2012-10-17","Statement":[
+            {"Effect":"Allow","Action":"sts:AssumeRole","Resource":"*"}]}})),
+    )
+    .await
+    .unwrap();
+    let k = a
+        .call("POST", "/users/alice/access-keys", &[], None)
+        .await
+        .unwrap();
+    let (ak, sk) = (
+        k["access_key_id"].as_str().unwrap().to_string(),
+        k["secret_access_key"].as_str().unwrap().to_string(),
+    );
+    a.call(
+        "POST",
+        "/roles",
+        &[],
+        Some(
+            &json!({"name": "reader", "trust_policy": {"Version":"2012-10-17","Statement":[
+            {"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::000000000000:user/alice"},
+             "Action":"sts:AssumeRole"}]}}),
+        ),
+    )
+    .await
+    .unwrap();
+    a.call(
+        "PUT",
+        "/roles/reader/policies/read",
+        &[],
+        Some(&json!({"document": {"Version":"2012-10-17","Statement":[
+            {"Effect":"Allow","Action":"s3:GetObject","Resource":"arn:aws:s3:::wire/*"}]}})),
+    )
+    .await
+    .unwrap();
+
+    // Alice herself has no S3 grant; the role does.
+    let alice = client(addr, &creds(&ak, &sk));
+    assert_eq!(
+        code(alice.get_object().bucket("wire").key("k").send().await),
+        "AccessDenied"
+    );
+    let body = "Action=AssumeRole&Version=2011-06-15&RoleArn=arn%3Aaws%3Aiam%3A%3A000000000000%3Arole%2Freader&RoleSessionName=job&DurationSeconds=900";
+    let (st, xml) = sts_post(addr, &ak, &sk, body).await;
+    assert_eq!(st, 200, "{xml}");
+    assert!(xml.contains("<AssumeRoleResult>"), "{xml}");
+    let role = session_client(addr, &xml);
+    assert!(
+        role.get_object()
+            .bucket("wire")
+            .key("k")
+            .send()
+            .await
+            .is_ok()
+    );
+    let e = role
+        .put_object()
+        .bucket("wire")
+        .key("new")
+        .body(aws_sdk_s3::primitives::ByteStream::from_static(b"x"))
+        .send()
+        .await;
+    assert_eq!(code(e), "AccessDenied");
+    // A user the trust policy does not name cannot assume the role.
+    a.call("POST", "/users", &[], Some(&json!({"name": "bob"})))
+        .await
+        .unwrap();
+    a.call(
+        "PUT",
+        "/users/bob/policies/sts",
+        &[],
+        Some(&json!({"document": {"Version":"2012-10-17","Statement":[
+            {"Effect":"Allow","Action":"sts:AssumeRole","Resource":"*"}]}})),
+    )
+    .await
+    .unwrap();
+    let bk = a
+        .call("POST", "/users/bob/access-keys", &[], None)
+        .await
+        .unwrap();
+    let (st, xml) = sts_post(
+        addr,
+        bk["access_key_id"].as_str().unwrap(),
+        bk["secret_access_key"].as_str().unwrap(),
+        body,
+    )
+    .await;
+    assert_eq!(st, 403, "{xml}");
+
+    // Sixteen minutes later on the IAM clock the 15-minute session no longer works, while the
+    // root key signed at the same moment still does (so only expiry can reject it).
+    clock.advance(Duration::from_secs(16 * 60));
+    assert!(s3.get_object().bucket("wire").key("k").send().await.is_ok());
+    let e = role.get_object().bucket("wire").key("k").send().await;
+    // Expired sessions vanish from credential lookup, as AWS reports for an unknown key.
+    assert_eq!(code(e), "InvalidAccessKeyId");
+
+    trigger.trigger();
+    join.await.unwrap().unwrap();
+}
