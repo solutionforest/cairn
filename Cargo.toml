@@ -6,20 +6,20 @@ members = ["crates/*"]
 version = "0.1.0"
 edition = "2024"
 license = "AGPL-3.0-only"
-repository = "https://github.com/alanlam/cairn"
-rust-version = "1.85"
+repository = "https://github.com/solutionforest/cairn"
+rust-version = "1.88"
 
 [workspace.dependencies]
-cairn-core = { path = "crates/cairn-core" }
-cairn-meta = { path = "crates/cairn-meta" }
-cairn-blob = { path = "crates/cairn-blob" }
-cairn-auth = { path = "crates/cairn-auth" }
-cairn-engine = { path = "crates/cairn-engine" }
-cairn-s3 = { path = "crates/cairn-s3" }
-cairn-admin = { path = "crates/cairn-admin" }
-cairn-events = { path = "crates/cairn-events" }
-cairn-mcp = { path = "crates/cairn-mcp" }
-cairn-server = { path = "crates/cairn-server" }
+cairn-core = { path = "crates/cairn-core", version = "0.1.0" }
+cairn-meta = { path = "crates/cairn-meta", version = "0.1.0" }
+cairn-blob = { path = "crates/cairn-blob", version = "0.1.0" }
+cairn-auth = { path = "crates/cairn-auth", version = "0.1.0" }
+cairn-engine = { path = "crates/cairn-engine", version = "0.1.0" }
+cairn-s3 = { path = "crates/cairn-s3", version = "0.1.0" }
+cairn-admin = { path = "crates/cairn-admin", version = "0.1.0" }
+cairn-events = { path = "crates/cairn-events", version = "0.1.0" }
+cairn-mcp = { path = "crates/cairn-mcp", version = "0.1.0" }
+cairn-server = { path = "crates/cairn-server", version = "0.1.0" }
 
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io"] }
