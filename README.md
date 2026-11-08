@@ -39,13 +39,14 @@ or [Garage](https://garagehq.deuxfleurs.fr/).
 
 ```sh
 # 1. Get the binary (static, x86_64 or aarch64 Linux) or the container image
-curl -fsSLO https://github.com/solutionforest/cairn/releases/latest/download/cairn-<version>-x86_64-unknown-linux-musl.tar.gz
+curl -fsSLO https://github.com/solutionforest/cairn/releases/latest/download/cairn-v<version>-x86_64-unknown-linux-musl.tar.gz
 tar xzf cairn-*.tar.gz && sudo install cairn-*/cairn /usr/local/bin/
-#    or: docker run -p 9000:9000 -v cairn-data:/data ghcr.io/solutionforest/cairn
+#    or: docker run -p 9000:9000 -v cairn-data:/data \
+#          -e CAIRN_ROOT_ACCESS_KEY=<key> -e CAIRN_ROOT_SECRET=<secret> ghcr.io/solutionforest/cairn
 
 # 2. Initialise a data directory (prints the root access key and secret once) and serve
 cairn init --data-dir ./cairn-data
-cairn serve --data-dir ./cairn-data            # S3 on http://127.0.0.1:9000
+cairn serve --config ./cairn-data/cairn.toml   # S3 on http://127.0.0.1:9000
 
 # 3. Use any S3 client
 export AWS_ACCESS_KEY_ID=<printed key> AWS_SECRET_ACCESS_KEY=<printed secret> AWS_REGION=us-east-1

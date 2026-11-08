@@ -1,7 +1,9 @@
 # Single-node Cairn. Usage:
+#   export CAIRN_ROOT_ACCESS_KEY=... CAIRN_ROOT_SECRET=...   # bootstrap the root credential
 #   docker compose -f deploy/docker-compose.yml up -d
-#   docker compose -f deploy/docker-compose.yml logs cairn | grep -i "root"   # first-run credentials
-# Data lives in the named volume `cairn-data`; back it up with `cairn backup` (phase 3b) or a
+# `cairn serve` on an empty data dir refuses to start without a root credential; the two env
+# vars seal one into the credential store on first start (later starts ignore them).
+# Data lives in the named volume `cairn-data`; back it up with `cairn backup`  or a
 # filesystem snapshot of the volume while the container is stopped.
 name: cairn
 
@@ -18,9 +20,9 @@ services:
       CAIRN_SERVER_LISTEN: 0.0.0.0:9000
       CAIRN_SERVER_REGION: us-east-1
       CAIRN_LOG_JSON: "true"
-      # Optional fixed root credentials (otherwise generated on first start and printed once):
-      # CAIRN_ROOT_ACCESS_KEY: ${CAIRN_ROOT_ACCESS_KEY}
-      # CAIRN_ROOT_SECRET: ${CAIRN_ROOT_SECRET}
+      # Required on first start (empty volume); see the header.
+      CAIRN_ROOT_ACCESS_KEY: ${CAIRN_ROOT_ACCESS_KEY:?set CAIRN_ROOT_ACCESS_KEY}
+      CAIRN_ROOT_SECRET: ${CAIRN_ROOT_SECRET:?set CAIRN_ROOT_SECRET}
     volumes:
       - cairn-data:/data
       # Optional config file (see deploy/cairn.example.toml); then add

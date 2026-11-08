@@ -50,7 +50,7 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done.
 
 ## F. Release
 - [x] F1 fmt, clippy `-D warnings`, tests, docs green on every push. (.github/workflows/ci.yml, self-hosted while private)
-- [~] F2 Tag → static musl x86_64 + aarch64 binaries, GHCR image, SBOM, checksums. (.github/workflows/release.yml; never exercised)
-- [~] F3 README quickstart passes on a clean machine from a release binary; COMPAT.md, EXTENSIONS.md, OPERATIONS.md current. (README written; not verified against a binary)
+- [~] F2 Tag → static musl x86_64 + aarch64 binaries, GHCR image, SBOM, checksums. (.github/workflows/release.yml reviewed 2026-11-08: all 12 action pins resolve to their tagged commits, static-link + `cargo audit bin` check, per-binary CycloneDX SBOM, SHA256SUMS, multi-arch GHCR from the released bytes; never exercised on a tag)
+- [~] F3 README quickstart passes on a clean machine from a release binary; COMPAT.md, EXTENSIONS.md, OPERATIONS.md current. (README written; quickstart `serve` invocation and container root-credential bootstrap corrected 2026-11-08; not verified against a release binary)
 - [~] F4 Name decided (crates.io `cairn`, `cairn-cli`, `cairn-core` are taken; see DECISIONS.md name check); rename done if needed before the tag.
 - [x] F5 `CONTRIBUTING.md` states DCO sign-off and no CLA; README states the governance promises (no telemetry, no account, no licence key, nothing in the core moves behind a paid tier); README comparison table matches DESIGN §0 and every cell about Cairn is true today. (CONTRIBUTING.md "No CLA. DCO instead."; README.md "Promises" and "Compared with the alternatives": §0 rows/columns, Cairn cells name their proof or the pending row; footprint cells say "not yet measured" until scripts/footprint.sh runs on a release build)
