@@ -699,3 +699,75 @@ fn records_are_versioned() {
     assert!(records::decode::<records::PolicyRecord>(&bad).is_err());
     assert!(records::decode::<records::PolicyRecord>(&[]).is_err());
 }
+
+#[tokio::test]
+async fn authenticate_secret_checks_secret_and_session_token() {
+    let f = fx();
+    f.store.create_user("alice").await.unwrap();
+    let k = f
+        .store
+        .create_access_key("alice", Default::default())
+        .await
+        .unwrap();
+    let s = &f.store;
+    let ak = &k.access_key_id;
+    assert!(
+        s.authenticate_secret(ak, k.secret_key.expose(), None)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        s.authenticate_secret(ak, "wrong", None)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        s.authenticate_secret(ak, k.secret_key.expose(), Some("t"))
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        s.authenticate_secret("CAIRNNOPE", "x", None)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let p = s.principal_for_user("alice").await.unwrap().unwrap();
+    let c = s
+        .get_session_token(&p, std::time::Duration::from_secs(900))
+        .await
+        .unwrap();
+    let (cak, csk, tok) = (
+        &c.access_key_id,
+        c.secret_access_key.expose(),
+        c.session_token.expose(),
+    );
+    assert!(
+        s.authenticate_secret(cak, csk, Some(tok))
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        s.authenticate_secret(cak, csk, None)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        s.authenticate_secret(cak, csk, Some("bad"))
+            .await
+            .unwrap()
+            .is_none()
+    );
+    f.clock.advance(std::time::Duration::from_secs(901));
+    assert!(
+        s.authenticate_secret(cak, csk, Some(tok))
+            .await
+            .unwrap()
+            .is_none()
+    );
+}

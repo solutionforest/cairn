@@ -435,6 +435,24 @@ impl CredentialStore {
         }))
     }
 
+    /// Authenticate by presenting the secret itself (MCP `Authorization: Bearer ak:sk[:token]`,
+    /// stdio env credentials): the key must resolve (see [`lookup`](Self::lookup)), the secret
+    /// match in constant time, and the session token be present iff the key is an STS session.
+    /// `None` on any mismatch; never says which part failed.
+    pub async fn authenticate_secret(
+        &self,
+        access_key_id: &str,
+        secret: &str,
+        session_token: Option<&str>,
+    ) -> Result<Option<Credential>, AuthError> {
+        let Some(c) = self.lookup(access_key_id).await? else {
+            return Ok(None);
+        };
+        let secret_ok = c.secret_key.ct_eq(secret);
+        let token_ok = c.verify_session_token(session_token);
+        Ok((secret_ok & token_ok).then_some(c))
+    }
+
     fn policies_of(
         &self,
         inline: &BTreeMap<String, String>,
