@@ -174,7 +174,7 @@ pub(crate) fn verify_checksum(
             ),
         )),
         None => Err(S3Error::new(
-            S3ErrorCode::InvalidRequest,
+            S3ErrorCode::BadDigest,
             format!(
                 "Value for x-amz-checksum-{} header is invalid.",
                 algo.as_str().to_lowercase()

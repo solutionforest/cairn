@@ -230,6 +230,18 @@ pub fn storage_class_name(b: &ObjectBody) -> String {
         .unwrap_or_else(|| "STANDARD".to_string())
 }
 
+/// `aws-chunked` describes the request framing, not the object: S3 strips it before storing
+/// `Content-Encoding`, so `gzip, aws-chunked` is stored as `gzip` and a lone `aws-chunked` as
+/// nothing.
+fn stored_encoding(e: &str) -> Option<String> {
+    let kept: Vec<&str> = e
+        .split(',')
+        .map(str::trim)
+        .filter(|t| !t.is_empty() && !t.eq_ignore_ascii_case("aws-chunked"))
+        .collect();
+    (!kept.is_empty()).then(|| kept.join(", "))
+}
+
 /// Collect HTTP metadata fields from a request.
 #[allow(clippy::too_many_arguments)]
 pub fn object_meta(
@@ -248,7 +260,7 @@ pub fn object_meta(
         content_type: content_type.cloned(),
         cache_control: cache_control.cloned(),
         content_disposition: content_disposition.cloned(),
-        content_encoding: content_encoding.cloned(),
+        content_encoding: content_encoding.and_then(|e| stored_encoding(e)),
         content_language: content_language.cloned(),
         expires,
         user_metadata: user_meta(metadata, max_meta)?,
@@ -423,5 +435,21 @@ mod tests {
         assert_eq!(s.status_code(), Some(http::StatusCode::NOT_FOUND));
         assert_eq!(s.request_id(), Some("abc"));
         assert_eq!(s.headers().unwrap()["x-amz-delete-marker"], "true");
+    }
+}
+
+#[cfg(test)]
+mod encoding_tests {
+    use super::stored_encoding;
+
+    #[test]
+    fn aws_chunked_is_not_stored() {
+        assert_eq!(
+            stored_encoding("gzip, aws-chunked").as_deref(),
+            Some("gzip")
+        );
+        assert_eq!(stored_encoding("aws-chunked"), None);
+        assert_eq!(stored_encoding("AWS-CHUNKED,gzip").as_deref(), Some("gzip"));
+        assert_eq!(stored_encoding("br").as_deref(), Some("br"));
     }
 }

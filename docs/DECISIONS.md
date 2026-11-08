@@ -419,3 +419,24 @@ Dated (UTC) design and implementation decisions, newest last. Moved out of `BUIL
   (4) README comparison table rewritten against VaultS3/RustFS/Garage instead of MinIO; the old
   table listed shelved features as "planned" phases and is gone. Shelved list extended with EC,
   compression, search, FUSE, S3 Select so nobody proposes them to "catch up".
+
+- **2026-11-08 — Release profile optimises for size (E2).** `opt-level = "z"`, fat LTO, one
+  codegen unit, stripped: the static musl binary goes from 29.4 MiB to 17.3 MiB. Most of idle RSS
+  is the mapped executable, so this is also the main idle-memory lever. Measured cost: server CPU
+  per GiB put/get with `aws s3 cp` was inside run-to-run noise for opt-level 3, `s` and `z`
+  (BLAKE3, SHA-2 and CRC run on SIMD/assembly paths regardless). Not `panic = "abort"`: a panic
+  in one request must not take the server down. Idle RSS cannot be measured on the gVisor dev
+  host (it keeps the whole binary resident and faults anonymous memory in coarse chunks), so a
+  `footprint` CI job on the self-hosted runner gates size ≤ 20 MB and idle ≤ 25 MiB.
+
+- **2026-11-08 — ACLs are disabled (BucketOwnerEnforced), not emulated.** S3 itself made this the
+  default for new buckets in April 2023, and MinIO never implemented grants. Get*Acl returns the
+  bucket owner with FULL_CONTROL; Put*Acl succeeds for owner-only ACLs and answers
+  `AccessControlListNotSupported` for anything wider, so nobody believes an object is public when
+  it is not; ownership controls are always `BucketOwnerEnforced`. ACL headers that arrive *with a
+  write* (`x-amz-acl: public-read` on PutObject, CreateBucket, CopyObject, CreateMultipartUpload)
+  are accepted and ignored, because apps such as Mastodon send them on every upload and grant
+  public reads with a bucket policy; rejecting them broke 9 previously passing s3-tests and would
+  break those apps. Public access is a bucket policy, gated by PublicAccessBlock. Open question
+  for the owner: whether the 51 ceph s3-tests that need ACL grants count against A4 (72.1%
+  today) or are deselected like CORS (82.0%).

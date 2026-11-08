@@ -45,8 +45,9 @@ and not token_resource_tags_test and not token_role_tags_test and not token_tag_
 and not auth_aws2 \
 and not object_lock and not encryption"
 
-# Shelved in v0.1 (DESIGN §0) without a marker of their own: CORS, PostObject (browser form upload).
-DEFAULT_DESELECT="not cors and not post_object"
+# Shelved in v0.1 (DESIGN §0) without a marker of their own: CORS, PostObject (browser form upload),
+# and the Object Lock tests upstream left without the `object_lock` marker (matched by name).
+DEFAULT_DESELECT="not cors and not post_object and not object_lock"
 
 : "${S3_ENDPOINT:?set S3_ENDPOINT, e.g. http://127.0.0.1:9000}"
 : "${S3_MAIN_ACCESS_KEY:?set S3_MAIN_ACCESS_KEY}"
@@ -99,7 +100,8 @@ ssl_verify = False
 bucket prefix = cairn-s3t-{random}-
 
 [s3 main]
-display_name = cairn main
+# Cairn reports the principal id as both Owner ID and DisplayName.
+display_name = root
 user_id = root
 email = main@cairn.invalid
 api_name = default

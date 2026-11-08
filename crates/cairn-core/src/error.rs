@@ -32,6 +32,7 @@ macro_rules! codes {
 }
 
 codes! {
+    AccessControlListNotSupported = 400, "The bucket does not allow ACLs.";
     AccessDenied = 403, "Access Denied";
     AccountProblem = 403, "There is a problem with your account that prevents the operation from completing successfully.";
     AllAccessDisabled = 403, "All access to this Amazon S3 resource has been disabled.";
@@ -55,6 +56,7 @@ codes! {
     InternalError = 500, "We encountered an internal error. Please try again.";
     InvalidAccessKeyId = 403, "The AWS access key ID that you provided does not exist in our records.";
     InvalidArgument = 400, "Invalid Argument";
+    InvalidBucketAclWithObjectOwnership = 400, "Bucket cannot have ACLs set with ObjectOwnership's BucketOwnerEnforced setting.";
     InvalidBucketName = 400, "The specified bucket is not valid.";
     InvalidBucketState = 409, "The request is not valid for the current state of the bucket.";
     InvalidDigest = 400, "The Content-MD5 or checksum value that you specified is not valid.";

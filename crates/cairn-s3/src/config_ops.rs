@@ -85,13 +85,36 @@ fn rule_in(r: LifecycleRule_) -> CResult<LifecycleRule> {
             "lifecycle transitions are not supported (single storage class)",
         ));
     }
+    let enabled = match r.status.as_str() {
+        ExpirationStatus::ENABLED => true,
+        ExpirationStatus::DISABLED => false,
+        _ => {
+            return Err(CError::new(
+                Code::MalformedXML,
+                "Rule Status must be Enabled or Disabled",
+            ));
+        }
+    };
     let exp = r.expiration.as_ref();
+    let expiration_date = match exp.and_then(|e| e.date.as_ref()) {
+        None => None,
+        Some(d) => Some(
+            ts_in(d)
+                .filter(|t| t.nanos().rem_euclid(86_400 * 1_000_000_000) == 0)
+                .ok_or_else(|| {
+                    CError::new(
+                        Code::InvalidArgument,
+                        "'Date' must be at midnight GMT in ISO 8601 format",
+                    )
+                })?,
+        ),
+    };
     Ok(LifecycleRule {
         id: r.id.clone(),
-        enabled: r.status.as_str() == ExpirationStatus::ENABLED,
+        enabled,
         filter,
         expiration_days: days_in(exp.and_then(|e| e.days), "Expiration Days")?,
-        expiration_date: exp.and_then(|e| e.date.as_ref()).and_then(ts_in),
+        expiration_date,
         expired_object_delete_marker: exp
             .and_then(|e| e.expired_object_delete_marker)
             .unwrap_or(false),

@@ -169,6 +169,36 @@ async fn three_part_upload_with_upload_part_copy() {
     let want = format!("\"{}-3\"", hex(&md5s.finalize()));
     assert_eq!(done.e_tag(), Some(want.as_str()));
 
+    // A retried Complete with the same part list answers like the first one (S3 does), and
+    // a different part list for the finished upload id is still NoSuchUpload.
+    let complete = |parts: CompletedMultipartUpload| {
+        s3.complete_multipart_upload()
+            .bucket("mpu")
+            .key("big")
+            .upload_id(&uid)
+            .multipart_upload(parts)
+            .send()
+    };
+    let again = complete(
+        CompletedMultipartUpload::builder()
+            .parts(part(1, &e1))
+            .parts(part(2, &e2))
+            .parts(part(3, &e3))
+            .build(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(again.e_tag(), done.e_tag());
+    assert_eq!(again.version_id(), done.version_id());
+    let other = complete(
+        CompletedMultipartUpload::builder()
+            .parts(part(1, &e1))
+            .parts(part(2, &e2))
+            .build(),
+    )
+    .await;
+    assert_eq!(code(other), "NoSuchUpload");
+
     let mut expected = p1.clone();
     expected.extend_from_slice(&src[..5 * MIB]);
     expected.extend_from_slice(&p3);

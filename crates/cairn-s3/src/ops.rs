@@ -141,6 +141,14 @@ impl CairnS3 {
     async fn do_create_bucket(&self, req: S3Request<CreateBucketInput>) -> Res<CreateBucketOutput> {
         let who = self.principal(&req);
         let i = req.input;
+        if let Some(o) = &i.object_ownership
+            && o.as_str() != "BucketOwnerEnforced"
+        {
+            return Err(err(
+                Code::InvalidArgument,
+                "Cairn buckets are always BucketOwnerEnforced; ACL-based ownership is not supported",
+            ));
+        }
         let location = i
             .create_bucket_configuration
             .as_ref()
@@ -442,6 +450,7 @@ impl CairnS3 {
 
     async fn do_get_object(&self, req: S3Request<GetObjectInput>) -> Res<GetObjectOutput> {
         let i = req.input;
+        let part_no = i.part_number;
         let bucket = i.bucket.clone();
         let conds = read_conditions(
             i.if_match.as_ref(),
@@ -471,7 +480,7 @@ impl CairnS3 {
             body: r.body.take().map(StreamingBlob::wrap),
             ..Default::default()
         };
-        fill_read!(out, r, body, checksum_mode);
+        fill_read!(out, r, body, checksum_mode, part_no);
         out.replication_status = self.replication_status(&bucket, &r.version);
         let mut resp = S3Response::new(out);
         add_blob_hash(&mut resp.headers, &body);
@@ -480,6 +489,7 @@ impl CairnS3 {
 
     async fn do_head_object(&self, req: S3Request<HeadObjectInput>) -> Res<HeadObjectOutput> {
         let i = req.input;
+        let part_no = i.part_number;
         let bucket = i.bucket.clone();
         let conds = read_conditions(
             i.if_match.as_ref(),
@@ -506,7 +516,7 @@ impl CairnS3 {
             .await?;
         let body = r.version.body().expect("object").clone();
         let mut out = HeadObjectOutput::default();
-        fill_read!(out, r, body, checksum_mode);
+        fill_read!(out, r, body, checksum_mode, part_no);
         out.replication_status = self.replication_status(&bucket, &r.version);
         let mut resp = S3Response::new(out);
         add_blob_hash(&mut resp.headers, &body);
@@ -730,7 +740,7 @@ impl CairnS3 {
             is_truncated: Some(r.truncated),
             contents: Some(contents),
             common_prefixes: Some(prefixes_out(r.prefixes, url)),
-            delimiter: enc(i.delimiter),
+            delimiter: enc(i.delimiter.filter(|d| !d.is_empty())),
             next_marker: if r.truncated { enc(r.next_key) } else { None },
             encoding_type: i.encoding_type,
             ..Default::default()
@@ -794,7 +804,7 @@ impl CairnS3 {
             },
             contents: Some(contents),
             common_prefixes: Some(prefixes_out(r.prefixes, url)),
-            delimiter: enc(i.delimiter),
+            delimiter: enc(i.delimiter.filter(|d| !d.is_empty())),
             encoding_type: i.encoding_type,
             start_after: enc(i.start_after),
             ..Default::default()
@@ -870,7 +880,7 @@ impl CairnS3 {
             key_marker: Some(enc(i.key_marker).unwrap_or_default()),
             version_id_marker: Some(i.version_id_marker.unwrap_or_default()),
             max_keys: Some(max as i32),
-            delimiter: enc(i.delimiter),
+            delimiter: enc(i.delimiter.filter(|d| !d.is_empty())),
             is_truncated: Some(r.truncated),
             next_key_marker: if r.truncated { enc(r.next_key) } else { None },
             next_version_id_marker: if r.truncated { r.next_version } else { None },
@@ -1280,7 +1290,7 @@ impl CairnS3 {
         ok(ListMultipartUploadsOutput {
             bucket: Some(i.bucket),
             prefix: Some(enc(i.prefix).unwrap_or_default()),
-            delimiter: enc(i.delimiter),
+            delimiter: enc(i.delimiter.filter(|d| !d.is_empty())),
             key_marker: Some(enc(i.key_marker).unwrap_or_default()),
             upload_id_marker: Some(i.upload_id_marker.unwrap_or_default()),
             max_uploads: Some(max.clamp(1, 1000) as i32),
@@ -1440,7 +1450,7 @@ fn add_blob_hash(h: &mut HeaderMap, b: &ObjectBody) {
 
 /// Fill the fields GetObjectOutput and HeadObjectOutput share.
 macro_rules! fill_read {
-    ($out:ident, $r:ident, $body:ident, $checksum_mode:ident) => {{
+    ($out:ident, $r:ident, $body:ident, $checksum_mode:ident, $part:expr) => {{
         $out.accept_ranges = Some("bytes".to_string());
         $out.content_length = Some($r.content_length as i64);
         if let Some((s, e)) = $r.range {
@@ -1475,9 +1485,109 @@ macro_rules! fill_read {
                 set_checksum!($out, Some((c.algo, c.value.clone())));
             }
         }
+        // A part read reports that part's checksum (S3 does so without x-amz-checksum-mode).
+        if let (Some(n), Some(c)) = ($part, &$body.checksum)
+            && let Some(v) = $body
+                .parts
+                .get((n as usize).wrapping_sub(1))
+                .and_then(|p| p.checksum.clone())
+                .or_else(|| ($body.parts.len() == 1).then(|| c.value.clone()))
+        {
+            $out.checksum_type = Some(checksum_type(&c.value));
+            set_checksum!($out, Some((c.algo, v)));
+        }
     }};
 }
 use fill_read;
+
+impl CairnS3 {
+    async fn do_get_object_attributes(
+        &self,
+        req: S3Request<GetObjectAttributesInput>,
+    ) -> Res<GetObjectAttributesOutput> {
+        let i = req.input;
+        reject_sse_c(i.sse_customer_algorithm.as_ref())?;
+        let want = |a: &str| {
+            i.object_attributes
+                .iter()
+                .flat_map(|x| x.as_str().split(','))
+                .any(|x| x.trim() == a)
+        };
+        let r = self
+            .engine
+            .get_object(
+                GetObjectReq {
+                    bucket: i.bucket.clone(),
+                    key: i.key.clone(),
+                    version_id: i.version_id.clone(),
+                    as_of: as_of(&req.headers)?,
+                    ..Default::default()
+                },
+                false,
+            )
+            .await?;
+        let body = r.version.body().expect("object").clone();
+        let mut out = GetObjectAttributesOutput {
+            last_modified: Some(ts_out(r.version.created_at)),
+            version_id: r.version_id.clone(),
+            ..Default::default()
+        };
+        if want(ObjectAttributes::ETAG) {
+            out.e_tag = Some(ETag::Strong(body.etag.split('"').collect()));
+        }
+        if want(ObjectAttributes::OBJECT_SIZE) {
+            out.object_size = Some(body.size as i64);
+        }
+        if want(ObjectAttributes::STORAGE_CLASS) {
+            out.storage_class = Some(StorageClass::from(
+                body.storage_class
+                    .clone()
+                    .unwrap_or_else(|| StorageClass::STANDARD.to_string()),
+            ));
+        }
+        if want(ObjectAttributes::CHECKSUM)
+            && let Some(c) = &body.checksum
+        {
+            let mut ck = Checksum {
+                checksum_type: Some(checksum_type(&c.value)),
+                ..Default::default()
+            };
+            set_checksum!(ck, Some((c.algo, c.value.clone())));
+            out.checksum = Some(ck);
+        }
+        let multipart = body.etag.contains('-');
+        if want(ObjectAttributes::OBJECT_PARTS) && multipart {
+            let marker = i.part_number_marker.unwrap_or(0).max(0) as u32;
+            let max = i.max_parts.unwrap_or(1000).clamp(0, 1000) as usize;
+            let rest: Vec<_> = body.parts.iter().filter(|p| p.number > marker).collect();
+            let page = &rest[..rest.len().min(max)];
+            let algo = body.checksum.as_ref().map(|c| c.algo);
+            let parts = page
+                .iter()
+                .map(|p| {
+                    let mut op = ObjectPart {
+                        part_number: Some(p.number as i32),
+                        size: Some(p.size as i64),
+                        ..Default::default()
+                    };
+                    if let (Some(a), Some(v)) = (algo, &p.checksum) {
+                        set_checksum!(op, Some((a, v.clone())));
+                    }
+                    op
+                })
+                .collect();
+            out.object_parts = Some(GetObjectAttributesParts {
+                is_truncated: Some(rest.len() > page.len()),
+                max_parts: Some(max as i32),
+                next_part_number_marker: page.last().map(|p| p.number as i32),
+                part_number_marker: Some(marker as i32),
+                parts: Some(parts),
+                total_parts_count: Some(body.parts.len() as i32),
+            });
+        }
+        Ok(S3Response::new(out))
+    }
+}
 
 macro_rules! forward {
     ($($name:ident => $imp:ident : $in:ty => $out:ty;)*) => {
@@ -1545,6 +1655,13 @@ forward! {
     put_bucket_lifecycle_configuration => do_put_bucket_lifecycle_configuration: PutBucketLifecycleConfigurationInput => PutBucketLifecycleConfigurationOutput;
     get_bucket_lifecycle_configuration => do_get_bucket_lifecycle_configuration: GetBucketLifecycleConfigurationInput => GetBucketLifecycleConfigurationOutput;
     delete_bucket_lifecycle => do_delete_bucket_lifecycle: DeleteBucketLifecycleInput => DeleteBucketLifecycleOutput;
+    get_object_attributes => do_get_object_attributes: GetObjectAttributesInput => GetObjectAttributesOutput;
+    get_bucket_acl => do_get_bucket_acl: GetBucketAclInput => GetBucketAclOutput;
+    put_bucket_acl => do_put_bucket_acl: PutBucketAclInput => PutBucketAclOutput;
+    get_object_acl => do_get_object_acl: GetObjectAclInput => GetObjectAclOutput;
+    put_object_acl => do_put_object_acl: PutObjectAclInput => PutObjectAclOutput;
+    get_bucket_ownership_controls => do_get_bucket_ownership_controls: GetBucketOwnershipControlsInput => GetBucketOwnershipControlsOutput;
+    put_bucket_ownership_controls => do_put_bucket_ownership_controls: PutBucketOwnershipControlsInput => PutBucketOwnershipControlsOutput;
     put_bucket_replication => do_put_bucket_replication: PutBucketReplicationInput => PutBucketReplicationOutput;
     get_bucket_replication => do_get_bucket_replication: GetBucketReplicationInput => GetBucketReplicationOutput;
     delete_bucket_replication => do_delete_bucket_replication: DeleteBucketReplicationInput => DeleteBucketReplicationOutput;

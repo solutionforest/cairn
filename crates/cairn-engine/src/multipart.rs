@@ -181,7 +181,16 @@ impl CairnEngine {
         let body = src.body().expect("object").clone();
         let (start, end) = match req.range {
             Some((first, last)) => {
-                if first > last || last >= body.size {
+                if last >= body.size {
+                    return Err(S3Error::new(
+                        S3ErrorCode::InvalidRange,
+                        format!(
+                            "Range specified is not valid for source object of size: {}",
+                            body.size
+                        ),
+                    ));
+                }
+                if first > last {
                     return Err(S3Error::new(
                         S3ErrorCode::InvalidArgument,
                         "The x-amz-copy-source-range value must be of the form bytes=first-last where first and last are the zero-based offsets of the first and last bytes to copy",
@@ -256,12 +265,54 @@ impl CairnEngine {
             .await
     }
 
+    /// S3 answers a repeated CompleteMultipartUpload with 200 and the object it produced. The
+    /// upload record is gone by then, so a retry is recognised by its part list: the multipart
+    /// ETag those part ETags produce must equal the current object's. Nothing is written.
+    async fn already_completed(&self, req: &CompleteReq) -> Option<PutObjectRes> {
+        if req.parts.is_empty() {
+            return None;
+        }
+        let mut md5s = Md5::new();
+        for cp in &req.parts {
+            md5s.update(hex::decode(norm_etag(&cp.etag)).ok()?);
+        }
+        let etag = format!("{}-{}", hex::encode(md5s.finalize()), req.parts.len());
+        let cur = self
+            .get_object(
+                GetObjectReq {
+                    bucket: req.bucket.clone(),
+                    key: req.key.clone(),
+                    ..Default::default()
+                },
+                false,
+            )
+            .await
+            .ok()?;
+        let body = cur.version.body()?;
+        (body.etag == etag).then(|| PutObjectRes {
+            etag: body.etag.clone(),
+            version_id: cur.version_id.clone(),
+            checksum: body.checksum.as_ref().map(|c| (c.algo, c.value.clone())),
+            size: body.size,
+            version: cur.version.clone(),
+        })
+    }
+
     async fn complete_multipart_upload_with(
         &self,
         req: CompleteReq,
         replica: Option<cairn_core::VersionId>,
     ) -> S3Result<PutObjectRes> {
-        let upload = self.upload_for(&req.bucket, &req.key, &req.upload_id)?;
+        let upload = match self.upload_for(&req.bucket, &req.key, &req.upload_id) {
+            Ok(u) => u,
+            Err(e) if e.code == S3ErrorCode::NoSuchUpload && replica.is_none() => {
+                return match self.already_completed(&req).await {
+                    Some(done) => Ok(done),
+                    None => Err(e),
+                };
+            }
+            Err(e) => return Err(e),
+        };
         if req.parts.is_empty() {
             return Err(S3Error::new(
                 S3ErrorCode::MalformedXML,

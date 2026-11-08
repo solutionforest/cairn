@@ -83,7 +83,9 @@ impl CairnEngine {
         let digest = w.finish().await?;
         let verdict = (|| {
             if let Some(m) = content_md5 {
-                let want = unb64(m).ok_or_else(|| S3Error::code(S3ErrorCode::InvalidDigest))?;
+                let want = unb64(m)
+                    .filter(|w| w.len() == 16)
+                    .ok_or_else(|| S3Error::code(S3ErrorCode::InvalidDigest))?;
                 if want != digest.md5 {
                     return Err(S3Error::code(S3ErrorCode::BadDigest));
                 }

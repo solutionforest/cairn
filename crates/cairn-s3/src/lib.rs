@@ -3,6 +3,7 @@
 //! Cairn S3 protocol layer: implements [`s3s::S3`] for [`CairnEngine`] as a thin mapping from
 //! `s3s` DTOs to engine calls (DESIGN §5–§6). Unimplemented operations return `NotImplemented`.
 
+mod acl;
 mod auth;
 mod config_ops;
 mod convert;
