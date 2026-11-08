@@ -629,6 +629,7 @@ async fn multipart_upload() {
     let cp = |n, et: &str| CompletePart {
         number: n,
         etag: format!("\"{et}\""),
+        checksum: None,
     };
     let err = e
         .complete_multipart_upload(CompleteReq {
@@ -859,6 +860,7 @@ async fn gc_never_deletes_referenced_blobs() {
                             .map(|(p, _)| CompletePart {
                                 number: p.number,
                                 etag: p.etag.clone(),
+                                checksum: None,
                             })
                             .collect();
                         e.complete_multipart_upload(CompleteReq {
@@ -1027,4 +1029,91 @@ async fn recovery_after_unclean_shutdown() {
         }
     );
     e.shutdown();
+}
+
+#[tokio::test]
+async fn multipart_checksums_composite_and_full_object() {
+    use cairn_core::ChecksumAlgo;
+    let (_d, e) = setup().await;
+    for (algo, full) in [
+        (ChecksumAlgo::Crc32, false),
+        (ChecksumAlgo::Crc64Nvme, true),
+    ] {
+        let key = format!("ck-{}", algo.as_str());
+        let u = e
+            .create_multipart_upload(CreateUploadReq {
+                bucket: "bkt".into(),
+                key: key.clone(),
+                checksum_algo: Some(algo),
+                owner: root(),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        let mut parts = Vec::new();
+        for (n, data) in [(1u32, &b"hello"[..]), (2, &b"world"[..])] {
+            let r = e
+                .upload_part(UploadPartReq {
+                    bucket: "bkt".into(),
+                    key: key.clone(),
+                    upload_id: u.upload_id.clone(),
+                    part_number: n,
+                    body: body_from_bytes(Bytes::from_static(data)),
+                    content_length: None,
+                    content_md5: None,
+                    checksum: ChecksumInput::None,
+                })
+                .await
+                .unwrap();
+            parts.push(CompletePart {
+                number: n,
+                etag: r.etag,
+                checksum: r.checksum.map(|c| c.1),
+            });
+        }
+        let bad = e
+            .complete_multipart_upload(CompleteReq {
+                bucket: "bkt".into(),
+                key: key.clone(),
+                upload_id: u.upload_id.clone(),
+                parts: vec![CompletePart {
+                    checksum: Some("AAAAAA==".into()),
+                    ..parts[0].clone()
+                }],
+                owner: root(),
+                ..Default::default()
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(bad.code, S3ErrorCode::InvalidPart);
+        let done = e
+            .complete_multipart_upload(CompleteReq {
+                bucket: "bkt".into(),
+                key: key.clone(),
+                upload_id: u.upload_id.clone(),
+                parts,
+                owner: root(),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        let (a, v) = done.checksum.unwrap();
+        assert_eq!(a, algo);
+        if full {
+            let whole = cairn_blob_checksum(algo, b"helloworld");
+            assert_eq!(v, whole);
+        } else {
+            assert!(v.ends_with("-2"), "{v}");
+        }
+    }
+}
+
+fn cairn_blob_checksum(algo: cairn_core::ChecksumAlgo, data: &[u8]) -> String {
+    use base64::Engine as _;
+    let mut st = match algo {
+        cairn_core::ChecksumAlgo::Crc64Nvme => crc64fast_nvme::Digest::new(),
+        _ => unreachable!(),
+    };
+    st.write(data);
+    base64::engine::general_purpose::STANDARD.encode(st.sum64().to_be_bytes())
 }

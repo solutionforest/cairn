@@ -27,3 +27,4 @@ md-5.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+crc64fast-nvme.workspace = true

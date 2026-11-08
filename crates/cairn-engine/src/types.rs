@@ -334,6 +334,8 @@ pub struct CreateUploadReq {
     pub tags: BTreeMap<String, String>,
     /// Checksum algorithm for parts.
     pub checksum_algo: Option<ChecksumAlgo>,
+    /// `x-amz-checksum-type: FULL_OBJECT` (CRC algorithms only; implied for CRC64NVME).
+    pub full_object_checksum: bool,
     /// Caller.
     pub owner: PrincipalId,
 }
@@ -399,6 +401,8 @@ pub struct CompletePart {
     pub number: u32,
     /// ETag as sent (quotes tolerated).
     pub etag: String,
+    /// Part checksum as sent (base64), validated against the stored part checksum.
+    pub checksum: Option<String>,
 }
 
 /// CompleteMultipartUpload.

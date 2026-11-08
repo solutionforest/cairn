@@ -4,7 +4,7 @@ use crate::commit::{active_bucket, commit_version, incref_checked};
 use crate::types::*;
 use crate::util::*;
 use crate::{CairnEngine, resolve_bucket};
-use cairn_core::{ObjectKey, S3Error, S3ErrorCode, S3Result, Ts};
+use cairn_core::{ChecksumAlgo, ObjectKey, S3Error, S3ErrorCode, S3Result, Ts};
 use cairn_meta::{
     Flow, MultipartRecord, ObjectBody, PartRef, ReadExt, Reader, StoredChecksum, Table,
     VersionKind, decode, keys,
@@ -32,6 +32,19 @@ impl CairnEngine {
         ObjectKey::try_from(req.key.as_str())?;
         validate_tags(&req.tags, 10)?;
         let b = self.bucket(&req.bucket)?;
+        let full = req.full_object_checksum || req.checksum_algo == Some(ChecksumAlgo::Crc64Nvme);
+        if full && req.checksum_algo.is_some_and(|a| !a.is_crc()) {
+            return Err(S3Error::new(
+                S3ErrorCode::InvalidRequest,
+                "The FULL_OBJECT checksum type cannot be used with the SHA1 or SHA256 checksum algorithm.",
+            ));
+        }
+        if req.full_object_checksum && req.checksum_algo.is_none() {
+            return Err(S3Error::new(
+                S3ErrorCode::InvalidRequest,
+                "The x-amz-checksum-type header can only be used with the x-amz-checksum-algorithm header.",
+            ));
+        }
         let m = req.meta;
         let rec = MultipartRecord {
             upload_id: uuid::Uuid::now_v7().simple().to_string(),
@@ -50,6 +63,11 @@ impl CairnEngine {
                 tags: req.tags,
                 storage_class: m.storage_class,
                 website_redirect: m.website_redirect,
+                checksum: req.checksum_algo.map(|algo| StoredChecksum {
+                    algo,
+                    value: String::new(),
+                    composite: !full,
+                }),
                 ..Default::default()
             },
             checksum_algo: req.checksum_algo,
@@ -112,6 +130,15 @@ impl CairnEngine {
         let upload = self.upload_for(&req.bucket, &req.key, &req.upload_id)?;
         let checksum = match (req.checksum, upload.checksum_algo) {
             (ChecksumInput::None, Some(a)) => ChecksumInput::Compute(a),
+            (c, Some(a)) if c.algo().is_some_and(|b| b != a) => {
+                return Err(S3Error::new(
+                    S3ErrorCode::InvalidRequest,
+                    format!(
+                        "Checksum Type mismatch occurred, expected checksum Type: {}",
+                        a.as_str().to_lowercase()
+                    ),
+                ));
+            }
             (c, _) => c,
         };
         let ing = self
@@ -238,6 +265,14 @@ impl CairnEngine {
             if norm_etag(&cp.etag) != p.etag {
                 return Err(S3Error::code(S3ErrorCode::InvalidPart));
             }
+            if let (Some(sent), Some(have)) = (&cp.checksum, &p.checksum)
+                && sent.trim() != have
+            {
+                return Err(S3Error::new(
+                    S3ErrorCode::InvalidPart,
+                    format!("The checksum of part {} does not match", cp.number),
+                ));
+            }
             if i + 1 < req.parts.len() && p.size < min {
                 return Err(S3Error::new(
                     S3ErrorCode::EntityTooSmall,
@@ -259,20 +294,28 @@ impl CairnEngine {
         }
         let n = chosen.len();
         let etag = format!("{}-{n}", hex::encode(md5s.finalize()));
-        let checksum = upload
-            .checksum_algo
-            .filter(|_| chosen.iter().all(|p| p.checksum.is_some()))
-            .map(|a| StoredChecksum {
-                algo: a,
-                value: format!("{}-{n}", b64(&cairn_blob::hash::checksum(a, &ck_concat))),
-                composite: true,
-            });
-        let body = ObjectBody {
+        let mut body = ObjectBody {
             size: offset,
             etag,
-            checksum,
+            checksum: None,
             parts: chosen,
             ..upload.template.clone()
+        };
+        body.checksum = match &upload.template.checksum {
+            Some(c) if !c.composite => Some(StoredChecksum {
+                algo: c.algo,
+                value: b64(&self.full_object_checksum(&body, c.algo).await?),
+                composite: false,
+            }),
+            Some(c) if body.parts.iter().all(|p| p.checksum.is_some()) => Some(StoredChecksum {
+                algo: c.algo,
+                value: format!(
+                    "{}-{n}",
+                    b64(&cairn_blob::hash::checksum(c.algo, &ck_concat))
+                ),
+                composite: true,
+            }),
+            _ => None,
         };
         let inner = self.inner.clone();
         let (bn, key, uid, owner, conds, bid) = (
@@ -315,6 +358,20 @@ impl CairnEngine {
             size: body.size,
             version: v,
         })
+    }
+
+    /// Checksum of the assembled object, read back from its parts.
+    async fn full_object_checksum(
+        &self,
+        body: &ObjectBody,
+        algo: ChecksumAlgo,
+    ) -> S3Result<Vec<u8>> {
+        let mut st = cairn_blob::hash::ChecksumState::new(algo);
+        let mut s = self.stream_object(body, 0, body.size);
+        while let Some(c) = futures::StreamExt::next(&mut s).await {
+            st.update(&c.map_err(S3Error::internal)?);
+        }
+        Ok(st.finish())
     }
 
     /// AbortMultipartUpload.
