@@ -1,0 +1,50 @@
+# Nightly ceph/s3-tests conformance run against a freshly built Cairn (scripts/s3-tests/).
+# Gated by the repository variable S3_TESTS_ENABLED=true until `cairn serve` lands (phase 1c),
+# so the schedule does not produce red runs before there is a server to test.
+name: s3-tests
+
+on:
+  schedule:
+    - cron: "41 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  s3-tests:
+    if: github.event_name == 'workflow_dispatch' || vars.S3_TESTS_ENABLED == 'true'
+    runs-on: self-hosted
+    timeout-minutes: 120
+    env:
+      CAIRN_ROOT_ACCESS_KEY: s3testsroot
+      CAIRN_ROOT_SECRET: s3testsroot-secret-0123456789abcdef
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with: { shared-key: ci-linux }
+      - run: cargo build --locked -p cairn-cli
+      - name: Start Cairn
+        run: |
+          data="$(mktemp -d)"
+          CAIRN_DATA_DIR="$data" CAIRN_SERVER_LISTEN=127.0.0.1:9000 \
+            target/debug/cairn serve > cairn.log 2>&1 &
+          for _ in $(seq 1 60); do curl -fsS http://127.0.0.1:9000/healthz && break; sleep 1; done
+      - name: Run s3-tests subset
+        env:
+          S3_ENDPOINT: http://127.0.0.1:9000
+          S3_MAIN_ACCESS_KEY: ${{ env.CAIRN_ROOT_ACCESS_KEY }}
+          S3_MAIN_SECRET_KEY: ${{ env.CAIRN_ROOT_SECRET }}
+          S3_ALT_ACCESS_KEY: ${{ env.CAIRN_ROOT_ACCESS_KEY }}
+          S3_ALT_SECRET_KEY: ${{ env.CAIRN_ROOT_SECRET }}
+          S3_TESTS_WORKDIR: ${{ runner.temp }}/s3-tests
+        run: scripts/s3-tests/run.sh
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: s3-tests-report
+          path: |
+            ${{ runner.temp }}/s3-tests/report/
+            cairn.log
+          if-no-files-found: ignore

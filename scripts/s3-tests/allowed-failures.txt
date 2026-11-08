@@ -1,0 +1,7 @@
+# ceph/s3-tests cases that are allowed to fail, one `module::test_name` per line (the format
+# scripts/s3-tests/compare.py prints in report/failed.txt). Every entry needs a reason comment
+# and should point at the BUILD-PLAN phase or COMPAT.md row that will fix it.
+#
+# Seed this list from the first full run after phase 1c lands:
+#   scripts/s3-tests/run.sh; cp target/s3-tests/report/failed.txt /tmp/seed.txt
+# then triage each entry. Target (BUILD-PLAN 2a): >= 80% pass; end of phase 3: >= 95%.
