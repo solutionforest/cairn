@@ -5,6 +5,7 @@
 
 pub mod keys;
 pub mod list;
+pub mod migrate;
 pub mod pitr;
 pub mod records;
 mod store;
