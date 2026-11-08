@@ -45,12 +45,12 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done.
 - [~] D7 **claim 4** MCP server (stdio + HTTP) with the DESIGN §11 tools under policy: a principal denied `s3:GetObject` on a key is denied the same key through MCP `get_object`, and `as_of` tools require `cairn:TimeTravel`. (crates/cairn-mcp/tests/tools.rs 10 tests; not mounted; cross-channel deny test pending)
 
 ## E. Limits
-- [ ] E1 A 10 GiB upload and download complete with RSS under 256 MiB (streaming end to end); number recorded in OPERATIONS.md and README.
-- [ ] E2 Idle RSS ≤ 25 MiB (container working set after a 110 s settle, same method VaultS3 publishes) and static binary ≤ 20 MB; `scripts/footprint.sh` produces both, numbers in README next to the competitor table.
+- [~] E1 A 10 GiB upload and download complete with RSS under 256 MiB (streaming end to end); number recorded in OPERATIONS.md and README. (measured by scripts/footprint.sh, default 10 GiB streamed through `aws s3 cp -` with sha256 round-trip check; release-build run pending)
+- [~] E2 Idle RSS ≤ 25 MiB (container working set after a 110 s settle, same method VaultS3 publishes) and static binary ≤ 20 MB; `scripts/footprint.sh` produces both, numbers in README next to the competitor table. (scripts/footprint.sh written and smoke-tested on a debug build with a 64 MiB transfer; release-build numbers not yet measured)
 
 ## F. Release
 - [x] F1 fmt, clippy `-D warnings`, tests, docs green on every push. (.github/workflows/ci.yml, self-hosted while private)
 - [~] F2 Tag → static musl x86_64 + aarch64 binaries, GHCR image, SBOM, checksums. (.github/workflows/release.yml; never exercised)
 - [~] F3 README quickstart passes on a clean machine from a release binary; COMPAT.md, EXTENSIONS.md, OPERATIONS.md current. (README written; not verified against a binary)
 - [~] F4 Name decided (crates.io `cairn`, `cairn-cli`, `cairn-core` are taken; see DECISIONS.md name check); rename done if needed before the tag.
-- [~] F5 `CONTRIBUTING.md` states DCO sign-off and no CLA; README states the governance promises (no telemetry, no account, no licence key, nothing in the core moves behind a paid tier); README comparison table matches DESIGN §0 and every cell about Cairn is true today. (CONTRIBUTING.md, README.md "Promises" and "Compared with the alternatives" done; re-tick once scripts/footprint.sh referenced by the README is committed)
+- [x] F5 `CONTRIBUTING.md` states DCO sign-off and no CLA; README states the governance promises (no telemetry, no account, no licence key, nothing in the core moves behind a paid tier); README comparison table matches DESIGN §0 and every cell about Cairn is true today. (CONTRIBUTING.md "No CLA. DCO instead."; README.md "Promises" and "Compared with the alternatives": §0 rows/columns, Cairn cells name their proof or the pending row; footprint cells say "not yet measured" until scripts/footprint.sh runs on a release build)
