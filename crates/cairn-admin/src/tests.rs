@@ -859,3 +859,166 @@ fn size_parsing_and_cli_tree() {
     }
     cmd.debug_assert();
 }
+
+#[derive(Clone, Default)]
+struct Capture(Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl std::io::Write for Capture {
+    fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(b);
+        Ok(b.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Capture {
+    type Writer = Capture;
+    fn make_writer(&'a self) -> Capture {
+        self.clone()
+    }
+}
+
+/// B4: secrets, session tokens and Authorization signatures never reach the logs, even at
+/// TRACE, across key creation, root rotation, STS issuance and S3 access checks.
+#[tokio::test(flavor = "current_thread")]
+async fn secrets_never_logged() {
+    let cap = Capture::default();
+    let sub = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::TRACE)
+        .with_writer(cap.clone())
+        .with_ansi(false)
+        .finish();
+    let _g = tracing::subscriber::set_default(sub);
+
+    let f = fx().await;
+    let mut secrets: Vec<String> = vec![ROOT_SK.to_string()];
+    let req = signed(
+        ROOT_AK,
+        ROOT_SK,
+        "POST",
+        "/users",
+        Some(json!({"name":"dana"})),
+    );
+    let sig = req.headers()["authorization"]
+        .to_str()
+        .unwrap()
+        .rsplit('=')
+        .next()
+        .unwrap()
+        .to_string();
+    secrets.push(sig);
+    f.send(req).await;
+    let (_, k) = f.root("POST", "/users/dana/access-keys", None).await;
+    secrets.push(k["secret_access_key"].as_str().unwrap().to_string());
+    f.root(
+        "PUT",
+        "/users/dana/policies/sts",
+        Some(json!({"document": allow("*", "*")})),
+    )
+    .await;
+    let trust = json!({"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::000000000000:user/dana"},"Action":"sts:AssumeRole"}]});
+    f.root(
+        "POST",
+        "/roles",
+        Some(json!({"name":"r","trust_policy":trust})),
+    )
+    .await;
+
+    // STS AssumeRole over HTTP
+    let body = "Action=AssumeRole&RoleArn=r&RoleSessionName=s1";
+    let hs = vec![
+        ("host".to_string(), "h".to_string()),
+        (
+            "content-type".to_string(),
+            "application/x-www-form-urlencoded".to_string(),
+        ),
+    ];
+    let ak = k["access_key_id"].as_str().unwrap();
+    let sk = SecretString::new(k["secret_access_key"].as_str().unwrap());
+    let add = sigv4::sign_headers(
+        "POST",
+        "/",
+        "",
+        &hs,
+        body.as_bytes(),
+        ak,
+        &sk,
+        None,
+        Ts::now(),
+        "us-east-1",
+        "sts",
+    );
+    let mut b = Request::post("/");
+    for (k, v) in hs.iter().chain(add.iter()) {
+        b = b.header(k, v);
+    }
+    let resp = cairn_auth::sts::router(cairn_auth::sts::StsState::new(f.store.clone()))
+        .oneshot(b.body(Body::from(body)).unwrap())
+        .await
+        .unwrap();
+    let xml = String::from_utf8(
+        resp.into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .to_vec(),
+    )
+    .unwrap();
+    let grab = |t: &str| {
+        xml.split(&format!("<{t}>"))
+            .nth(1)
+            .unwrap()
+            .split('<')
+            .next()
+            .unwrap()
+            .to_string()
+    };
+    let (sts_ak, sts_sk, tok) = (
+        grab("AccessKeyId"),
+        grab("SecretAccessKey"),
+        grab("SessionToken"),
+    );
+    secrets.push(sts_sk);
+    secrets.push(tok.clone());
+
+    // S3 access checks, allowed and denied, with and without the token
+    let access = cairn_auth::CairnS3Access::new(
+        f.store.clone(),
+        Arc::new(cairn_auth::MemoryBucketAuthz::new()),
+    );
+    let uri: http::Uri = "/b/k".parse().unwrap();
+    let mut h = http::HeaderMap::new();
+    h.insert("x-amz-security-token", tok.parse().unwrap());
+    for (headers, op) in [
+        (&h, "GetObject"),
+        (&http::HeaderMap::new(), "GetObject"),
+        (&h, "SelectObjectContent"),
+    ] {
+        let _ = access
+            .authorize(&cairn_auth::s3s_bridge::S3RequestView {
+                op,
+                access_key: Some(&sts_ak),
+                bucket: Some("b"),
+                key: Some("k"),
+                uri: &uri,
+                headers,
+                meta: None,
+            })
+            .await;
+    }
+    let (_, rot) = f.root("POST", "/root/rotate", None).await;
+    secrets.push(rot["secret_access_key"].as_str().unwrap().to_string());
+
+    let logs = String::from_utf8(cap.0.lock().unwrap().clone()).unwrap();
+    assert!(
+        logs.contains("access key created"),
+        "capture is working: {logs}"
+    );
+    assert!(logs.contains("root credentials rotated"));
+    for s in &secrets {
+        assert!(!logs.contains(s.as_str()), "secret leaked into logs");
+    }
+}
