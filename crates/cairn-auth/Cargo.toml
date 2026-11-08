@@ -35,8 +35,13 @@ thiserror.workspace = true
 tracing.workspace = true
 
 tokio.workspace = true
+# Phase 3c: OIDC federation (JWT verification, JWKS fetch over rustls).
+jsonwebtoken.workspace = true
+reqwest.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
 tower.workspace = true
 http-body-util.workspace = true
+rsa.workspace = true
+p256.workspace = true

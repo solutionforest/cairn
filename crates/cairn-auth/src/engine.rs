@@ -51,7 +51,7 @@ impl AuthzEngine {
     }
 
     /// Context with `aws:username`, `aws:userid`, `aws:PrincipalArn`, `aws:PrincipalType`,
-    /// `aws:CurrentTime`, `aws:EpochTime` added when absent. Principal keys always overwrite
+    /// `aws:PrincipalTag/<k>`, `aws:CurrentTime`, `aws:EpochTime` added when absent. Principal keys always overwrite
     /// caller-supplied values so they cannot be spoofed.
     pub fn enrich(
         &self,
@@ -68,8 +68,12 @@ impl AuthzEngine {
         ] {
             c.remove(k);
         }
+        c.remove_prefix("aws:PrincipalTag/");
         match principal {
             Some(p) => {
+                for (k, v) in &p.tags {
+                    c.insert(&format!("aws:PrincipalTag/{k}"), v.clone());
+                }
                 if let Some(u) = p.username() {
                     c.insert("aws:username", u);
                 }

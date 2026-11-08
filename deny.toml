@@ -41,6 +41,13 @@ ignore = [
     # rustls-pemfile: archived; superseded by rustls-pki-types' PemObject. Direct dependency of
     # cairn-server (TLS cert loading); migration tracked for phase 2a (B6 PEM reload).
     { id = "RUSTSEC-2025-0134", reason = "direct dep of cairn-server; migrate to rustls-pki-types PemObject in 2a" },
+    # rsa (Marvin) and crypto-bigint 0.5 (non-constant-time arithmetic): pulled in by
+    # jsonwebtoken's RustCrypto backend for OIDC federation (cairn-auth, phase 3c). Cairn only
+    # *verifies* RS*/PS*/ES* signatures with public JWKS keys; no RSA decryption and no
+    # private-key operations happen outside tests, so the secret-timing leaks do not apply.
+    # Re-check when jsonwebtoken moves to rsa 0.10 / elliptic-curve 0.14.
+    { id = "RUSTSEC-2023-0071", reason = "rsa via jsonwebtoken: public-key verification only" },
+    { id = "RUSTSEC-2026-0387", reason = "crypto-bigint 0.5 via p256/p384: public-key verification only" },
 ]
 
 [bans]

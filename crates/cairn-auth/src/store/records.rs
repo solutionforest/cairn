@@ -97,6 +97,18 @@ pub enum SessionKind {
     },
     User(String),
     Root,
+    /// `AssumeRoleWithWebIdentity` (phase 3c). Appended variant: existing encodings are
+    /// unchanged, so no migration is needed (older binaries cannot read these records).
+    WebIdentity {
+        role: String,
+        session_name: String,
+        /// OIDC provider id (issuer without scheme).
+        provider: String,
+        /// Token `sub`.
+        subject: String,
+        /// Session tags mapped from claims.
+        tags: BTreeMap<String, String>,
+    },
 }
 
 /// STS temporary credential.

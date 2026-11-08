@@ -171,6 +171,9 @@ fn session_principal(k: &SessionKind) -> String {
         SessionKind::User(u) => format!("user:{u}"),
         SessionKind::Role {
             role, session_name, ..
+        }
+        | SessionKind::WebIdentity {
+            role, session_name, ..
         } => format!("role:{role}/{session_name}"),
     }
 }
@@ -394,6 +397,9 @@ impl CredentialStore {
             },
             SessionKind::Role {
                 role, session_name, ..
+            }
+            | SessionKind::WebIdentity {
+                role, session_name, ..
             } => {
                 let Some(r) = self.get::<RoleRecord>(&key(K_ROLE, role))? else {
                     return Ok(None);
@@ -404,7 +410,11 @@ impl CredentialStore {
                     .as_deref()
                     .map(|t| self.compiled(t))
                     .transpose()?;
-                Principal::assumed_role(role, &r.role_id, session_name, policies, sp)
+                let mut p = Principal::assumed_role(role, &r.role_id, session_name, policies, sp);
+                if let SessionKind::WebIdentity { tags, .. } = &s.kind {
+                    p.tags = tags.clone();
+                }
+                p
             }
         };
         principal.allowed_source_cidrs = parse_cidrs(&s.allowed_source_cidrs)?;
@@ -615,7 +625,7 @@ impl CredentialStore {
                 SessionKind::Role { source, .. } => {
                     *source == crate::types::PrincipalId::user(name)
                 }
-                SessionKind::Root => false,
+                SessionKind::Root | SessionKind::WebIdentity { .. } => false,
             };
             if mine {
                 ops.push(BackendOp::Delete(key(K_SESSION, &s.access_key_id)));
@@ -990,7 +1000,8 @@ impl CredentialStore {
         self.must::<RoleRecord>(K_ROLE, "role", name)?;
         let mut ops = vec![BackendOp::Delete(key(K_ROLE, name))];
         for s in self.list::<SessionRecord>(K_SESSION)? {
-            if matches!(&s.kind, SessionKind::Role { role, .. } if role == name) {
+            if matches!(&s.kind, SessionKind::Role { role, .. } | SessionKind::WebIdentity { role, .. } if role == name)
+            {
                 ops.push(BackendOp::Delete(key(K_SESSION, &s.access_key_id)));
             }
         }
@@ -1271,6 +1282,9 @@ impl CredentialStore {
                 principal: session_principal(&s.kind),
                 source: match &s.kind {
                     SessionKind::Role { source, .. } => Some(source.to_string()),
+                    SessionKind::WebIdentity {
+                        provider, subject, ..
+                    } => Some(format!("oidc:{provider}/{subject}")),
                     _ => None,
                 },
                 expired: s.expires_at <= now,

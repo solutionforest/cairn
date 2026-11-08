@@ -4,6 +4,7 @@ use crate::arn;
 use crate::policy::PolicyDocument;
 use crate::types::PrincipalId;
 use ipnet::IpNet;
+use std::collections::BTreeMap;
 
 /// What kind of principal this is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,6 +46,8 @@ pub struct Principal {
     pub session_policy: Option<PolicyDocument>,
     /// If non-empty, requests must come from one of these networks (`aws:SourceIp`).
     pub allowed_source_cidrs: Vec<IpNet>,
+    /// Session tags (`aws:PrincipalTag/<key>`), e.g. mapped from OIDC claims.
+    pub tags: BTreeMap<String, String>,
 }
 
 impl Principal {
@@ -60,6 +63,7 @@ impl Principal {
             policies: Vec::new(),
             session_policy: None,
             allowed_source_cidrs: Vec::new(),
+            tags: BTreeMap::new(),
         }
     }
 
@@ -77,6 +81,7 @@ impl Principal {
             policies,
             session_policy: None,
             allowed_source_cidrs: Vec::new(),
+            tags: BTreeMap::new(),
         }
     }
 
@@ -101,6 +106,7 @@ impl Principal {
             policies,
             session_policy,
             allowed_source_cidrs: Vec::new(),
+            tags: BTreeMap::new(),
         }
     }
 

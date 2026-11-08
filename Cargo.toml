@@ -42,6 +42,7 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 s3s = "0.17"
 s3s-aws = "0.17"
 rmcp = { version = "3", features = ["server", "transport-io", "transport-streamable-http-server"] }
+schemars = "1"
 
 redb = "4"
 postcard = { version = "1", features = ["alloc"] }
@@ -66,6 +67,11 @@ base64 = "0.22"
 hex = "0.4"
 zeroize = { version = "1", features = ["derive"] }
 argon2 = "0.5"
+# JWT verification for OIDC federation (pure-Rust RustCrypto backend; no OpenSSL / aws-lc).
+jsonwebtoken = { version = "11", default-features = false, features = ["rust_crypto"] }
+# Test-only: generate RS256 / ES256 keys for local JWKS (same versions jsonwebtoken uses).
+rsa = "0.9"
+p256 = "0.13"
 
 jiff = { version = "0.2", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "v7", "serde"] }

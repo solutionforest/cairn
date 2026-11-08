@@ -1,11 +1,14 @@
 //! STS HTTP endpoint: `AssumeRole`, `GetSessionToken`, `GetCallerIdentity` (query API,
-//! `Version=2011-06-15`) over `POST /` (form body) and `GET /?Action=…`, SigV4-authenticated.
+//! `Version=2011-06-15`) over `POST /` (form body) and `GET /?Action=…`, SigV4-authenticated;
+//! plus the unsigned `AssumeRoleWithWebIdentity` (OIDC federation, enabled with
+//! [`StsState::with_oidc`]).
 //!
 //! Mount with `cairn_auth::sts::router(StsState::new(store))`; route requests for which
 //! [`is_sts_request`] is true to it before they reach s3s.
 
 use crate::error::AuthError;
 use crate::eval::ConditionContext;
+use crate::oidc::{OidcError, OidcVerifier};
 use crate::principal::Principal;
 use crate::s3s_bridge::RequestMeta;
 use crate::sigv4::{self, HttpParts, SigV4Error};
@@ -28,6 +31,7 @@ pub const MAX_BODY: usize = 64 * 1024;
 #[derive(Clone)]
 pub struct StsState {
     store: Arc<CredentialStore>,
+    oidc: Option<Arc<OidcVerifier>>,
 }
 
 impl std::fmt::Debug for StsState {
@@ -39,7 +43,13 @@ impl std::fmt::Debug for StsState {
 impl StsState {
     /// State over a credential store.
     pub fn new(store: Arc<CredentialStore>) -> Self {
-        Self { store }
+        Self { store, oidc: None }
+    }
+
+    /// Enable `AssumeRoleWithWebIdentity` with these trusted identity providers.
+    pub fn with_oidc(mut self, verifier: Arc<OidcVerifier>) -> Self {
+        self.oidc = Some(verifier);
+        self
     }
 }
 
@@ -296,6 +306,9 @@ async fn dispatch(
             format!("unsupported Version {v}"),
         ));
     }
+    if action == "AssumeRoleWithWebIdentity" {
+        return assume_role_with_web_identity(st, &params, meta, rid).await;
+    }
     let (caller, _akid) = authenticate(&st.store, method, uri, headers, body).await?;
     let meta_xml = format!("<ResponseMetadata><RequestId>{rid}</RequestId></ResponseMetadata>");
     match action {
@@ -360,6 +373,89 @@ async fn dispatch(
             format!("unsupported action {other}"),
         )),
     }
+}
+
+fn oidc_error(e: OidcError) -> StsError {
+    match e {
+        OidcError::Expired => StsError::new(
+            StatusCode::BAD_REQUEST,
+            "ExpiredTokenException",
+            e.to_string(),
+        ),
+        OidcError::Jwks(_) => StsError::new(
+            StatusCode::BAD_REQUEST,
+            "IDPCommunicationError",
+            e.to_string(),
+        ),
+        OidcError::Config(_) => {
+            tracing::error!(error = %e, "oidc configuration error");
+            StsError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "InternalFailure",
+                "internal error",
+            )
+        }
+        _ => StsError::new(
+            StatusCode::BAD_REQUEST,
+            "InvalidIdentityToken",
+            e.to_string(),
+        ),
+    }
+}
+
+async fn assume_role_with_web_identity(
+    st: &StsState,
+    params: &[(String, String)],
+    meta: Option<&RequestMeta>,
+    rid: &str,
+) -> Result<String, StsError> {
+    let get = |k: &str| params.iter().find(|(n, _)| n == k).map(|(_, v)| v.as_str());
+    let missing = |n: &str| {
+        StsError::new(
+            StatusCode::BAD_REQUEST,
+            "MissingParameter",
+            format!("{n} is required"),
+        )
+    };
+    let role = get("RoleArn").ok_or_else(|| missing("RoleArn"))?;
+    let session_name = get("RoleSessionName").ok_or_else(|| missing("RoleSessionName"))?;
+    let token = get("WebIdentityToken").ok_or_else(|| missing("WebIdentityToken"))?;
+    let verifier = st
+        .oidc
+        .as_ref()
+        .ok_or_else(|| oidc_error(OidcError::NotConfigured))?;
+    let identity = verifier.verify(token).await.map_err(oidc_error)?;
+    let mut ctx = ConditionContext::new();
+    if let Some(m) = meta {
+        if let Some(ip) = m.source_ip {
+            ctx.insert("aws:SourceIp", ip.to_string());
+        }
+        ctx.insert("aws:SecureTransport", m.secure.to_string());
+    }
+    let c = st
+        .store
+        .assume_role_with_web_identity(
+            &identity,
+            AssumeRoleRequest {
+                role,
+                session_name,
+                duration: duration(params, 3600)?,
+                session_policy: get("Policy"),
+                context: &ctx,
+            },
+        )
+        .await
+        .map_err(auth_error)?;
+    let meta_xml = format!("<ResponseMetadata><RequestId>{rid}</RequestId></ResponseMetadata>");
+    Ok(format!(
+        "<AssumeRoleWithWebIdentityResponse xmlns=\"{XMLNS}\"><AssumeRoleWithWebIdentityResult>{}<SubjectFromWebIdentityToken>{}</SubjectFromWebIdentityToken><AssumedRoleUser><Arn>{}</Arn><AssumedRoleId>{}</AssumedRoleId></AssumedRoleUser><Provider>{}</Provider><Audience>{}</Audience><PackedPolicySize>0</PackedPolicySize></AssumeRoleWithWebIdentityResult>{meta_xml}</AssumeRoleWithWebIdentityResponse>",
+        creds_xml(&c),
+        esc(&identity.subject),
+        esc(c.assumed_role_arn.as_deref().unwrap_or_default()),
+        esc(c.assumed_role_id.as_deref().unwrap_or_default()),
+        esc(&identity.provider),
+        esc(identity.primary_audience()),
+    ))
 }
 
 async fn handle(

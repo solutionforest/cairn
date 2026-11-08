@@ -65,6 +65,11 @@ impl ConditionContext {
     pub fn remove(&mut self, key: &str) -> Option<Vec<String>> {
         self.map.remove(&normalize_key(key))
     }
+    /// Remove every key whose normalised form starts with `prefix` (e.g. `aws:principaltag/`).
+    pub fn remove_prefix(&mut self, prefix: &str) {
+        let p = normalize_key(prefix);
+        self.map.retain(|k, _| !k.starts_with(&p));
+    }
 }
 
 impl VarResolver for ConditionContext {
