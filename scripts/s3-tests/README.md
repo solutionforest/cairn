@@ -1,26 +1,32 @@
 # ceph s3-tests runner
 
 Conformance harness for the S3 API against the community `ceph/s3-tests` suite (boto3 +
-pytest). Used by `.github/workflows/s3-tests.yml` (nightly, gated by the `S3_TESTS_ENABLED`
-repository variable) and runnable locally.
+pytest). Used by `.github/workflows/s3-tests.yml` on every push (gate) and weekly (full sweep),
+and runnable locally.
 
 ## Run locally
 
 ```sh
-# 1. start a server
-cairn init --data-dir /tmp/cairn-s3t          # prints root credentials
-cairn serve --data-dir /tmp/cairn-s3t &
+# 1. start a throwaway server (fresh data dir, fixed root key, second user `s3alt`)
+cargo build -p cairn-cli
+eval "$(scripts/s3-tests/start-cairn.sh target/debug/cairn)"
 
-# 2. run the subset (needs git, python3 with venv; uses tox when installed)
-S3_ENDPOINT=http://127.0.0.1:9000 \
-S3_MAIN_ACCESS_KEY=... S3_MAIN_SECRET_KEY=... \
+# 2. gate on expected-pass.txt (needs git, python3 with venv)
 scripts/s3-tests/run.sh
 
+# promote new passes after a fix (review the diff before committing)
+scripts/s3-tests/run.sh --write-expected
+
+# weekly-style full sweep: no deselection, report only
+S3_TESTS_FULL=1 scripts/s3-tests/run.sh
+
 # narrow it down while debugging
-S3_TESTS_EXTRA="-k multipart -x -vv" scripts/s3-tests/run.sh
+S3_TESTS_EXTRA="-x -vv" S3_TESTS_DESELECT="multipart" scripts/s3-tests/run.sh
+kill "$CAIRN_PID"
 ```
 
-Outputs land in `target/s3-tests/report/`: `junit.xml`, `failed.txt`, `summary.md`.
+Outputs land in `target/s3-tests/report/`: `junit.xml`, `passed.txt`, `failed.txt`,
+`new-passes.txt`, `summary.md`.
 
 ## What runs
 
@@ -31,15 +37,18 @@ Outputs land in `target/s3-tests/report/`: `junit.xml`, `failed.txt`, `summary.m
   `fails_on_aws` (RGW-only behaviour), `fails_with_subdomain` (needs wildcard DNS), append
   objects, bucket logging, storage classes / transitions / cloud tiering, S3 Select, website
   hosting, SNS, S3 Control, IAM account/user/group/role APIs, STS + web identity token tests,
-  and SigV2. Bucket policy, versioning, lifecycle expiration, Object Lock, SSE, checksums,
-  tagging, conditional writes and multipart are **included**. Override with
-  `S3_TESTS_MARKERS`.
-- `[s3 alt]` / `[s3 tenant]` default to the main credentials until phase 2b provides users;
-  set `S3_ALT_*` to a second user then, or the cross-principal ACL/policy tests stay red.
+  SigV2, and the v0.1-shelved Object Lock and SSE-C/KMS (`object_lock`, `encryption`);
+  CORS and PostObject (shelved, no marker) are removed with `-k` (`S3_TESTS_DESELECT`).
+  Bucket policy, versioning, lifecycle expiration, SSE-S3, checksums, tagging, conditional
+  writes and multipart are **included**. Override with `S3_TESTS_MARKERS`.
+- `[s3 alt]` is the `s3alt` user created by `start-cairn.sh` with no policies (a distinct,
+  default-denied principal); `[s3 tenant]` defaults to alt.
 
-## Allowed failures
+## Gating: expected-pass.txt
 
-`allowed-failures.txt` lists `module::test_name` ids that may fail, each with a reason.
-`compare.py` fails the run on any failure **not** in the list and reports listed tests that now
-pass so the list only shrinks. Targets: ≥ 80% of executed tests passing by the end of phase 2a,
-≥ 95% by the end of phase 3 (PRODUCTION-READINESS A9).
+`expected-pass.txt` lists the `module::test_name` ids that pass today. `compare.py` fails the
+run if any of them does not pass (regression or vanished test); tests that pass but are not
+listed are reported in `new-passes.txt` and the job summary and never fail CI. The list only
+grows: promote with `run.sh --write-expected` and review the diff; dropping an id needs a reason
+in the commit message. The baseline line at the top records pass rate at generation time.
+Target (PRODUCTION-READINESS A4): ≥ 80% of the executed non-shelved subset.

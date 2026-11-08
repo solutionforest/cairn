@@ -1,50 +1,66 @@
-# Nightly ceph/s3-tests conformance run against a freshly built Cairn (scripts/s3-tests/).
-# Gated by the repository variable S3_TESTS_ENABLED=true until `cairn serve` lands (phase 1c),
-# so the schedule does not produce red runs before there is a server to test.
+# ceph/s3-tests conformance (scripts/s3-tests/, PRODUCTION-READINESS A4).
+# - Every push / PR: run the v0.1 subset and fail if any test in the committed
+#   scripts/s3-tests/expected-pass.txt stops passing. New passes are listed in the job summary
+#   for promotion (`scripts/s3-tests/run.sh --write-expected`).
+# - Weekly: full sweep with no feature deselection, report only, so shelved-feature and
+#   RGW-specific results stay visible.
 name: s3-tests
 
 on:
+  push:
+  pull_request:
   schedule:
-    - cron: "41 2 * * *"
+    - cron: "17 3 * * 1"
   workflow_dispatch:
+    inputs:
+      full:
+        description: "Full sweep (no deselection, report only)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
+concurrency:
+  group: s3-tests-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
+
 jobs:
   s3-tests:
-    if: github.event_name == 'workflow_dispatch' || vars.S3_TESTS_ENABLED == 'true'
+    # Private repo: org EPAR ephemeral runners (labels self-hosted, linux). They start bare.
     runs-on: self-hosted
     timeout-minutes: 120
     env:
-      CAIRN_ROOT_ACCESS_KEY: s3testsroot
-      CAIRN_ROOT_SECRET: s3testsroot-secret-0123456789abcdef
+      S3_TESTS_FULL: ${{ (github.event_name == 'schedule' || inputs.full) && '1' || '0' }}
+      S3_TESTS_WORKDIR: ${{ github.workspace }}/target/s3-tests
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with: { shared-key: ci-linux }
+      - name: Python
+        uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
       - run: cargo build --locked -p cairn-cli
       - name: Start Cairn
         run: |
-          data="$(mktemp -d)"
-          CAIRN_DATA_DIR="$data" CAIRN_SERVER_LISTEN=127.0.0.1:9000 \
-            target/debug/cairn serve > cairn.log 2>&1 &
-          for _ in $(seq 1 60); do curl -fsS http://127.0.0.1:9000/healthz && break; sleep 1; done
-      - name: Run s3-tests subset
-        env:
-          S3_ENDPOINT: http://127.0.0.1:9000
-          S3_MAIN_ACCESS_KEY: ${{ env.CAIRN_ROOT_ACCESS_KEY }}
-          S3_MAIN_SECRET_KEY: ${{ env.CAIRN_ROOT_SECRET }}
-          S3_ALT_ACCESS_KEY: ${{ env.CAIRN_ROOT_ACCESS_KEY }}
-          S3_ALT_SECRET_KEY: ${{ env.CAIRN_ROOT_SECRET }}
-          S3_TESTS_WORKDIR: ${{ runner.temp }}/s3-tests
-        run: scripts/s3-tests/run.sh
+          scripts/s3-tests/start-cairn.sh target/debug/cairn > "$RUNNER_TEMP/s3t-env.sh"
+          cat "$RUNNER_TEMP/s3t-env.sh" | grep -v SECRET
+      - name: Run s3-tests
+        run: |
+          source "$RUNNER_TEMP/s3t-env.sh"
+          echo "CAIRN_LOG=$CAIRN_LOG" >> "$GITHUB_ENV"
+          echo "CAIRN_PID=$CAIRN_PID" >> "$GITHUB_ENV"
+          scripts/s3-tests/run.sh
+      - if: always()
+        name: Summary
+        run: |
+          [ -f "$S3_TESTS_WORKDIR/report/summary.md" ] && cat "$S3_TESTS_WORKDIR/report/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          [ -n "${CAIRN_LOG:-}" ] && cp "$CAIRN_LOG" "$S3_TESTS_WORKDIR/report/cairn.log" || true
+          [ -n "${CAIRN_PID:-}" ] && kill "$CAIRN_PID" || true
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: s3-tests-report
-          path: |
-            ${{ runner.temp }}/s3-tests/report/
-            cairn.log
+          name: s3-tests-report-${{ env.S3_TESTS_FULL == '1' && 'full' || 'gate' }}
+          path: ${{ env.S3_TESTS_WORKDIR }}/report/
           if-no-files-found: ignore

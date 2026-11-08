@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
-# Run a tagged subset of ceph/s3-tests against a running Cairn and compare the failures with
-# allowed-failures.txt. Exit 0 iff every failure is listed (newly passing listed tests only warn).
+# Run a tagged subset of ceph/s3-tests against a running Cairn and gate on expected-pass.txt:
+# exit 1 if any listed test does not pass; unlisted new passes are reported, never fatal.
+#
+# Usage: run.sh                    gate on expected-pass.txt (every push)
+#        run.sh --write-expected   rewrite expected-pass.txt from this run (baseline / promote)
+#        S3_TESTS_FULL=1 run.sh    weekly sweep: no marker/-k deselection, report only (exit 0)
 #
 # Required env:  S3_ENDPOINT (e.g. http://127.0.0.1:9000)
 #                S3_MAIN_ACCESS_KEY S3_MAIN_SECRET_KEY
@@ -11,8 +15,12 @@
 #                S3_TESTS_WORKDIR  (default: ./target/s3-tests)
 #                S3_TESTS_MARKERS  (pytest -m expression; default: DEFAULT_MARKERS below)
 #                S3_TESTS_PATHS    (default: s3tests/functional/test_s3.py s3tests/functional/test_headers.py)
-#                S3_TESTS_EXTRA    (extra pytest args, e.g. "-k multipart -x")
+#                S3_TESTS_DESELECT (pytest -k expression; default: DEFAULT_DESELECT below)
+#                S3_TESTS_EXTRA    (extra pytest args, e.g. "-x -vv")
 set -euo pipefail
+mode=gate
+[ "${1:-}" = "--write-expected" ] && mode=write
+[ "${S3_TESTS_FULL:-0}" = 1 ] && mode=full
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$here/../.." && pwd)"
@@ -34,7 +42,11 @@ and not session_policy and not user_policy and not abac_test and not test_of_sts
 and not webidentity_test and not token_claims_trust_policy_test \
 and not token_principal_tag_role_policy_test and not token_request_tag_trust_policy_test \
 and not token_resource_tags_test and not token_role_tags_test and not token_tag_keys_test \
-and not auth_aws2"
+and not auth_aws2 \
+and not object_lock and not encryption"
+
+# Shelved in v0.1 (DESIGN §0) without a marker of their own: CORS, PostObject (browser form upload).
+DEFAULT_DESELECT="not cors and not post_object"
 
 : "${S3_ENDPOINT:?set S3_ENDPOINT, e.g. http://127.0.0.1:9000}"
 : "${S3_MAIN_ACCESS_KEY:?set S3_MAIN_ACCESS_KEY}"
@@ -47,8 +59,10 @@ repo="${S3_TESTS_REPO:-https://github.com/ceph/s3-tests.git}"
 commit="${S3_TESTS_COMMIT:-$PINNED_COMMIT}"
 work="${S3_TESTS_WORKDIR:-$repo_root/target/s3-tests}"
 markers="${S3_TESTS_MARKERS:-$DEFAULT_MARKERS}"
+deselect="${S3_TESTS_DESELECT:-$DEFAULT_DESELECT}"
+if [ "$mode" = full ]; then markers="not fails_with_subdomain"; deselect=""; fi
 paths="${S3_TESTS_PATHS:-s3tests/functional/test_s3.py s3tests/functional/test_headers.py}"
-allowed="$here/allowed-failures.txt"
+expected="$here/expected-pass.txt"
 
 # Parse scheme://host:port
 proto="${S3_ENDPOINT%%://*}"
@@ -134,26 +148,22 @@ mkdir -p "$report"
 junit="$report/junit.xml"
 rm -f "$junit"
 
+kargs=()
+[ -n "$deselect" ] && kargs=(-k "$deselect")
 # shellcheck disable=SC2086 # $paths and $S3_TESTS_EXTRA are intentionally word-split
-run_pytest() {
-  (cd "$src" && S3TEST_CONF="$conf" S3_USE_SIGV4=true "$@" -- -p no:cacheprovider \
-      -o junit_family=xunit2 --junitxml="$junit" -m "$markers" ${S3_TESTS_EXTRA:-} $paths) || true
-}
-if command -v tox >/dev/null 2>&1; then
-  echo "running s3-tests@${commit:0:12} via tox"
-  run_pytest tox -q
-else
-  echo "tox not found; using a virtualenv"
-  venv="$work/venv"
-  if [ ! -x "$venv/bin/pytest" ]; then
-    rm -rf "$venv"
-    python3 -m venv "$venv" && "$venv/bin/pip" install -q -r "$src/requirements.txt" pytest \
-      || { rm -rf "$venv"; echo "virtualenv setup failed (Debian: apt install python3-venv)" >&2; exit 2; }
-  fi
-  # shellcheck disable=SC2086
-  (cd "$src" && S3TEST_CONF="$conf" S3_USE_SIGV4=true "$venv/bin/pytest" -p no:cacheprovider \
-      -o junit_family=xunit2 --junitxml="$junit" -m "$markers" ${S3_TESTS_EXTRA:-} $paths) || true
+pytest_args=(-p no:cacheprovider -o junit_family=xunit2 --junitxml="$junit" -m "$markers" "${kargs[@]}" ${S3_TESTS_EXTRA:-} $paths)
+venv="$work/venv"
+if [ ! -x "$venv/bin/pytest" ]; then
+  rm -rf "$venv"
+  python3 -m venv "$venv" && "$venv/bin/pip" install -q -r "$src/requirements.txt" pytest \
+    || { rm -rf "$venv"; echo "virtualenv setup failed (Debian: apt install python3-venv)" >&2; exit 2; }
 fi
+echo "running s3-tests@${commit:0:12} ($mode)"
+(cd "$src" && S3TEST_CONF="$conf" S3_USE_SIGV4=true "$venv/bin/pytest" "${pytest_args[@]}") || true
 
 [ -s "$junit" ] || { echo "no junit report produced (collection error?)" >&2; exit 2; }
-python3 -I "$here/compare.py" "$junit" "$allowed" "$report"
+case "$mode" in
+  write) python3 -I "$here/compare.py" --write "$junit" "$expected" "$report" ;;
+  full)  python3 -I "$here/compare.py" "$junit" "$expected" "$report" || true ;;
+  *)     python3 -I "$here/compare.py" "$junit" "$expected" "$report" ;;
+esac

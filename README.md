@@ -109,9 +109,10 @@ Cairn targets drop-in compatibility with the AWS SDKs, `aws` CLI, `rclone`, `res
 and the long tail of S3-backed apps (Nextcloud, Immich, Velero, Loki, Terraform state, …). The
 per-operation status, known differences and client test results are tracked in
 [`docs/COMPAT.md`](docs/COMPAT.md), Cairn-specific
-headers and actions in [`docs/EXTENSIONS.md`](docs/EXTENSIONS.md), and conformance is measured
-with the ceph `s3-tests` suite ([`scripts/s3-tests/`](scripts/s3-tests/)); gating every push on a
-committed list of passing tests is in progress (readiness row A4).
+headers and actions in [`docs/EXTENSIONS.md`](docs/EXTENSIONS.md), and every push runs the ceph
+`s3-tests` suite and fails if any test in the committed
+[`scripts/s3-tests/expected-pass.txt`](scripts/s3-tests/expected-pass.txt) regresses (baseline:
+275 of 462 executed, 59.5%; the target is 80%).
 
 ## Licence
 
