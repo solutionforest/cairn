@@ -29,9 +29,9 @@ clustering, OIDC, search or FUSE in one AGPL binary, [VaultS3](https://github.co
 already does that well. If you need a distributed cluster, use [RustFS](https://github.com/rustfs/rustfs)
 or [Garage](https://garagehq.deuxfleurs.fr/).
 
-> **Status: pre-alpha.** The storage core, IAM, recovery tooling and MCP are built and tested;
-> the server wiring and the end-to-end proofs of the four claims are in progress. There is no
-> release yet and on-disk formats may change. Follow [`docs/BUILD-PLAN.md`](docs/BUILD-PLAN.md) for progress and
+> **Status: pre-alpha.** The four claims below are proven by integration tests through the
+> server; the remaining release rows are tracked in the readiness list. There is no release yet
+> and on-disk formats may change. Follow [`docs/BUILD-PLAN.md`](docs/BUILD-PLAN.md) for progress and
 > [`docs/PRODUCTION-READINESS.md`](docs/PRODUCTION-READINESS.md) for what "1.0-ready" means.
 > "Cairn" is a working title (see the name-check entry in the BUILD-PLAN decisions log).
 
@@ -64,17 +64,17 @@ examples: [`deploy/docker-compose.yml`](deploy/docker-compose.yml) and a hardene
 ## Compared with the alternatives
 
 Same rows and columns as [`docs/DESIGN.md`](docs/DESIGN.md) §0. Competitor cells come from each
-project's own documentation. Cairn cells say only what is true in `main` today, with the proof
-or the missing proof named (rows in [`docs/PRODUCTION-READINESS.md`](docs/PRODUCTION-READINESS.md)).
+project's own documentation. Cairn cells say only what is true in `main` today and name the test that
+proves it (rows in [`docs/PRODUCTION-READINESS.md`](docs/PRODUCTION-READINESS.md)).
 
 | | RustFS | VaultS3 | Garage | **Cairn** (today) |
 |---|---|---|---|---|
 | Shape | distributed cluster, Apache-2.0, Rust | single binary, AGPL, Go, 100+ features incl. dashboard, EC, Raft, OIDC, search | small replicated store, AGPL, Rust | single binary, AGPL, Rust |
 | Versioning | per-bucket opt-in | per-bucket opt-in; snapshots are an explicit commit | none | always on internally (engine; every write is a new version) |
-| Undo after a delete you did not plan for | no | only if versioning was already on | no | object and bucket trash built (`cairn admin trash`); end-to-end proof through server + CLI pending (A6) |
-| Read a bucket as it was at time T | no | snapshot you took earlier | no | `x-cairn-as-of` reads tested through the server (`crates/cairn-server/tests/pitr.rs`); restore across a bucket delete pending (A5) |
-| Identical bytes stored once | no | no | no | BLAKE3 content addressing built; on-disk proof (walk `blobs/`) pending (A7) |
-| MCP for agents | separate server, plain S3 creds | none | none | in-process (`[mcp] enabled`, `cairn mcp --stdio`) under IAM; cross-channel deny test pending (D7) |
+| Undo after a delete you did not plan for | no | only if versioning was already on | no | **yes, every bucket, zero setup**: overwrite + delete object + delete bucket, then `cairn admin trash restore` returns every version byte-identical (`crates/cairn-server/tests/undo.rs`) |
+| Read a bucket as it was at time T | no | snapshot you took earlier | no | **any T in the retention window**, no prior snapshot: `x-cairn-as-of` reads and PITR restore, including to before a bucket delete (`crates/cairn-server/tests/pitr.rs`) |
+| Identical bytes stored once | no | no | no | **yes (BLAKE3 content addressing)**: N identical uploads, copy, trash restore and PITR restore add zero blob bytes, encrypted or not (`crates/cairn-server/tests/dedup.rs`) |
+| MCP for agents | separate server, plain S3 creds | none | none | **in-process, same IAM policies**: a key denied to S3 is denied to MCP `get_object` over HTTP and stdio; `as_of` needs `cairn:TimeTravel` (`crates/cairn-server/tests/auth_wire.rs`, `crates/cairn-cli/tests/mcp_stdio.rs`) |
 
 Cairn is deliberately narrow: no dashboard, erasure coding, clustering, replication, OIDC, search,
 FUSE or S3 Select in v0.1 (DESIGN §0 "Shelved"). Idle memory, binary size and 10 GiB-transfer RSS
