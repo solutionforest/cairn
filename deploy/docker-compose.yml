@@ -1,0 +1,43 @@
+# Single-node Cairn. Usage:
+#   docker compose -f deploy/docker-compose.yml up -d
+#   docker compose -f deploy/docker-compose.yml logs cairn | grep -i "root"   # first-run credentials
+# Data lives in the named volume `cairn-data`; back it up with `cairn backup` (phase 3b) or a
+# filesystem snapshot of the volume while the container is stopped.
+name: cairn
+
+services:
+  cairn:
+    image: ghcr.io/solutionforest/cairn:latest
+    # build: { context: .., dockerfile: deploy/Dockerfile }   # build from source instead
+    restart: unless-stopped
+    command: ["serve"]
+    ports:
+      - "9000:9000"
+    environment:
+      CAIRN_DATA_DIR: /data
+      CAIRN_SERVER_LISTEN: 0.0.0.0:9000
+      CAIRN_SERVER_REGION: us-east-1
+      CAIRN_LOG_JSON: "true"
+      # Optional fixed root credentials (otherwise generated on first start and printed once):
+      # CAIRN_ROOT_ACCESS_KEY: ${CAIRN_ROOT_ACCESS_KEY}
+      # CAIRN_ROOT_SECRET: ${CAIRN_ROOT_SECRET}
+    volumes:
+      - cairn-data:/data
+      # Optional config file (see deploy/cairn.example.toml); then add
+      # command: ["serve", "--config", "/etc/cairn/cairn.toml"]
+      # - ./cairn.toml:/etc/cairn/cairn.toml:ro
+    read_only: true
+    user: "65532:65532"
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+    # distroless has no shell or curl, so health is probed from outside, e.g. a reverse proxy or
+    # `curl -f http://localhost:9000/readyz` from the host.
+    stop_grace_period: 30s
+    ulimits:
+      nofile: { soft: 65536, hard: 65536 }
+
+volumes:
+  cairn-data:

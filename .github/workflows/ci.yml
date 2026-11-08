@@ -49,5 +49,19 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with: { shared-key: ci-linux }
       - run: cargo test --workspace --locked --no-fail-fast
-      - name: Docs build
-        run: cargo doc --workspace --no-deps --locked
+
+  # rustdoc warnings as errors. Non-blocking until cairn-auth's doc warnings are fixed (Agent B);
+  # drop `continue-on-error` then to close PRODUCTION-READINESS F1.
+  docs:
+    name: docs (rustdoc -D warnings, non-blocking)
+    runs-on: self-hosted
+    timeout-minutes: 45
+    continue-on-error: true
+    env:
+      RUSTDOCFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with: { shared-key: ci-linux }
+      - run: cargo doc --workspace --no-deps --locked

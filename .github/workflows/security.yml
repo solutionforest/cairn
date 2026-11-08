@@ -1,0 +1,55 @@
+# Supply-chain checks: cargo-deny (licences, bans, sources, advisories) and cargo-audit (RustSec).
+# Policy and documented exceptions live in deny.toml; the cargo-audit ignore list below must
+# mirror deny.toml's [advisories].ignore.
+name: security
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    paths:
+      - "**/Cargo.toml"
+      - "Cargo.lock"
+      - "deny.toml"
+      - ".github/workflows/security.yml"
+  schedule:
+    - cron: "17 3 * * 1" # weekly, Monday 03:17 UTC: new advisories land without code changes
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  cargo-deny:
+    name: cargo deny
+    runs-on: self-hosted
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      - run: cargo deny --locked check --show-stats
+
+  cargo-audit:
+    name: cargo audit
+    runs-on: self-hosted
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - name: cargo audit (vulnerabilities fail; unmaintained/unsound are reported)
+        run: >
+          cargo audit
+          --ignore RUSTSEC-2023-0089
+          --ignore RUSTSEC-2026-0441
+          --ignore RUSTSEC-2025-0134

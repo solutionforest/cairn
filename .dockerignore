@@ -1,0 +1,5 @@
+# Keep the build context small; dist/image is needed by the release target.
+target/
+.git/
+**/*.redb
+data/
