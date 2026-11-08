@@ -4,6 +4,7 @@
 //! versioning (with shadow versioning on unversioned buckets), multipart, tagging, soft delete,
 //! trash, PITR and GC (DESIGN §5, §7).
 
+pub mod backup;
 mod bucket;
 mod commit;
 pub mod fsck;
