@@ -18,6 +18,16 @@ which adds `Signed-off-by: Your Name <you@example.com>`. By signing off you cert
 statement: you wrote the change or have the right to submit it under AGPL-3.0-only. Because no
 single party collects copyright, nobody (including the maintainers) can relicense the core.
 
+The DCO 1.1 in one breath: (a) you created the contribution and may submit it under the
+project's licence, or (b) it is based on prior work under a compatible open-source licence and
+you may submit it with modifications, or (c) someone who certified (a) or (b) gave it to you
+unchanged; and (d) you understand the contribution and your sign-off are public and kept
+indefinitely. Use your real name. Forgot to sign off? `git commit --amend -s` or
+`git rebase --signoff main`, then force-push your branch. Pull requests with unsigned commits
+are not merged.
+
+We will never ask you to sign a CLA or assign copyright, and we will not accept one offered.
+
 ## Promises
 
 - Nothing in the core moves behind a paid tier. If it is in the binary, it stays in the binary.

@@ -29,9 +29,9 @@ clustering, OIDC, search or FUSE in one AGPL binary, [VaultS3](https://github.co
 already does that well. If you need a distributed cluster, use [RustFS](https://github.com/rustfs/rustfs)
 or [Garage](https://garagehq.deuxfleurs.fr/).
 
-> **Status: pre-alpha.** The storage core, IAM, recovery tooling and MCP are built and tested
-> at the crate level; the server is being wired up now. There is no release yet and on-disk formats may
-> change. Follow [`docs/BUILD-PLAN.md`](docs/BUILD-PLAN.md) for progress and
+> **Status: pre-alpha.** The storage core, IAM, recovery tooling and MCP are built and tested;
+> the server wiring and the end-to-end proofs of the four claims are in progress. There is no
+> release yet and on-disk formats may change. Follow [`docs/BUILD-PLAN.md`](docs/BUILD-PLAN.md) for progress and
 > [`docs/PRODUCTION-READINESS.md`](docs/PRODUCTION-READINESS.md) for what "1.0-ready" means.
 > "Cairn" is a working title (see the name-check entry in the BUILD-PLAN decisions log).
 
@@ -62,44 +62,55 @@ examples: [`deploy/docker-compose.yml`](deploy/docker-compose.yml) and a hardene
 
 ## Compared with the alternatives
 
-Honest status as of today. ✅ built and tested · 🚧 built, being wired or proven · ❌ not planned.
-Competitor cells come from each project's own documentation.
+Same rows and columns as [`docs/DESIGN.md`](docs/DESIGN.md) §0. Competitor cells come from each
+project's own documentation. Cairn cells say only what is true in `main` today, with the proof
+or the missing proof named (rows in [`docs/PRODUCTION-READINESS.md`](docs/PRODUCTION-READINESS.md)).
 
-| | **Cairn** | VaultS3 | RustFS | Garage |
+| | RustFS | VaultS3 | Garage | **Cairn** (today) |
 |---|---|---|---|---|
-| Language / licence | Rust / AGPL-3.0 | Go / AGPL-3.0 | Rust / Apache-2.0 | Rust / AGPL-3.0 |
-| Shape | one binary, one node | one binary, optional Raft cluster | distributed cluster | small replicated cluster |
-| Undo a delete with nothing configured | 🚧 always-on history | only if versioning was on | no | no |
-| Read or restore a bucket as of any instant | 🚧 `x-cairn-as-of`, `cairn pitr` | snapshots you commit first | no | no |
-| Identical bytes stored once | ✅ BLAKE3 content addressing | no | no | no |
-| MCP for AI agents | 🚧 in-process, under IAM | none | separate server, plain S3 creds | none |
-| S3 core, SigV4, IAM policies, STS | 🚧 (29 ops, 143-case policy engine) | ✅ 80+ ops, OIDC, groups | ✅ | ✅ subset |
-| Encryption at rest | 🚧 SSE-S3 | SSE-S3, SSE-KMS, SSE-C, per-bucket keys | ✅ | no |
-| Lifecycle | 🚧 expiration + abort-mpu | one rule per bucket | ✅ | ✅ |
-| fsck / scrub / backup | ✅ engine, CLI 🚧 | heal, backups, orphan reclaim | heal | scrub |
-| Dashboard, erasure coding, clustering, replication, search, FUSE, S3 Select | ❌ | ✅ | partly | partly |
-| Contributor agreement | none, DCO | CLA | not checked | not checked |
-| Idle memory | not yet measured | 17 MiB | 70 MiB | 23 MiB |
+| Shape | distributed cluster, Apache-2.0, Rust | single binary, AGPL, Go, 100+ features incl. dashboard, EC, Raft, OIDC, search | small replicated store, AGPL, Rust | single binary, AGPL, Rust |
+| Versioning | per-bucket opt-in | per-bucket opt-in; snapshots are an explicit commit | none | always on internally (engine; every write is a new version) |
+| Undo after a delete you did not plan for | no | only if versioning was already on | no | object and bucket trash built (`cairn admin trash`); end-to-end proof through server + CLI pending (A6) |
+| Read a bucket as it was at time T | no | snapshot you took earlier | no | `x-cairn-as-of` reads tested through the server (`crates/cairn-server/tests/pitr.rs`); restore across a bucket delete pending (A5) |
+| Identical bytes stored once | no | no | no | BLAKE3 content addressing built; on-disk proof (walk `blobs/`) pending (A7) |
+| MCP for agents | separate server, plain S3 creds | none | none | in-process (`[mcp] enabled`, `cairn mcp --stdio`) under IAM; cross-channel deny test pending (D7) |
 
-Memory figures are VaultS3's published same-host measurement (August 2026), not ours.
-If a cell about Cairn is wrong, open an issue; the table is part of the definition of done.
+Cairn is deliberately narrow: no dashboard, erasure coding, clustering, replication, OIDC, search,
+FUSE or S3 Select in v0.1 (DESIGN §0 "Shelved"). Idle memory, binary size and 10 GiB-transfer RSS
+are produced by [`scripts/footprint.sh`](scripts/footprint.sh) and appear here only once measured
+on a release build:
+
+| Footprint (release build, `scripts/footprint.sh`) | Cairn |
+|---|---|
+| Idle RSS after a 110 s settle | not yet measured |
+| Peak RSS during a 10 GiB upload + download | not yet measured |
+| Static binary size | not yet measured |
+
+VaultS3 publishes 17 MiB idle on its own hardware; we do not quote other projects' numbers as if
+they were measured on ours. If a cell about Cairn is wrong, open an issue; the table is part of
+the definition of done.
 
 ## Promises
 
-- Nothing in the core moves behind a paid tier. No telemetry, no account, no licence key.
-- No CLA: contributions are DCO-signed, so no one party can relicense the core.
-- Every security fix gets a public advisory.
+These are commitments, not aspirations, and they are in git:
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md); these lines are in git.
+- **No telemetry.** The server never phones home.
+- **No account.** Nothing to sign up for, ever, to download, run or update Cairn.
+- **No licence key.** The binary you build or download is the whole product.
+- **Nothing in the core moves behind a paid tier.** If it is in the binary, it stays in the binary.
+- **No CLA.** Contributions are DCO-signed ([`CONTRIBUTING.md`](CONTRIBUTING.md)), so no single
+  party, including the maintainers, can relicense the core.
+- Every security fix gets a public advisory ([`SECURITY.md`](SECURITY.md)).
 
 ## S3 compatibility
 
 Cairn targets drop-in compatibility with the AWS SDKs, `aws` CLI, `rclone`, `restic`, `mc`,
 and the long tail of S3-backed apps (Nextcloud, Immich, Velero, Loki, Terraform state, …). The
 per-operation status, known differences and client test results are tracked in
-[`docs/COMPAT.md`](docs/COMPAT.md) (created with the S3 server in phase 1c), Cairn-specific
-headers and actions in [`docs/EXTENSIONS.md`](docs/EXTENSIONS.md), and conformance is measured
-nightly with the ceph `s3-tests` suite ([`scripts/s3-tests/`](scripts/s3-tests/)).
+[`docs/COMPAT.md`](docs/COMPAT.md), Cairn-specific
+headers and actions in [`docs/EXTENSIONS.md`](docs/EXTENSIONS.md), and conformance is gated on every
+push with the ceph `s3-tests` suite against a committed list of passing tests
+([`scripts/s3-tests/`](scripts/s3-tests/)).
 
 ## Licence
 
