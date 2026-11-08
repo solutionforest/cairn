@@ -83,9 +83,9 @@ are produced by [`scripts/footprint.sh`](scripts/footprint.sh); method and cavea
 
 | Footprint (static musl release build, 2026-11-08) | Cairn | v0.1 target |
 |---|---|---|
-| Idle RSS after a 110 s settle | 42.9 MiB | ≤ 25 MiB (missed) |
-| Peak RSS during a 10 GiB upload + download | 69.3 MiB | < 256 MiB |
-| Static binary size | 29.4 MiB | ≤ 20 MB (missed) |
+| Idle RSS after a 110 s settle | not yet measured on a regular kernel (CI `footprint` job) | ≤ 25 MiB |
+| Peak RSS during a 10 GiB upload + download | 58.3 MiB | < 256 MiB |
+| Static binary size | 17.3 MiB | ≤ 20 MB |
 
 VaultS3 publishes 17 MiB idle on its own hardware; we do not quote other projects' numbers as if
 they were measured on ours. If a cell about Cairn is wrong, open an issue; the table is part of

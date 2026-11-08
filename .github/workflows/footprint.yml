@@ -1,0 +1,43 @@
+name: footprint
+
+# PRODUCTION-READINESS E2: static musl release binary <= 20 MB and idle RSS <= 25 MiB after a
+# 110 s settle, measured on a regular Linux kernel (the dev host is gVisor, whose RSS is not
+# comparable). Size + idle only; the 10 GiB streaming run (E1) stays a manual measurement.
+on:
+  push:
+    branches: [master]
+    paths: ["Cargo.toml", "Cargo.lock", "crates/**", "scripts/footprint.sh", ".github/workflows/footprint.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: footprint-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+
+jobs:
+  footprint:
+    name: footprint (size + idle RSS budget)
+    runs-on: self-hosted
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: x86_64-unknown-linux-musl }
+      - name: musl toolchain
+        run: |
+          command -v musl-gcc || { sudo -n apt-get update && sudo -n apt-get install -y musl-tools; }
+      - uses: Swatinem/rust-cache@v2
+        with: { shared-key: footprint-musl }
+      - run: cargo build --release --locked -p cairn-cli --target x86_64-unknown-linux-musl
+      - name: measure
+        env:
+          FOOTPRINT_SKIP_TRANSFER: "1"
+          FOOTPRINT_MAX_BINARY_BYTES: "20000000"
+          FOOTPRINT_MAX_IDLE_MIB: "25"
+        run: |
+          set -o pipefail
+          scripts/footprint.sh target/x86_64-unknown-linux-musl/release/cairn | tee -a "$GITHUB_STEP_SUMMARY"

@@ -4,22 +4,39 @@ Sections are owned by the agent that wrote them; append new sections, do not rew
 
 ## Footprint
 
-Run 2026-11-08T17:59Z by `scripts/footprint.sh`: cairn 0.1.0 @ 4a65d45, `cargo build --release --target x86_64-unknown-linux-musl` (thin LTO, stripped), x86_64 gVisor sandbox reporting 1 vCPU. RSS is the process VmRSS from `/proc` (not a container working set; this sandbox exposes no VmHWM, so the peak is the max of 0.2 s samples and a shorter spike could be missed).
+Run 2026-11-08T19:14Z by `scripts/footprint.sh`: cairn 0.1.0 @ f922680 plus the size-optimised
+release profile (`opt-level = "z"`, fat LTO, one codegen unit, stripped), `cargo build --release
+--target x86_64-unknown-linux-musl`, x86_64 gVisor sandbox reporting 1 vCPU. RSS is the process
+VmRSS from `/proc` (not a container working set; this sandbox exposes no VmHWM, so the peak is
+the max of 0.2 s samples and a shorter spike could be missed).
 
 | Measure | Value |
 |---|---|
-| Binary size | 30829064 bytes (29.4 MiB), static |
-| RSS at ready | 42.9 MiB |
-| Idle RSS after 110 s | 42.9 MiB |
-| Peak RSS (max of 0.2 s VmRSS samples; VmHWM unavailable), 10240 MiB upload + download | 69.3 MiB |
-| Max sampled RSS (0.2 s interval) during transfer | 69.3 MiB |
-| Upload / download wall time | 30 s / 47 s |
+| Binary size | 18192904 bytes (17.3 MiB), static |
+| RSS at ready | 29.7 MiB |
+| Idle RSS after 110 s | 29.6 MiB |
+| Peak RSS (max of 0.2 s VmRSS samples; VmHWM unavailable), 10240 MiB upload + download | 58.3 MiB |
+| Max sampled RSS (0.2 s interval) during transfer | 58.3 MiB |
+| Upload / download wall time | 34 s / 51 s |
 | Round-trip sha256 | match |
 
+**Why idle RSS on this host is not the E2 number.** gVisor keeps the whole executable resident
+(the 17.3 MiB binary shows up in full in `/proc/<pid>/smaps`; a regular kernel pages in only
+what runs) and faults anonymous memory in coarse chunks: five fresh starts of the same binary
+measured 25.4–34.3 MiB, with the binary mapping constant at 17.4 MiB and anonymous memory
+varying between 6 and 16 MiB from the first second on. The E2 budget is therefore checked on a
+regular Linux kernel by `.github/workflows/footprint.yml` (self-hosted runner, size + idle,
+fails over budget); the step summary of the latest run is the number to quote.
+
+**Size profile cost.** Server CPU per GiB, measured with `aws s3 cp` on this host for opt-level
+3 / `s` / `z`: put 2.6 / 2.4–2.6 / 2.5–2.6 s, get 4.9–5.3 / 5.5 / 5.2 s, i.e. inside run-to-run
+noise. Hashing (BLAKE3, SHA-2, CRC) runs on SIMD/assembly paths whatever the opt-level.
+
 Against the v0.1 limits (PRODUCTION-READINESS E1, E2): the 10 GiB round trip stays far under
-256 MiB, so uploads and downloads stream. Idle RSS (42.9 MiB vs ≤ 25 MiB) and binary size
-(29.4 MiB vs ≤ 20 MB) **miss** their targets today. Re-measure with
-`scripts/footprint.sh target/x86_64-unknown-linux-musl/release/cairn`.
+256 MiB, so uploads and downloads stream; the binary is under 20 MB. Re-measure with
+`scripts/footprint.sh target/x86_64-unknown-linux-musl/release/cairn`; set
+`FOOTPRINT_MAX_BINARY_BYTES` / `FOOTPRINT_MAX_IDLE_MIB` / `FOOTPRINT_MAX_PEAK_MIB` to make it
+fail over budget.
 
 ## Upgrades
 

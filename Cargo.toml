@@ -100,8 +100,11 @@ debug = 0
 [profile.dev.package."*"]
 opt-level = 1
 debug = 0
+# Size-optimised: E2 caps the static binary at 20 MB and idle RSS at 25 MiB, and most of idle
+# RSS is the mapped binary. Measured 2026-11-08 against opt-level 3: no difference in server CPU
+# per GiB put/get (hashing runs on the SIMD/asm paths either way). See docs/DECISIONS.md.
 [profile.release]
-lto = "thin"
+lto = "fat"
 codegen-units = 1
 strip = true
-opt-level = 3
+opt-level = "z"

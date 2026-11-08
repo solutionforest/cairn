@@ -12,6 +12,9 @@
 # Usage: scripts/footprint.sh [path/to/cairn]   (default target/release/cairn)
 # Env:   FOOTPRINT_SETTLE (110), FOOTPRINT_GIB (10), FOOTPRINT_PORT (0 = ephemeral),
 #        FOOTPRINT_MIB (overrides GIB, for smoke runs), FOOTPRINT_SKIP_TRANSFER=1 (idle + size only), FOOTPRINT_KEEP=1 (keep temp dir)
+#        FOOTPRINT_MAX_BINARY_BYTES, FOOTPRINT_MAX_IDLE_MIB, FOOTPRINT_MAX_PEAK_MIB: exit 1 when exceeded (CI budget)
+# gVisor (dmesg/uname show it) keeps the whole binary resident and faults anonymous memory in
+# coarse chunks, so its idle RSS is high and noisy; budget numbers come from a regular kernel.
 # Needs: aws CLI, sha256sum, curl. Linux only (/proc).
 set -euo pipefail
 
@@ -95,7 +98,7 @@ if [ "${FOOTPRINT_SKIP_TRANSFER:-0}" != 1 ]; then
 fi
 
 echo
-echo "Run $(date -u +%Y-%m-%dT%H:%MZ), cairn $("$cairn" --version | awk '{print $2}') @ $(git -C "$root" rev-parse --short HEAD), $profile build, $(uname -m), $(nproc) vCPU"
+echo "Run $(date -u +%Y-%m-%dT%H:%MZ), cairn $("$cairn" --version | awk '{print $2}') @ $(git -C "$root" rev-parse --short HEAD), $profile build, $(uname -m), $(nproc) vCPU, kernel $(uname -r)"
 echo
 echo "| Measure | Value |"
 echo "|---|---|"
@@ -108,3 +111,15 @@ if [ -n "$peak_rss" ]; then
   echo "| Upload / download wall time | ${up_s} s / ${down_s} s |"
   echo "| Round-trip sha256 | match |"
 fi
+
+over=0
+budget() { # name actual limit unit
+  [ -n "$3" ] || return 0
+  if awk -v a="$2" -v l="$3" 'BEGIN { exit !(a > l) }'; then
+    echo "over budget: $1 $2 $4 > $3 $4" >&2; over=1
+  fi
+}
+budget "binary size" "$size" "${FOOTPRINT_MAX_BINARY_BYTES:-}" bytes
+budget "idle RSS" "$(mib "$idle_rss")" "${FOOTPRINT_MAX_IDLE_MIB:-}" MiB
+[ -n "$peak_rss" ] && budget "peak RSS" "$(mib "$peak_rss")" "${FOOTPRINT_MAX_PEAK_MIB:-}" MiB
+exit "$over"
