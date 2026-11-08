@@ -10,8 +10,41 @@ stones that marks the path and survives the weather — stacked immutable object
 
 ## 0. Scope of v0.1 (2026-11-08, supersedes the v1 phrasing below)
 
-Positioning against RustFS (Apache-2.0, distributed, erasure coding, 1.0 GA 2026-09): we do not
-compete on scale-out. Cairn v0.1 is for one box and wins on **not losing data**:
+### Where Cairn sits
+
+| | RustFS | VaultS3 | Garage | **Cairn** |
+|---|---|---|---|---|
+| Shape | distributed cluster, Apache-2.0, Rust | single binary, AGPL, Go, 100+ features incl. dashboard, EC, Raft, OIDC, search | small replicated store, AGPL, Rust | single binary, AGPL, Rust |
+| Versioning | per-bucket opt-in | per-bucket opt-in; snapshots are an explicit commit | none | **always on internally** |
+| Undo after a delete you did not plan for | no | only if versioning was already on | no | **yes, every bucket, zero setup** |
+| Read a bucket as it was at time T | no | snapshot you took earlier | no | **any T in the retention window** |
+| Identical bytes stored once | no | no | no | **yes (BLAKE3 content addressing)** |
+| MCP for agents | separate server, plain S3 creds | none | none | **in-process, same IAM policies** |
+
+VaultS3 is the closest competitor: same niche (lightweight, one binary, "MinIO without the paid
+tier"), same licence, already shipped, externally audited, 17 MiB idle. We do not compete with it
+on breadth, and we do not compete with RustFS on scale-out. Cairn wins on exactly four claims,
+each of which must be proven by a test or a published measurement before anything is public:
+
+1. **You cannot lose data, even if you configured nothing.** Shadow versioning is always on;
+   every delete (object, version, bucket) is a reversible metadata change; restore is one command.
+2. **Any bucket is readable and restorable as of any instant** in its retention window, without
+   having taken a snapshot first (`x-cairn-as-of`, `cairn pitr`).
+3. **Identical content costs disk once.** Copy, restore and PITR write no new blob bytes.
+4. **AI agents get the same storage under the same rules.** MCP is in the binary and every tool
+   call is a policy decision (`cairn:McpTool`, `cairn:TimeTravel`), not a bearer token with
+   root.
+
+Everything else is table stakes we must match (S3 conformance, SigV4, IAM, STS, SSE-S3,
+lifecycle, metrics, logs, backup, fsck) or breadth we deliberately leave to others.
+
+### Governance (the fifth, non-technical difference)
+No contributor licence agreement: contributions are accepted under the Developer Certificate of
+Origin, so no single party can relicense the core. No telemetry, no account, no licence key, no
+feature of the core moves behind a paid tier. These are stated in `CONTRIBUTING.md` and the
+README and are commitments, not aspirations.
+
+### In and out
 
 - **In v0.1:** the S3 operations in `docs/COMPAT.md`; IAM/bucket policies, STS, SigV4; shadow
   versioning, soft delete, trash, PITR and `x-cairn-as-of` time travel; content-addressed
@@ -19,7 +52,10 @@ compete on scale-out. Cairn v0.1 is for one box and wins on **not losing data**:
   readyz, metrics, JSON + audit logs; MCP server under policy; one binary, one TOML, one CLI.
 - **Shelved (code may exist, nothing ships or is documented as a feature):** replication,
   tiering, events/webhooks/function sinks, OIDC, Object Lock, SSE-C/KMS, rate limiting, TLS hot
-  reload, quotas, CORS, PostObject, admin UI, `ai` feature, Helm, multi-node.
+  reload, quotas, CORS, PostObject, admin UI, `ai` feature, Helm, multi-node, erasure coding,
+  compression, search, FUSE, S3 Select. VaultS3 ships most of these; that is the point. A
+  shelved feature returns only with a DECISIONS.md entry saying which of the four claims it
+  serves.
 
 Where later sections describe a shelved feature, they are design notes for a future version, not
 v0.1 commitments. The build plan is `docs/BUILD-PLAN.md`; dated reasons are in
@@ -34,13 +70,16 @@ v0.1 commitments. The build plan is `docs/BUILD-PLAN.md`; dated reasons are in
    s3cmd, mc, Cyberduck, Terraform/Pulumi state backends, Velero, Loki/Tempo/Mimir, Nextcloud,
    Immich, Mastodon, Gitea/Forgejo LFS, Postgres/pgBackRest, Duplicati, Kopia. Measured against
    the Ceph `s3-tests` suite.
-2. **Lightweight.** Single static binary (< 30 MB), one data directory, zero external services,
-   idle RSS < 50 MB, starts in < 1 s, runs fine on a Raspberry Pi 4 / 1 vCPU VPS / NAS.
+2. **Lightweight.** Single static binary (< 20 MB), one data directory, zero external services,
+   idle RSS ≤ 25 MiB measured the way VaultS3 publishes its 17 MiB (container working set after
+   a 110 s idle settle, `scripts/footprint.sh`), starts in < 1 s, runs fine on a Raspberry Pi 4 /
+   1 vCPU VPS / NAS. "Lightweight" is not a differentiator until the number is published.
 3. **Security by default.** SigV4 everywhere, IAM-style policies, bucket policies, STS temporary
    credentials, encryption at rest, audit log, TLS via rustls, no anonymous access unless granted.
-4. **Never lose data by accident.** Soft delete for everything (objects, versions, buckets),
-   shadow versioning even on "unversioned" buckets, point-in-time recovery (PITR) and read-only
-   time travel, Object Lock (WORM), bit-rot detection, scrub, consistent backups, async replication.
+4. **Never lose data by accident, with nothing configured.** Soft delete for everything
+   (objects, versions, buckets), shadow versioning even on "unversioned" buckets, point-in-time
+   recovery (PITR) and read-only time travel without a prior snapshot, bit-rot detection, scrub,
+   consistent backups. (Object Lock and async replication: shelved, see §0.)
 5. **AI-native.** Built-in MCP server (stdio + Streamable HTTP) whose tools are governed by the
    same IAM policies as S3; event hooks; metadata/tag search; optional content extraction and
    embeddings behind a feature flag.
@@ -587,6 +626,9 @@ function sinks (§10).
   `tokio::fs` + large buffers; hashing is the CPU cost (BLAKE3 + MD5 ≈ 1.5 GB/s per core).
 - ListObjectsV2 on 10 M keys with a delimiter: < 50 ms per page thanks to prefix skipping.
 - Memory: no per-object in-memory index; redb page cache is the only cache (configurable).
+- Footprint (published, not assumed): idle RSS ≤ 25 MiB, RSS under a 10 GiB upload/download
+  ≤ 256 MiB, static binary ≤ 20 MB. `scripts/footprint.sh` measures all three the same way on
+  every release; the numbers go in the README next to the competitor table.
 
 ---
 
@@ -597,7 +639,11 @@ function sinks (§10).
 - Integration: `crates/cairn-server/tests/` boots the server in-process on a random port and drives it with
   `aws-sdk-s3` (dev-dep) — covers every ✅ operation incl. multipart, versioning, soft delete,
   PITR, presign, STS, policies, encryption.
-- Conformance: `s3-tests` subset in CI (Docker job), plus `rclone test`, `restic check`, `mc`.
+- Conformance: ceph `s3-tests` runs on every push against a committed expected-pass list
+  (`scripts/s3-tests/`); a test leaving that list fails CI. A weekly full sweep reports newly
+  passing tests to promote. Plus `aws`, `rclone`, `mc` via `scripts/e2e-clients.sh`.
+- Claims: each of the four §0 claims has a named test that would fail if the claim were false
+  (PRODUCTION-READINESS rows A5, A6, A7, D7).
 - Crash safety: a `crash-sim` test injects failures between blob rename and meta commit and asserts
   fsck finds only orphans.
 - Fuzz: `cargo fuzz` targets for XML parsing inputs that reach our code, policy JSON, key layouts.

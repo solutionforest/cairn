@@ -399,3 +399,23 @@ Dated (UTC) design and implementation decisions, newest last. Moved out of `BUIL
      existed); spawn `tiered.tier_tick(SystemTime::now(), 10_000)` every `interval`. Reads already
      go through `BlobStore::open`.
 
+- **2026-11-08 (orchestrator) — VaultS3 is the closest competitor; positioning narrowed to four
+  provable claims.** Compared against Kodiqa's VaultS3 (Go, AGPL-3.0, single binary, v5.0.x,
+  1.7k stars, external white-box audit Aug 2026, 17 MiB idle, ceph s3-tests gated in CI). It
+  already ships everything we shelved on 2026-11-08 (EC, Raft, replication, OIDC, Object Lock,
+  SSE-C/KMS, rate limiting, quotas, CORS, dashboard, search, FUSE, S3 Select, notifications) and
+  has git-like version diff/rollback and bucket snapshots. What it does not have, and cannot add
+  without changing its storage model: always-on history (its versioning is per-bucket opt-in and
+  its snapshots are an explicit commit), continuous point-in-time reads, content-addressed dedup,
+  and an in-process MCP under IAM. DESIGN §0 now states these as the four claims; each has a
+  readiness row (A6, A5, A7, D7) whose test would fail if the claim were false, and lane 2 of the
+  build plan runs claim tests before polish. Consequences: (1) "lightweight" is no longer a
+  differentiator we may assert without a number; goal 2 and §13 now carry idle RSS ≤ 25 MiB and
+  binary ≤ 20 MB measured by `scripts/footprint.sh` using VaultS3's published method (E2).
+  (2) s3-tests moves from nightly-with-allowed-failures to gating every push on an
+  `expected-pass.txt` plus a weekly sweep (A4), matching the bar VaultS3 sets. (3) Governance is
+  the fifth difference: VaultS3 uses a CLA and says in its README that the owner could relicense;
+  Cairn takes DCO, no CLA, no telemetry, no paid tier for the core (`CONTRIBUTING.md`, F5).
+  (4) README comparison table rewritten against VaultS3/RustFS/Garage instead of MinIO; the old
+  table listed shelved features as "planned" phases and is gone. Shelved list extended with EC,
+  compression, search, FUSE, S3 Select so nobody proposes them to "catch up".

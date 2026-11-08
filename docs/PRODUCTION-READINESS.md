@@ -1,7 +1,9 @@
 # Cairn v0.1 — Definition of done
 
-Twenty-two rows. Each `[x]` names its proof (test file, CI job, or doc). The first public tag
+Thirty-six rows. Each `[x]` names its proof (test file, CI job, or doc). The first public tag
 waits for every row. Shelved features (BUILD-PLAN "Shelved") have no rows here on purpose.
+Rows marked **claim** are the four DESIGN §0 claims against VaultS3 and RustFS; a release with
+any of them unproven is a release of a worse VaultS3.
 
 Legend: `[ ]` todo · `[~]` partial · `[x]` done.
 
@@ -9,8 +11,10 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done.
 - [x] A1 `cairn init` + `cairn serve` boot from one TOML file. (crates/cairn-cli/tests/cli.rs)
 - [x] A2 Every S3 op in COMPAT.md has an `aws-sdk-s3` integration test: bucket CRUD, Put/Get/Head/Delete(s), Copy, List v1/v2/versions, versioning, 7 multipart ops, tagging, metadata, Range + conditionals, 5 checksum algorithms, AWS-shaped error XML with request ids. (crates/cairn-server/tests/*.rs)
 - [ ] A3 `aws s3 cp/sync/ls/rm`, `rclone sync`, `mc` pass `scripts/e2e-clients.sh`; results table in COMPAT.md.
-- [ ] A4 ceph `s3-tests` subset ≥ 80% with an allowed-failure list. (scripts/s3-tests/)
-- [~] A5 Soft delete, trash list/restore/purge, PITR `head_at`/diff/restore, `x-cairn-as-of`, retention GC — all integration-tested through the server. (soft delete + as-of: crates/cairn-server/tests/pitr.rs; trash/retention engine-only: crates/cairn-engine/tests/engine.rs)
+- [ ] A4 ceph `s3-tests` runs on every push and fails CI if any test in the committed `scripts/s3-tests/expected-pass.txt` regresses; a weekly full sweep reports new passes to promote; baseline ≥ 80% of the non-shelved subset. (scripts/s3-tests/, .github/workflows/s3-tests.yml)
+- [~] A5 **claim 2** PITR without a prior snapshot: `x-cairn-as-of` reads and `cairn pitr restore` to an arbitrary instant, including an instant before a bucket delete, integration-tested through the server; retention GC tested. (soft delete + as-of: crates/cairn-server/tests/pitr.rs; trash/retention engine-only: crates/cairn-engine/tests/engine.rs; restore-across-bucket-delete pending)
+- [ ] A6 **claim 1** Zero-config undo: a fresh bucket with versioning never enabled; overwrite an object, delete it, delete the bucket; `cairn trash restore` brings back bucket and every version byte-identical, through the server and the CLI.
+- [ ] A7 **claim 3** Dedup proven: N uploads of identical bytes leave one blob file; CopyObject, trash restore and PITR restore add zero blob bytes on disk (asserted by walking `blobs/`); an encrypted store dedups the same way.
 
 ## B. Security
 - [~] B1 SigV4 header + presigned verification with credential-store lookup; expired presign rejected. (bridge + STS sessions done in cairn-auth; server wiring + expired-presign test pending)
@@ -38,13 +42,15 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done.
 - [ ] D4 Lifecycle expiration + abort-incomplete-multipart and GC run on schedule; tested with a fake clock.
 - [ ] D5 `cairn config check` prints the effective config with secrets masked; every key has a default and a `CAIRN_*` env override.
 - [~] D6 Admin CLI: users, keys, groups, policies, roles, buckets, trash, pitr; `--json`. (cairn_admin::cli + loopback e2e test; not mounted in the binary)
-- [~] D7 MCP server (stdio + HTTP) with the DESIGN §11 tools under policy. (crates/cairn-mcp/tests/tools.rs 10 tests; not mounted)
+- [~] D7 **claim 4** MCP server (stdio + HTTP) with the DESIGN §11 tools under policy: a principal denied `s3:GetObject` on a key is denied the same key through MCP `get_object`, and `as_of` tools require `cairn:TimeTravel`. (crates/cairn-mcp/tests/tools.rs 10 tests; not mounted; cross-channel deny test pending)
 
 ## E. Limits
-- [ ] E1 A 10 GiB upload and download complete with RSS under 256 MiB (streaming end to end); number recorded in OPERATIONS.md.
+- [ ] E1 A 10 GiB upload and download complete with RSS under 256 MiB (streaming end to end); number recorded in OPERATIONS.md and README.
+- [ ] E2 Idle RSS ≤ 25 MiB (container working set after a 110 s settle, same method VaultS3 publishes) and static binary ≤ 20 MB; `scripts/footprint.sh` produces both, numbers in README next to the competitor table.
 
 ## F. Release
 - [x] F1 fmt, clippy `-D warnings`, tests, docs green on every push. (.github/workflows/ci.yml, self-hosted while private)
 - [~] F2 Tag → static musl x86_64 + aarch64 binaries, GHCR image, SBOM, checksums. (.github/workflows/release.yml; never exercised)
 - [~] F3 README quickstart passes on a clean machine from a release binary; COMPAT.md, EXTENSIONS.md, OPERATIONS.md current. (README written; not verified against a binary)
 - [~] F4 Name decided (crates.io `cairn`, `cairn-cli`, `cairn-core` are taken; see DECISIONS.md name check); rename done if needed before the tag.
+- [ ] F5 `CONTRIBUTING.md` states DCO sign-off and no CLA; README states the governance promises (no telemetry, no account, no licence key, nothing in the core moves behind a paid tier); README comparison table matches DESIGN §0 and every cell about Cairn is true today.

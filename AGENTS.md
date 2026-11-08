@@ -3,6 +3,8 @@
 Read `docs/DESIGN.md` §0 (v0.1 scope: what is in, what is shelved), `docs/BUILD-PLAN.md` (lanes and
 remaining work) and `docs/PRODUCTION-READINESS.md` (definition of done) before touching code.
 Dated reasons for decisions go in `docs/DECISIONS.md`. Do not build shelved features.
+Cairn competes with VaultS3 on four claims (DESIGN §0), not on feature count: if a task does not
+serve a claim or a readiness row, stop and ask. Commits are DCO-signed (`git commit -s`).
 
 ## Hard constraints
 - 1 vCPU build host. Iterate with `cargo check -p <crate>` and `cargo test -p <crate>`; run the whole

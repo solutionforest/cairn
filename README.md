@@ -9,14 +9,25 @@
 directory, no external services. Built for people who run one box (or a few): a NAS, a VPS, a
 Raspberry Pi, a homelab, a small team's backup target.
 
-Cairn's difference is a safety net that S3 clones usually leave out: every bucket keeps history
-internally ("shadow versioning"), so deletes are soft, the trash is restorable, and a bucket can
-be read or restored **as of any point in time** inside its retention window. Identical content is
-stored once. On top: IAM-style policies and STS, encryption at rest, fsck/scrub/backup, and a
-built-in MCP server so AI agents can use your storage under the same policies as everyone else.
+Cairn makes four promises that other S3 servers do not:
 
-Not a MinIO or RustFS cluster replacement: Cairn is single-node by design. If you need erasure
-coding across machines, use one of those.
+1. **You cannot lose data, even if you configured nothing.** Every bucket keeps history
+   internally ("shadow versioning"), so every delete (object, version, or whole bucket) is
+   reversible from the trash. No versioning to remember to turn on.
+2. **Any bucket is readable and restorable as of any instant** in its retention window
+   (`x-cairn-as-of`, `cairn pitr`). No snapshot to have taken first.
+3. **Identical content costs disk once.** Blobs are content-addressed; copies and restores write
+   no new bytes.
+4. **AI agents get the same storage under the same rules.** The MCP server is in the binary and
+   every tool call is an IAM policy decision, not a root token.
+
+On top: IAM-style policies and STS, SigV4, encryption at rest, lifecycle, fsck/scrub/backup,
+metrics and audit logs. That is the whole list, on purpose.
+
+Cairn is single-node by design and deliberately narrow. If you want a dashboard, erasure coding,
+clustering, OIDC, search or FUSE in one AGPL binary, [VaultS3](https://github.com/Kodiqa-Solutions/VaultS3)
+already does that well. If you need a distributed cluster, use [RustFS](https://github.com/rustfs/rustfs)
+or [Garage](https://garagehq.deuxfleurs.fr/).
 
 > **Status: pre-alpha.** The storage core, IAM, recovery tooling and MCP are built and tested
 > at the crate level; the server is being wired up now. There is no release yet and on-disk formats may
@@ -49,36 +60,37 @@ examples: [`deploy/docker-compose.yml`](deploy/docker-compose.yml) and a hardene
 [`deploy/cairn.service`](deploy/cairn.service). Operations (backup, restore, upgrade, DR):
 [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
 
-## Features compared with MinIO
+## Compared with the alternatives
 
-Honest status as of today. ✅ built and tested · 🚧 in progress · 📋 planned (phase in
-BUILD-PLAN) · ❌ not planned.
+Honest status as of today. ✅ built and tested · 🚧 built, being wired or proven · ❌ not planned.
+Competitor cells come from each project's own documentation.
 
-| | Cairn | MinIO (AGPL community edition) |
-|---|---|---|
-| Deployment | single static binary + one data dir ✅ | single binary; erasure-coded multi-drive/multi-node |
-| S3 core (buckets, objects, multipart, versioning, ranges, conditionals, checksums) | 🚧 1c | ✅ |
-| Multi-node / erasure coding across machines | ❌ v1 (scale-up; async replication for DR) | ✅ |
-| Soft delete for everything + restorable trash | 📋 2a (engine primitives ✅) | ❌ (versioning only) |
-| Point-in-time read (`x-cairn-as-of`) and bucket PITR restore | 📋 2a (`head_at` query ✅) | ❌ |
-| IAM policies, groups, bucket policies, STS | 🚧 2b (policy engine ✅, 143 evaluator cases) | ✅ |
-| OIDC federation (`AssumeRoleWithWebIdentity`) | 📋 3c | ✅ |
-| Encryption at rest (SSE-S3, SSE-C, named keys) | 🚧 (AES-256-GCM blob layer ✅; S3 headers 2a) | ✅ (KMS via KES) |
-| Object Lock (governance, compliance, legal hold) | 📋 2a | ✅ |
-| Lifecycle expiration | 📋 2a | ✅ (+ tiering transitions) |
-| Bucket notifications: webhooks (HMAC-signed) | ✅ library, wiring 📋 | ✅ (webhook, Kafka, AMQP, NATS, …) |
-| Notifications to serverless functions (Lambda SigV4, bearer, Cloudflare Access) | ✅ library, wiring 📋 | ❌ |
-| Live event stream (SSE) for sidecar extensions | ✅ library, wiring 📋 | ✅ (`mc admin trace`/listen) |
-| Async replication (to Cairn or any S3) | 📋 3b | ✅ |
-| Blob tiering to remote S3 | 📋 3b | ✅ |
-| Built-in MCP server for AI agents, governed by IAM | 📋 3c | ❌ |
-| Admin UI | 📋 4 | ✅ (console) |
-| Prometheus metrics, health endpoints, audit log | 📋 2a | ✅ |
-| Backup / restore / fsck / scrub tooling | 📋 3b | partial (`mc mirror`, heal) |
+| | **Cairn** | VaultS3 | RustFS | Garage |
+|---|---|---|---|---|
+| Language / licence | Rust / AGPL-3.0 | Go / AGPL-3.0 | Rust / Apache-2.0 | Rust / AGPL-3.0 |
+| Shape | one binary, one node | one binary, optional Raft cluster | distributed cluster | small replicated cluster |
+| Undo a delete with nothing configured | 🚧 always-on history | only if versioning was on | no | no |
+| Read or restore a bucket as of any instant | 🚧 `x-cairn-as-of`, `cairn pitr` | snapshots you commit first | no | no |
+| Identical bytes stored once | ✅ BLAKE3 content addressing | no | no | no |
+| MCP for AI agents | 🚧 in-process, under IAM | none | separate server, plain S3 creds | none |
+| S3 core, SigV4, IAM policies, STS | 🚧 (29 ops, 143-case policy engine) | ✅ 80+ ops, OIDC, groups | ✅ | ✅ subset |
+| Encryption at rest | 🚧 SSE-S3 | SSE-S3, SSE-KMS, SSE-C, per-bucket keys | ✅ | no |
+| Lifecycle | 🚧 expiration + abort-mpu | one rule per bucket | ✅ | ✅ |
+| fsck / scrub / backup | ✅ engine, CLI 🚧 | heal, backups, orphan reclaim | heal | scrub |
+| Dashboard, erasure coding, clustering, replication, search, FUSE, S3 Select | ❌ | ✅ | partly | partly |
+| Contributor agreement | none, DCO | CLA | not checked | not checked |
+| Idle memory | not yet measured | 17 MiB | 70 MiB | 23 MiB |
 
-MinIO is far more mature and scales out; Cairn trades scale-out for a smaller footprint and
-stronger "undo" guarantees on a single node. If you need a multi-petabyte cluster, use MinIO,
-Ceph RGW or Garage.
+Memory figures are VaultS3's published same-host measurement (August 2026), not ours.
+If a cell about Cairn is wrong, open an issue; the table is part of the definition of done.
+
+## Promises
+
+- Nothing in the core moves behind a paid tier. No telemetry, no account, no licence key.
+- No CLA: contributions are DCO-signed, so no one party can relicense the core.
+- Every security fix gets a public advisory.
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md); these lines are in git.
 
 ## S3 compatibility
 
@@ -114,6 +126,6 @@ embed their dependency list for `cargo audit bin`, and ship with a CycloneDX SBO
 
 ## Contributing and design
 
-Start with [`docs/DESIGN.md`](docs/DESIGN.md) (architecture and rationale) and
-[`AGENTS.md`](AGENTS.md) (build constraints and conventions). Changes are recorded in
-[`CHANGELOG.md`](CHANGELOG.md). Benchmarks: [`bench/`](bench/).
+Start with [`CONTRIBUTING.md`](CONTRIBUTING.md) (DCO, scope), [`docs/DESIGN.md`](docs/DESIGN.md)
+(architecture, rationale, and §0 for what is in and out) and [`AGENTS.md`](AGENTS.md) (build
+constraints and conventions). Changes are recorded in [`CHANGELOG.md`](CHANGELOG.md).
