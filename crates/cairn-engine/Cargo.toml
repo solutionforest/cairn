@@ -1,0 +1,30 @@
+[package]
+name = "cairn-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Cairn object storage: engine"
+
+[dependencies]
+cairn-core.workspace = true
+cairn-meta.workspace = true
+cairn-blob.workspace = true
+cairn-auth.workspace = true
+tokio.workspace = true
+bytes.workspace = true
+futures.workspace = true
+serde.workspace = true
+postcard.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+jiff.workspace = true
+uuid.workspace = true
+smallvec.workspace = true
+hex.workspace = true
+base64.workspace = true
+md-5.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

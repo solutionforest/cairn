@@ -1,0 +1,21 @@
+[package]
+name = "cairn-admin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Cairn object storage: admin"
+
+[dependencies]
+cairn-core.workspace = true
+cairn-engine.workspace = true
+cairn-auth.workspace = true
+axum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+http.workspace = true
+jiff.workspace = true
+thiserror.workspace = true

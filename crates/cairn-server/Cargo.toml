@@ -1,0 +1,39 @@
+[package]
+name = "cairn-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Cairn object storage: server"
+
+[dependencies]
+cairn-core.workspace = true
+cairn-engine.workspace = true
+cairn-auth.workspace = true
+cairn-s3.workspace = true
+cairn-admin.workspace = true
+cairn-events.workspace = true
+cairn-mcp.workspace = true
+s3s.workspace = true
+tokio.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+axum.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+http.workspace = true
+http-body-util.workspace = true
+rustls.workspace = true
+tokio-rustls.workspace = true
+rustls-pemfile.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+aws-sdk-s3.workspace = true
+aws-smithy-http-client.workspace = true
+aws-credential-types.workspace = true
+tempfile.workspace = true
+reqwest.workspace = true
+serde_json.workspace = true

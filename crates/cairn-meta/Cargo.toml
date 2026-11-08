@@ -1,0 +1,22 @@
+[package]
+name = "cairn-meta"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Cairn object storage: meta"
+
+[dependencies]
+cairn-core.workspace = true
+redb.workspace = true
+postcard.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+jiff.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+proptest.workspace = true
