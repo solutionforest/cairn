@@ -123,3 +123,165 @@ where
         Err(e) => e.raw_response().map(|r| r.status().as_u16()).unwrap_or(0),
     }
 }
+
+/// A server that also exposes its engine, an admin client and the clock its workers use.
+pub struct Node {
+    pub addr: SocketAddr,
+    pub s3: Client,
+    pub admin: cairn_admin::client::AdminClient,
+    pub engine: Option<cairn_server::cairn_engine::CairnEngine>,
+    trigger: Option<cairn_server::ShutdownTrigger>,
+    join: Option<tokio::task::JoinHandle<anyhow::Result<()>>>,
+}
+
+impl Node {
+    /// Start a server with `config` and the given worker clock.
+    pub async fn start_with_clock(
+        config: cairn_core::Config,
+        clock: std::sync::Arc<dyn cairn_server::Clock>,
+    ) -> Node {
+        let creds = RootCreds {
+            access_key: config.auth.root_access_key.clone().unwrap_or_default(),
+            secret_key: config.auth.root_secret_key.clone().unwrap_or_default(),
+        };
+        let server = cairn_server::Server::bind_with_clock(config, clock)
+            .await
+            .expect("bind test server");
+        let addr = server.local_addr();
+        let engine = server.engine().clone();
+        let trigger = server.shutdown_trigger();
+        let join = tokio::spawn(server.run_until(std::future::pending::<()>()));
+        let admin = cairn_admin::client::AdminClient::new(
+            &format!("http://{addr}"),
+            &creds.access_key,
+            cairn_auth::SecretString::from(creds.secret_key.as_str()),
+            None,
+            "us-east-1",
+        )
+        .unwrap();
+        Node {
+            addr,
+            s3: client(addr, &creds),
+            admin,
+            engine: Some(engine),
+            trigger: Some(trigger),
+            join: Some(join),
+        }
+    }
+
+    /// Start a server with `config` and the system clock.
+    pub async fn start(config: cairn_core::Config) -> Node {
+        Node::start_with_clock(config, std::sync::Arc::new(cairn_server::SystemClock)).await
+    }
+
+    /// Start a server over `dir` with the default test configuration.
+    pub async fn open(dir: &std::path::Path) -> Node {
+        Node::start(cairn_server::test_support::test_config(dir)).await
+    }
+
+    pub fn engine(&self) -> &cairn_server::cairn_engine::CairnEngine {
+        self.engine.as_ref().unwrap()
+    }
+
+    /// Graceful shutdown; the database is closed when this returns.
+    pub async fn stop(mut self) {
+        self.engine.take();
+        self.trigger.take().unwrap().trigger();
+        self.join.take().unwrap().await.unwrap().unwrap();
+    }
+
+    pub async fn admin(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<serde_json::Value>,
+    ) -> serde_json::Value {
+        self.admin
+            .call(method, path, &[], body.as_ref())
+            .await
+            .unwrap_or_else(|e| panic!("{method} {path}: {e}"))
+    }
+
+    pub async fn bucket(&self, name: &str) {
+        self.s3.create_bucket().bucket(name).send().await.unwrap();
+    }
+
+    pub async fn put(&self, bucket: &str, key: &str, data: impl Into<Vec<u8>>) -> String {
+        self.s3
+            .put_object()
+            .bucket(bucket)
+            .key(key)
+            .body(ByteStream::from(data.into()))
+            .send()
+            .await
+            .unwrap()
+            .e_tag
+            .unwrap()
+    }
+
+    pub async fn get(&self, bucket: &str, key: &str) -> Vec<u8> {
+        self.s3
+            .get_object()
+            .bucket(bucket)
+            .key(key)
+            .send()
+            .await
+            .unwrap()
+            .body
+            .collect()
+            .await
+            .unwrap()
+            .into_bytes()
+            .to_vec()
+    }
+
+    /// GET `key` as of `at` (`x-cairn-as-of`, nanoseconds or RFC 3339).
+    pub async fn get_as_of(&self, bucket: &str, key: &str, at: &str) -> Result<Vec<u8>, String> {
+        let at = at.to_string();
+        match self
+            .s3
+            .get_object()
+            .bucket(bucket)
+            .key(key)
+            .customize()
+            .mutate_request(move |r| {
+                r.headers_mut().insert("x-cairn-as-of", at.clone());
+            })
+            .send()
+            .await
+        {
+            Ok(o) => Ok(o.body.collect().await.unwrap().into_bytes().to_vec()),
+            Err(e) => Err(e.code().unwrap_or("<none>").to_string()),
+        }
+    }
+}
+
+/// Current wall time as an RFC 3339 string with nanoseconds, after a small sleep on both sides
+/// so it lies strictly between surrounding writes.
+pub async fn instant() -> String {
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    let t = jiff::Timestamp::now().to_string();
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    t
+}
+
+/// Files and total bytes under `dir/blobs` (recursive).
+pub fn blob_files(dir: &std::path::Path) -> (usize, u64) {
+    fn walk(p: &std::path::Path, acc: &mut (usize, u64)) {
+        let Ok(rd) = std::fs::read_dir(p) else {
+            return;
+        };
+        for e in rd.flatten() {
+            let m = e.metadata().unwrap();
+            if m.is_dir() {
+                walk(&e.path(), acc);
+            } else {
+                acc.0 += 1;
+                acc.1 += m.len();
+            }
+        }
+    }
+    let mut acc = (0, 0);
+    walk(&dir.join("blobs"), &mut acc);
+    acc
+}
