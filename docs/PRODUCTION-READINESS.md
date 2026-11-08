@@ -31,7 +31,7 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done.
 - [~] C3 `cairn fsck` detects orphan / missing / corrupt blobs and refcount drift; `--repair` fixes what is safe; GET of a damaged version fails loudly. (crates/cairn-engine/tests/fsck.rs 6 tests; subcommand + GET check pending)
 - [~] C4 `cairn scrub` verifies blob hashes on a schedule with an IO budget. (crates/cairn-engine/tests/scrub.rs; not spawned from serve)
 - [~] C5 `cairn backup` (full + incremental, encrypted) and `cairn restore` round-trip. (crates/cairn-engine/tests/backup.rs 5 tests; subcommands pending)
-- [~] C6 Disk full → `507`, server stays up, GET/DELETE/GC still work. (cairn-blob SpaceGuard tested; put-path wiring + server test pending)
+- [x] C6 Disk full → `507`, server stays up, GET/DELETE/GC still work. (crates/cairn-server/tests/disk_full.rs: put/upload-part 507 with retry-after; GET, DELETE, CopyObject, trash restore, /readyz and GC unlink on a full disk; guard wired in the engine ingest path)
 - [~] C7 Schema migrations with pre-upgrade snapshot and `cairn migrate --dry-run`. (cairn_meta::migrate + v1 fixture; subcommand pending)
 - [x] C8 Graceful shutdown on SIGTERM drains requests and closes redb cleanly. (crates/cairn-cli/tests/cli.rs, crates/cairn-server/tests/server.rs)
 
