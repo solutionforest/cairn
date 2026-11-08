@@ -276,7 +276,8 @@ impl CairnEngine {
 
     fn resolve_read(&self, req: &GetObjectReq) -> S3Result<(VersionRecord, Versioning)> {
         let r = self.read()?;
-        let bucket = resolve_bucket(&r, &req.bucket)?;
+        let at = req.version_id.is_none().then_some(req.as_of).flatten();
+        let bucket = crate::resolve_bucket_at(&r, &req.bucket, at)?;
         let vg = bucket.versioning;
         let v = if let Some(vid) = &req.version_id {
             let v = resolve_version(&r, bucket.id, &req.key, vid)?;

@@ -5,7 +5,10 @@ use crate::gc::purge_version;
 use crate::types::*;
 use crate::{CairnEngine, resolve_bucket};
 use cairn_core::{PrincipalId, S3Error, S3ErrorCode, S3Result, Ts, VersionId};
-use cairn_meta::{Flow, ReadExt, Reader, Table, VersionRecord, VersionState, decode, keys, pitr};
+use cairn_meta::{
+    BucketRecord, BucketState, Flow, ReadExt, Reader, Table, VersionRecord, VersionState, decode,
+    keys, pitr,
+};
 
 fn not_in_trash(key: &str) -> S3Error {
     S3Error::new(S3ErrorCode::NoSuchVersion, "no such version in the trash").with_resource(key)
@@ -137,14 +140,14 @@ impl CairnEngine {
     /// marker).
     pub fn pitr_head_at(&self, bucket: &str, key: &str, at: Ts) -> S3Result<Option<VersionRecord>> {
         let r = self.read()?;
-        let b = resolve_bucket(&r, bucket)?;
+        let b = crate::resolve_bucket_at(&r, bucket, Some(at))?;
         Ok(pitr::head_at(&r, b.id, key, at)?)
     }
 
     /// Differences between the current state of `prefix` and its state at `at`.
     pub fn pitr_diff(&self, bucket: &str, prefix: &str, at: Ts) -> S3Result<Vec<DiffEntry>> {
         let r = self.read()?;
-        let b = resolve_bucket(&r, bucket)?;
+        let b = crate::resolve_bucket_at(&r, bucket, Some(at))?;
         let mut out = Vec::new();
         pitr::keys_with_history(&r, b.id, prefix, |key| {
             let then = pitr::head_at(&r, b.id, key, at)?;
@@ -184,10 +187,42 @@ impl CairnEngine {
         dry_run: bool,
         by: &PrincipalId,
     ) -> S3Result<PitrReport> {
-        let src = self.bucket(bucket)?;
+        let mut src = crate::resolve_bucket_at(&self.read()?, bucket, Some(at))?;
         let dst_name = target.bucket.clone().unwrap_or_else(|| bucket.to_string());
+        let src_trashed = !matches!(src.state, BucketState::Active);
+        // In place across a bucket delete: the bucket itself comes back first.
+        if src_trashed && dst_name == bucket {
+            if dry_run {
+                return self.pitr_plan(&src, &src, prefix, at, &target, true);
+            }
+            src = self
+                .restore_bucket(src.id, Some(bucket.to_string()))
+                .await?;
+        }
         let dst = self.bucket(&dst_name)?;
-        let in_place = dst.id == src.id && target.prefix.as_deref().is_none_or(|p| p == prefix);
+        let mut report = self.pitr_plan(&src, &dst, prefix, at, &target, false)?;
+        if dry_run {
+            return Ok(report);
+        }
+        self.pitr_apply(&src, &dst, &dst_name, prefix, at, &target, by, &mut report)
+            .await?;
+        Ok(report)
+    }
+
+    /// The changes a PITR restore from `src` into `dst` would make. `trashed_in_place` treats
+    /// `dst` as the (still trashed) source bucket coming back under its own name.
+    #[allow(clippy::too_many_arguments)]
+    fn pitr_plan(
+        &self,
+        src: &BucketRecord,
+        dst: &BucketRecord,
+        prefix: &str,
+        at: Ts,
+        target: &PitrTarget,
+        trashed_in_place: bool,
+    ) -> S3Result<PitrReport> {
+        let in_place = trashed_in_place
+            || (dst.id == src.id && target.prefix.as_deref().is_none_or(|p| p == prefix));
         let dest_key = |k: &str| match &target.prefix {
             Some(p) => format!("{p}{}", &k[prefix.len().min(k.len())..]),
             None => k.to_string(),
@@ -220,9 +255,26 @@ impl CairnEngine {
                 Ok(true)
             })?;
         }
-        if dry_run {
-            return Ok(report);
-        }
+        Ok(report)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn pitr_apply(
+        &self,
+        src: &BucketRecord,
+        dst: &BucketRecord,
+        dst_name: &str,
+        prefix: &str,
+        at: Ts,
+        target: &PitrTarget,
+        by: &PrincipalId,
+        report: &mut PitrReport,
+    ) -> S3Result<()> {
+        let dest_key = |k: &str| match &target.prefix {
+            Some(p) => format!("{p}{}", &k[prefix.len().min(k.len())..]),
+            None => k.to_string(),
+        };
+        let dst_name = dst_name.to_string();
         let src_keys: Vec<Option<String>> = {
             let r = self.read()?;
             let mut out = Vec::new();
@@ -288,6 +340,6 @@ impl CairnEngine {
                 }
             }
         }
-        Ok(report)
+        Ok(())
     }
 }
