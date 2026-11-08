@@ -6,11 +6,13 @@
 
 mod bucket;
 mod commit;
+pub mod fsck;
 mod gc;
 mod list;
 mod multipart;
 mod object;
 mod recovery;
+pub mod scrub;
 mod trash;
 pub mod types;
 mod util;
