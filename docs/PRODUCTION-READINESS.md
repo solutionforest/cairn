@@ -26,7 +26,7 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done.
 - [x] B7 Admin API requires root or `cairn:*` policy; CORS default-deny. (cairn-admin/src/tests.rs)
 
 ## C. Durability and recovery
-- [~] C1 Crash consistency: kill -9 during put / multipart complete / delete leaves nothing half-committed; recovery sweeps `tmp/`. (recovery test exists; fault-injection test pending)
+- [x] C1 Crash consistency: kill -9 during put / multipart complete / delete leaves nothing half-committed; recovery sweeps `tmp/`. (crates/cairn-engine/src/crash_tests.rs: the test binary re-executes itself, parks at a `cfg(test)`-only `failpoint!` (mid-body, blob placed, inside the commit txn, after commit; for put, put encrypted, complete, delete) and is SIGKILLed; reopen + `recover` (as `cairn serve` does at start) leaves the old or the whole new object, never a partial version, an intact resumable upload, empty `tmp/` and a clean full-verify fsck)
 - [x] C2 GC never deletes a referenced blob. (crates/cairn-engine/tests/engine.rs::gc_never_deletes_referenced_blobs)
 - [x] C3 `cairn fsck` detects orphan / missing / corrupt blobs and refcount drift; `--repair` fixes what is safe; GET of a damaged version fails loudly. (crates/cairn-engine/tests/fsck.rs; binary: crates/cairn-cli/tests/ops.rs; GET: crates/cairn-server/tests/damage.rs)
 - [x] C4 `cairn scrub` verifies blob hashes on a schedule with an IO budget. (crates/cairn-engine/tests/scrub.rs; binary: crates/cairn-cli/tests/ops.rs; spawned by `serve` with `storage.scrub = true`: crates/cairn-server/tests/damage.rs::serve_spawns_scrub_which_marks_damage)

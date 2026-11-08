@@ -4,9 +4,20 @@
 //! versioning (with shadow versioning on unversioned buckets), multipart, tagging, soft delete,
 //! trash, PITR and GC (DESIGN §5, §7).
 
+/// Named crash point for the kill -9 tests in `crash_tests`; expands to nothing outside
+/// `cfg(test)`.
+macro_rules! failpoint {
+    ($name:literal) => {
+        #[cfg(test)]
+        crate::crash_tests::failpoint($name);
+    };
+}
+
 pub mod backup;
 mod bucket;
 mod commit;
+#[cfg(test)]
+mod crash_tests;
 mod events;
 pub mod fsck;
 mod gc;

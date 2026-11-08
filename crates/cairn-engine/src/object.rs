@@ -75,6 +75,7 @@ impl CairnEngine {
                 }
                 return Err(e.into());
             }
+            failpoint!("ingest.mid_body");
         }
         if content_length.is_some_and(|cl| cl != n) {
             return Err(S3Error::code(S3ErrorCode::IncompleteBody));
@@ -166,6 +167,7 @@ impl CairnEngine {
                 req.checksum,
             )
             .await?;
+        failpoint!("put.blob_placed");
         let body = ObjectBody {
             size: ing.digest.size,
             etag: hex::encode(ing.digest.md5),
@@ -260,9 +262,11 @@ impl CairnEngine {
                     &conds,
                 )?;
                 em.emit(txn, &b, ev, &k, Some(&v), Vec::new())?;
+                failpoint!("put.in_txn");
                 Ok::<_, S3Error>((v, b))
             })
             .await?;
+        failpoint!("put.committed");
         self.notify();
         let body = v.body().expect("object version");
         Ok(PutObjectRes {
@@ -504,6 +508,7 @@ impl CairnEngine {
                             )?;
                             soft_delete(txn, &b, &inner.cfg, head, now, &by)?;
                             txn.refresh_latest(id, &key)?;
+                            failpoint!("delete.in_txn");
                         }
                         Ok(DeleteRes::default())
                     }
@@ -541,6 +546,7 @@ impl CairnEngine {
             })
             .await;
         if res.is_ok() {
+            failpoint!("delete.committed");
             self.notify();
         }
         res

@@ -396,9 +396,11 @@ impl CairnEngine {
                     Some(&r.0),
                     Vec::new(),
                 )?;
+                failpoint!("complete.in_txn");
                 Ok::<_, S3Error>(r)
             })
             .await?;
+        failpoint!("complete.committed");
         self.notify();
         let body = v.body().expect("object");
         Ok(PutObjectRes {
