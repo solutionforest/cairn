@@ -1096,3 +1096,67 @@ fn condition_context_keys() {
     );
     assert_eq!(resource_arn("ListBuckets", None, None), "arn:aws:s3:::*");
 }
+
+#[tokio::test]
+async fn time_travel_requires_cairn_time_travel() {
+    let f = fx().await;
+    let read = [
+        stmt("Allow", "s3:GetObject", "arn:aws:s3:::docs/*"),
+        stmt("Allow", "s3:ListBucket", "arn:aws:s3:::docs"),
+    ];
+    let (_, plain) = f.user(Some(doc(&read))).await;
+    let mut tt = read.to_vec();
+    tt.push(
+        r#"{"Effect":"Allow","Action":"cairn:TimeTravel","Resource":["arn:aws:s3:::docs","arn:aws:s3:::docs/*"],"Condition":{"DateGreaterThanEquals":{"cairn:AsOf":"2026-01-01T00:00:00Z"}}}"#
+            .to_string(),
+    );
+    let (_, traveller) = f.user(Some(doc(&tt))).await;
+    let asof = [("x-cairn-as-of", "2026-06-01T00:00:00Z")];
+    let old = [("x-cairn-as-of", "2025-06-01T00:00:00Z")];
+    for (op, path) in [
+        ("GetObject", "/docs/a"),
+        ("HeadObject", "/docs/a"),
+        ("ListObjectsV2", "/docs?list-type=2"),
+        ("ListObjects", "/docs"),
+    ] {
+        assert_eq!(
+            code(f.check(Some(&plain), op, path, &[]).await),
+            "OK",
+            "{op}"
+        );
+        assert_eq!(
+            code(f.check(Some(&plain), op, path, &asof).await),
+            "AccessDenied",
+            "{op}"
+        );
+        assert_eq!(
+            code(f.check(Some(&traveller), op, path, &asof).await),
+            "OK",
+            "{op}"
+        );
+        assert_eq!(
+            code(f.check(Some(&traveller), op, path, &old).await),
+            "AccessDenied",
+            "{op}"
+        );
+    }
+    // x-cairn-as-of is ignored when a versionId is given (s3:GetObjectVersion governs).
+    let (_, ver) = f
+        .user(Some(doc(&[stmt(
+            "Allow",
+            "s3:GetObjectVersion",
+            "arn:aws:s3:::docs/*",
+        )])))
+        .await;
+    assert_eq!(
+        code(
+            f.check(Some(&ver), "GetObject", "/docs/a?versionId=v1", &asof)
+                .await
+        ),
+        "OK"
+    );
+    assert_eq!(
+        code(f.check(Some("ROOTAK"), "GetObject", "/docs/a", &asof).await),
+        "OK"
+    );
+}

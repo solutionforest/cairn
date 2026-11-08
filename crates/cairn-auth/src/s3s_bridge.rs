@@ -362,7 +362,8 @@ impl CairnS3Access {
     }
 
     /// Full check for one request: resolve the caller, map the operation to an IAM action and
-    /// resource, apply PublicAccessBlock, evaluate, and authorise the copy source if present.
+    /// resource, apply PublicAccessBlock, evaluate, require `cairn:TimeTravel` on the same
+    /// resource for `x-cairn-as-of` reads, and authorise the copy source if present.
     /// `DeleteObjects` is only resolved here; its keys are checked in the per-operation hook.
     pub async fn authorize(&self, v: &S3RequestView<'_>) -> Result<AuthenticatedCaller, S3Error> {
         let caller = self.resolve(v.access_key, v.uri, v.headers).await?;
@@ -401,6 +402,15 @@ impl CairnS3Access {
                 action, resource, decision = ?d, "access denied"
             );
             return Err(denied());
+        }
+        if matches!(
+            v.op,
+            "GetObject" | "HeadObject" | "ListObjects" | "ListObjectsV2"
+        ) && !has_version
+            && header(v.headers, "x-cairn-as-of").is_some()
+        {
+            self.authorize_action(&caller, "cairn:TimeTravel", v.bucket, &resource, &ctx)
+                .await?;
         }
         if matches!(v.op, "CopyObject" | "UploadPartCopy")
             && let Some(src) = header(v.headers, "x-amz-copy-source")

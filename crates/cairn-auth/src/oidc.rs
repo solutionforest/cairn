@@ -32,7 +32,8 @@ pub struct OidcProviderConfig {
     /// JWKS endpoint (`https://`, or `http://` on a loopback address for tests/dev).
     #[serde(default)]
     pub jwks_url: Option<String>,
-    /// Inline JWKS document (JSON); used instead of `jwks_url` when set.
+    /// Inline JWKS document (a JSON object, or a string holding one); used instead of
+    /// `jwks_url` when set.
     #[serde(default)]
     pub jwks: Option<Value>,
     /// Claim name → session tag key; scalar claims become `aws:PrincipalTag/<key>`.
@@ -176,10 +177,15 @@ impl OidcVerifier {
                 return Err(bad("at least one non-empty audience is required"));
             }
             let inline = match &cfg.jwks {
-                Some(v) => Some(Arc::new(
-                    serde_json::from_value::<JwkSet>(v.clone())
-                        .map_err(|e| bad(&format!("inline jwks: {e}")))?,
-                )),
+                Some(v) => {
+                    let parsed = match v {
+                        Value::String(s) => serde_json::from_str::<JwkSet>(s),
+                        other => serde_json::from_value::<JwkSet>(other.clone()),
+                    };
+                    Some(Arc::new(
+                        parsed.map_err(|e| bad(&format!("inline jwks: {e}")))?,
+                    ))
+                }
                 None => None,
             };
             match (&cfg.jwks_url, &inline) {

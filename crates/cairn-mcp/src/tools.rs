@@ -527,7 +527,7 @@ impl CairnMcp {
     }
 
     #[tool(
-        description = "List objects in a bucket (s3:ListBucket). Supports prefix, delimiter, pagination via start_after, and time travel via as_of."
+        description = "List objects in a bucket (s3:ListBucket; as_of also needs cairn:TimeTravel). Supports prefix, delimiter, pagination via start_after, and time travel via as_of."
     )]
     async fn list_objects(
         &self,
@@ -557,6 +557,17 @@ impl CairnMcp {
                 &extra,
             )
             .await?;
+            if a.as_of.is_some() {
+                self.allow(
+                    &c,
+                    "list_objects",
+                    "cairn:TimeTravel",
+                    Some(&a.bucket),
+                    &arn::bucket(&a.bucket),
+                    &extra,
+                )
+                .await?;
+            }
             let res = self.state.engine.list_objects(
                 &a.bucket,
                 &ListReq {
@@ -1030,7 +1041,7 @@ impl CairnMcp {
     }
 
     #[tool(
-        description = "The version that was current for a key at an instant (s3:GetObject with cairn:AsOf, like a time-travel HEAD)."
+        description = "The version that was current for a key at an instant (s3:GetObject + cairn:TimeTravel with cairn:AsOf, like a time-travel HEAD)."
     )]
     async fn pitr_head_at(
         &self,
@@ -1214,7 +1225,8 @@ impl CairnMcp {
 
 impl CairnMcp {
     /// `s3:GetObject` (or `s3:GetObjectVersion` with a version id) on the object, with
-    /// `s3:VersionId` / `cairn:AsOf` in the context.
+    /// `s3:VersionId` / `cairn:AsOf` in the context; time travel (`as_of` without a version id)
+    /// also needs `cairn:TimeTravel` on the object, as `x-cairn-as-of` does over S3.
     async fn authorize_read(
         &self,
         c: &McpCaller,
@@ -1235,15 +1247,14 @@ impl CairnMcp {
         if let Some(t) = as_of {
             extra.push(("cairn:AsOf", t.to_string()));
         }
-        self.allow(
-            c,
-            tool,
-            action,
-            Some(bucket),
-            &arn::object(bucket, key),
-            &extra,
-        )
-        .await
+        let res = arn::object(bucket, key);
+        self.allow(c, tool, action, Some(bucket), &res, &extra)
+            .await?;
+        if as_of.is_some() && version.is_none() {
+            self.allow(c, tool, "cairn:TimeTravel", Some(bucket), &res, &extra)
+                .await?;
+        }
+        Ok(())
     }
 }
 

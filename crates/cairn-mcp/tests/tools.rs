@@ -22,6 +22,7 @@ const AGENT: &str = r#"{"Version":"2012-10-17","Statement":[
  {"Effect":"Allow","Action":["s3:ListBucket","s3:GetObject","s3:GetObjectVersion"],"Resource":["arn:aws:s3:::docs","arn:aws:s3:::docs/*"]},
  {"Effect":"Allow","Action":["s3:PutObject","s3:DeleteObject"],"Resource":"arn:aws:s3:::docs/inbox/*"},
  {"Effect":"Allow","Action":["cairn:ListTrash","cairn:PitrDiff","cairn:Pitr"],"Resource":"arn:aws:s3:::docs"},
+ {"Effect":"Allow","Action":"cairn:TimeTravel","Resource":["arn:aws:s3:::docs","arn:aws:s3:::docs/inbox/*"]},
  {"Effect":"Allow","Action":"cairn:Restore","Resource":"arn:aws:s3:::docs/inbox/*"},
  {"Effect":"Deny","Action":"s3:GetObject","Resource":"arn:aws:s3:::docs/private/*"},
  {"Effect":"Deny","Action":"*","Resource":"*","Condition":{"StringEquals":{"cairn:McpTool":"pitr_restore"}}}
@@ -546,6 +547,16 @@ async fn restricted_agent_writes_deletes_and_recovers() {
         .map(|e| e["key"].as_str().unwrap())
         .collect();
     assert_eq!(changed, vec!["inbox/a.txt", "inbox/b.bin", "inbox/copy.md"]);
+    assert_eq!(
+        err(
+            &c,
+            "pitr_head_at",
+            json!({"bucket": "docs", "key": "readme.md", "at": before})
+        )
+        .await,
+        "AccessDenied",
+        "cairn:TimeTravel is only granted on inbox/*"
+    );
     // cairn:Pitr is allowed, but a Deny on cairn:McpTool = pitr_restore blocks the tool.
     assert_eq!(
         err(&c, "pitr_restore", json!({"bucket": "docs", "at": before})).await,
@@ -564,6 +575,21 @@ async fn mcp_tool_condition_selects_tools() {
     )
     .await;
     ok(&c, "list_objects", json!({"bucket": "docs"})).await;
+    // Time travel additionally needs cairn:TimeTravel.
+    let at = cairn_core::Ts::now().to_rfc3339();
+    assert_eq!(
+        err(
+            &c,
+            "head_object",
+            json!({"bucket": "docs", "key": "readme.md", "as_of": at})
+        )
+        .await,
+        "AccessDenied"
+    );
+    assert_eq!(
+        err(&c, "list_objects", json!({"bucket": "docs", "as_of": at})).await,
+        "AccessDenied"
+    );
     // Same action (s3:GetObject / s3:ListBucket), different tool: denied.
     assert_eq!(
         err(

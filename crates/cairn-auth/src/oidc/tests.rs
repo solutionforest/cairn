@@ -192,7 +192,17 @@ async fn rs256_via_jwks_url_issues_tagged_session() {
 #[tokio::test]
 async fn es256_with_inline_jwks() {
     let k = ec_key("ec1");
-    let v = OidcVerifier::new(vec![provider(None, Some(json!({"keys": [k.jwk]})))]).unwrap();
+    let v =
+        OidcVerifier::new(vec![provider(None, Some(json!({"keys": [k.jwk.clone()]})))]).unwrap();
+    let as_string = OidcVerifier::new(vec![provider(
+        None,
+        Some(Value::String(json!({"keys": [k.jwk.clone()]}).to_string())),
+    )])
+    .unwrap();
+    as_string
+        .verify(&sign(&k, Algorithm::ES256, &claims("s")))
+        .await
+        .unwrap();
     let id = v
         .verify(&sign(&k, Algorithm::ES256, &claims("repo:acme/x")))
         .await
