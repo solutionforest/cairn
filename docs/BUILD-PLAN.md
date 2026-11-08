@@ -95,19 +95,38 @@ pub struct BlobWriter { .. } impl AsyncWrite; fn finish(self) -> Result<BlobDige
 
 ## Phases
 
+Three agents work in one checkout: **A** = storage/S3/server (critical path), **B** = auth/admin/
+MCP, **C** = events/replication-adjacent/tooling. Status dates are UTC.
+
 | # | Scope | Owner | Status | Acceptance |
 |---|-------|-------|--------|------------|
-| 0 | Workspace scaffold, `cairn-core` types/errors/config, CI (`cargo fmt/clippy/test/deny`), Dockerfile skeleton | Agent A | 2026-11-08 scaffold created by orchestrator; types in progress | `cargo check --workspace` green |
-| 1a | `cairn-meta` (redb tables, txn wrapper, list iterators, `head_at`), `cairn-blob` (fs, hashing writer, range reader, GC primitives) with unit + proptest | Agent A | todo | `cargo test -p cairn-meta -p cairn-blob` green; `head_at` property test |
-| 1b | `cairn-auth`: policy language parse/validate/compile/evaluate (AWS table tests), credential store, STS sessions, presign (AWS test vectors) | Agent B | todo | `cargo test -p cairn-auth` green; ≥ 60 policy evaluator cases |
-| 1c | `cairn-engine` + `cairn-s3` (s3s impl) + `cairn-server` + `cairn-cli serve/init`: bucket CRUD, Put/Get/Head/Delete(s), Copy, ListObjects v1/v2, ListObjectVersions, versioning, multipart (all 7 ops), tagging, metadata, range/conditional, checksums, soft delete + shadow versioning, root-only auth via `S3Auth` | Agent A | todo | `tests/` with aws-sdk-s3 cover every op; `aws s3 cp/sync/ls/rm` and `rclone` work manually |
-| 2 | Wire `cairn-auth` into `S3Access`; bucket policy APIs; STS endpoint (`/?Action=AssumeRole`); admin API + `cairn admin` CLI (users/keys/policies/buckets/trash/pitr/quota); PITR restore + `x-cairn-as-of`; lifecycle worker; Object Lock; SSE-S3/SSE-C/KMS-named-keys; CORS; PublicAccessBlock; metrics/health; audit JSONL | A + B | todo | integration tests for policies/STS/trash/PITR/lock/encryption; `s3-tests` tagged subset ≥ 80% |
-| 3 | Events outbox + webhooks; bucket notifications; replication worker + APIs; backup/restore CLI; fsck/scrub; `cairn-mcp` (stdio + HTTP, tools in DESIGN §11.1); PostObject; OIDC STS | A + B + C | todo | replication round-trip test between two in-process servers; MCP tools tested via rmcp client; `s3-tests` subset ≥ 95% |
-| 4 | Admin UI; `ai` feature (extraction, embeddings, search); SSE event stream; ACME; otel; packaging (musl, Docker, systemd); docs site | later | todo | |
+| 0 | Workspace scaffold, `cairn-core` types/errors/config, CI, Dockerfile skeleton | A | **done** 2026-11-08 | `cargo check --workspace` green |
+| 1a | `cairn-meta` (redb tables, writer thread, list iterators, `head_at`), `cairn-blob` (fs, hashing writer, range reader, AEAD, GC primitives) | A | **done** 2026-11-08 | tests green |
+| 1b | `cairn-auth`: policy parse/validate/compile/evaluate, credential store, STS sessions, SigV4 + presign | B | **done** 2026-11-08 (143 evaluator cases, store + sigv4 tests) | tests green |
+| 1c | `cairn-engine` (bucket/object/multipart/commit landed; **recovery, GC tick, lifecycle hooks pending**) + `cairn-s3` (s3s impl) + `cairn-server` + `cairn-cli serve/init`: bucket CRUD, Put/Get/Head/Delete(s), Copy, ListObjects v1/v2, ListObjectVersions, versioning, multipart (7 ops), tagging, metadata, range/conditional, checksums, soft delete + shadow versioning, root-only `S3Auth`. Create `docs/COMPAT.md` and `docs/EXTENSIONS.md`, example `cairn.toml`. | A | in progress | `crates/cairn-server/tests/` with aws-sdk-s3 cover every op; `aws s3 cp/sync/ls/rm` and `rclone` work manually |
+| 2a | Engine/S3 features: trash list/restore/purge, PITR restore + `x-cairn-as-of`, lifecycle worker (expiration, noncurrent, abort-mpu), GC worker, Object Lock (governance/compliance/legal hold), SSE-S3 / SSE-C (key-scoped blob ids, DESIGN §15 Q5) / named KMS keys, CORS, PublicAccessBlock, bucket quota (507), rate limiting (§8.3), `/metrics` `/healthz` `/readyz`, audit JSONL, graceful shutdown | A | todo | integration tests per feature; `s3-tests` tagged subset ≥ 80% |
+| 2b | Wire `cairn-auth` into s3s `S3Auth`/`S3Access` (bucket policy ∪ identity ∪ PAB); Put/Get/Delete BucketPolicy + GetBucketPolicyStatus; STS endpoint (`/?Action=AssumeRole|GetSessionToken`); `cairn-admin` REST API (`/_cairn/v1/...`) + `cairn admin` CLI (users/keys/groups/policies/roles/buckets/trash/pitr/quota/lock); metadata **migrations framework** (schema version in `kv`, pre-upgrade snapshot, `cairn migrate --dry-run`) | B | todo | policy/STS/admin integration tests; migration test from a v1 fixture |
+| 3a | `cairn-events`: event types (S3 schema 2.1 + `cairn:`), durable outbox + cursor, delivery worker with backoff + DLQ, sinks: webhook (HMAC), **function sinks** (bearer / sigv4-lambda / cf-access, §10), SSE stream `/_cairn/v1/events`; `Put/GetBucketNotificationConfiguration` mapping incl. `LambdaFunctionConfigurations` | C | todo | outbox delivers exactly the committed set after crash (test); fake HTTP sink tests per auth mode |
+| 3b | Replication worker + Put/Get/DeleteBucketReplication, `x-cairn-version-id` on Cairn→Cairn; **blob tiering** `BlobStore` (hot local / cold remote S3, age+size rules, transparent read-through); `cairn backup/restore` (snapshot + incremental blobs, age-style encryption); `cairn fsck` / `cairn scrub` | A | todo | replication round-trip between two in-process servers; tiered GET of a cold blob; fsck detects an injected orphan and a corrupt blob |
+| 3c | `cairn-mcp` (stdio + streamable HTTP, tools in DESIGN §11.1, `cairn:McpTool` condition key); OIDC federation for STS (`AssumeRoleWithWebIdentity`); PostObject (browser form upload) | B | todo | MCP tools exercised with an rmcp client under a restricted policy; OIDC test with a local JWKS |
+| 3d | Tooling: `bench/` harness (warp or custom, reproducing §13 targets, results committed as markdown); `s3-tests` (ceph) runner script + tag list + CI job (nightly, allowed-failure list); config reference generator (`cairn config schema`) | C | todo | bench runs on the dev host; `s3-tests` subset ≥ 95% by end of phase 3 |
+| R | Release engineering: `cargo deny` + `cargo audit` in CI; release workflow (tags → static musl x86_64/aarch64, Docker image to GHCR, SBOM, checksums); CHANGELOG; **name check** on crates.io / Docker Hub / GitHub before first public tag; `SECURITY.md` with disclosure policy | C | todo | `v0.1.0-alpha` tag produces downloadable binaries |
+| 4 | Admin UI (`/_cairn/ui`); `ai` feature (extraction, embeddings, search); ACME; otel; WASM GET-hook experiment; Helm; docs site | later | todo | |
+
+### Gaps closed on 2026-11-08 (second planning pass)
+Added after reviewing the first plan: scaling path / HA posture (DESIGN §12.1), function sinks for
+serverless targets (§10), rate limiting (§8.3), key-scoped blob ids for SSE-C (§15 Q5),
+migrations framework (2b), bench + `s3-tests` harness (3d), release engineering (R), blob
+tiering pulled into 3b, phase 2 split so A and B do not touch the same files.
 
 ## Working agreements
-- Commit locally at each green milestone with a descriptive message; never push without the
-  owner's explicit instruction. Branch `master` is fine for now.
+- Commit locally at each green milestone with a descriptive message. Agents do not push; the
+  orchestrator pushes `master` to `origin` (private `solutionforest/cairn`) at phase boundaries.
+- File ownership while phases run in parallel: A owns `cairn-core/meta/blob/engine/s3/server/cli`,
+  B owns `cairn-auth/admin/mcp`, C owns `cairn-events`, `bench/`, `scripts/`, `.github/`,
+  `deploy/`. Touching another agent's crate: additive only (new module/function), say so in the
+  commit message, never reformat or rename. Shared docs (`COMPAT.md`, `EXTENSIONS.md`,
+  `BUILD-PLAN.md`) are append-only rows.
 - Keep `docs/COMPAT.md` (operation → status + notes) and `docs/EXTENSIONS.md` (x-cairn headers)
   current as behaviour lands.
 - When a DESIGN decision proves wrong, change DESIGN.md in the same commit and say why in
@@ -157,3 +176,13 @@ Entries are dated (UTC) and name the author. Newest last.
   `cairn-events` / `cairn-mcp`.** These edges were removed from `cairn-engine`, `cairn-s3` and
   `cairn-server` so that Agent A's builds are not broken by in-progress work in parallel crates.
   Re-add them in phase 2 when wiring `S3Access` and the admin API.
+- **2026-11-08 (orchestrator) — scale and serverless posture.** v1 stays single-writer; HA is
+  active-passive via replication; blob tiering to remote S3 moves from post-v1 to phase 3b;
+  multi-node (Raft + hashing) remains post-v1 behind unchanged `MetaStore`/`BlobStore` traits.
+  Cairn-as-a-function is a non-goal; Cairn-calls-functions is first-class via function sinks
+  (`sigv4-lambda`, `bearer`, `cf-access` auth modes) so `LambdaFunctionConfigurations` works
+  unchanged. Object Lambda (GET-time transform) is out of scope for v1.
+- **2026-11-08 (orchestrator) — phase 1b auth rewrite and partial engine committed as-is.** Agent
+  B's uncommitted rewrite (store/sts/sigv4 tests, 3.2k lines) and Agent A's engine
+  bucket/object/multipart/commit modules compiled and passed tests, so they were committed to
+  give phase 1c a clean baseline. `recovery.rs` is an empty placeholder owned by A.

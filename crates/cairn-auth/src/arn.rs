@@ -82,22 +82,25 @@ pub fn validate_resource_pattern(s: &str) -> Result<(), String> {
     if s == "*" {
         return Ok(());
     }
-    let a = parse(s).ok_or_else(|| format!("{s}: not an ARN (expected arn:partition:service:region:account:resource)"))?;
+    let a = parse(s).ok_or_else(|| {
+        format!("{s}: not an ARN (expected arn:partition:service:region:account:resource)")
+    })?;
     if a.partition.is_empty() || a.service.is_empty() || a.resource.is_empty() {
         return Err(format!("{s}: empty partition, service or resource"));
     }
     if a.service == "s3" {
-        if !(a.region.is_empty() || a.region == "*") || !(a.account.is_empty() || a.account == "*") {
+        if !(a.region.is_empty() || a.region == "*") || !(a.account.is_empty() || a.account == "*")
+        {
             return Err(format!("{s}: s3 ARNs have empty region and account"));
         }
         let bucket = a.resource.split('/').next().unwrap_or("");
         if bucket.is_empty() {
             return Err(format!("{s}: missing bucket"));
         }
-        if !bucket
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_' | '*' | '?' | '$' | '{' | '}' | ':'))
-        {
+        if !bucket.chars().all(|c| {
+            c.is_ascii_alphanumeric()
+                || matches!(c, '-' | '.' | '_' | '*' | '?' | '$' | '{' | '}' | ':')
+        }) {
             return Err(format!("{s}: invalid bucket name"));
         }
     }
@@ -111,15 +114,34 @@ mod tests {
     #[test]
     fn parse_and_validate() {
         assert_eq!(parse("arn:aws:s3:::b/k/x").unwrap().resource, "b/k/x");
-        assert_eq!(parse("arn:aws:iam::0:user/a:b").unwrap().resource, "user/a:b");
+        assert_eq!(
+            parse("arn:aws:iam::0:user/a:b").unwrap().resource,
+            "user/a:b"
+        );
         assert!(parse("arn:aws:s3").is_none());
-        for ok in ["*", "arn:aws:s3:::b", "arn:aws:s3:::b/*", "arn:aws:s3:::b/p/*", "arn:aws:s3:::*",
-            "arn:aws:s3:::b?x/*", "arn:aws:s3:::home/${aws:username}/*", "arn:aws:iam::000000000000:user/*",
-            "arn:cairn:admin:::server"] {
+        for ok in [
+            "*",
+            "arn:aws:s3:::b",
+            "arn:aws:s3:::b/*",
+            "arn:aws:s3:::b/p/*",
+            "arn:aws:s3:::*",
+            "arn:aws:s3:::b?x/*",
+            "arn:aws:s3:::home/${aws:username}/*",
+            "arn:aws:iam::000000000000:user/*",
+            "arn:cairn:admin:::server",
+        ] {
             validate_resource_pattern(ok).unwrap();
         }
-        for bad in ["bucket", "arn:aws:s3::", "arn:aws:s3:::", "arn:aws:s3:us-east-1::b",
-            "arn:aws:s3::123:b", "arn::s3:::b", "arn:aws:s3:::/k", "arn:aws:s3:::B A/k"] {
+        for bad in [
+            "bucket",
+            "arn:aws:s3::",
+            "arn:aws:s3:::",
+            "arn:aws:s3:us-east-1::b",
+            "arn:aws:s3::123:b",
+            "arn::s3:::b",
+            "arn:aws:s3:::/k",
+            "arn:aws:s3:::B A/k",
+        ] {
             assert!(validate_resource_pattern(bad).is_err(), "{bad}");
         }
     }
@@ -127,7 +149,10 @@ mod tests {
     #[test]
     fn constructors() {
         assert_eq!(object("b", "a b"), "arn:aws:s3:::b/a b");
-        assert_eq!(assumed_role("r", "s"), "arn:aws:sts::000000000000:assumed-role/r/s");
+        assert_eq!(
+            assumed_role("r", "s"),
+            "arn:aws:sts::000000000000:assumed-role/r/s"
+        );
         assert_eq!(root(), "arn:aws:iam::000000000000:root");
     }
 }

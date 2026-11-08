@@ -40,7 +40,9 @@ impl std::fmt::Debug for AuthzEngine {
 impl AuthzEngine {
     /// Engine using the system clock.
     pub fn new() -> Self {
-        Self { clock: Arc::new(SystemClock) }
+        Self {
+            clock: Arc::new(SystemClock),
+        }
     }
 
     /// Engine with an injected clock (tests).
@@ -51,9 +53,19 @@ impl AuthzEngine {
     /// Context with `aws:username`, `aws:userid`, `aws:PrincipalArn`, `aws:PrincipalType`,
     /// `aws:CurrentTime`, `aws:EpochTime` added when absent. Principal keys always overwrite
     /// caller-supplied values so they cannot be spoofed.
-    pub fn enrich(&self, principal: Option<&Principal>, ctx: &ConditionContext) -> ConditionContext {
+    pub fn enrich(
+        &self,
+        principal: Option<&Principal>,
+        ctx: &ConditionContext,
+    ) -> ConditionContext {
         let mut c = ctx.clone();
-        for k in ["aws:username", "aws:userid", "aws:principalarn", "aws:principaltype", "aws:principalaccount"] {
+        for k in [
+            "aws:username",
+            "aws:userid",
+            "aws:principalarn",
+            "aws:principaltype",
+            "aws:principalaccount",
+        ] {
             c.remove(k);
         }
         match principal {
@@ -112,7 +124,12 @@ impl AuthzEngine {
             bucket.and_then(|b| b.policy.clone()),
             bucket.map(|b| b.public_access_block).unwrap_or_default(),
         );
-        set.evaluate(&AuthzRequest { principal, action, resource, context: &ctx })
+        set.evaluate(&AuthzRequest {
+            principal,
+            action,
+            resource,
+            context: &ctx,
+        })
     }
 
     /// Convenience: authorise an s3s operation by name on `bucket`/`key`.

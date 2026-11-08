@@ -70,7 +70,9 @@ impl Principal {
             arn: arn::user(name),
             groups: Vec::new(),
             is_root: false,
-            kind: PrincipalKind::User { name: name.to_string() },
+            kind: PrincipalKind::User {
+                name: name.to_string(),
+            },
             user_id: user_id.to_string(),
             policies,
             session_policy: None,
@@ -91,7 +93,10 @@ impl Principal {
             arn: arn::assumed_role(role, session),
             groups: Vec::new(),
             is_root: false,
-            kind: PrincipalKind::AssumedRole { role: role.to_string(), session: session.to_string() },
+            kind: PrincipalKind::AssumedRole {
+                role: role.to_string(),
+                session: session.to_string(),
+            },
             user_id: format!("{role_id}:{session}"),
             policies,
             session_policy,

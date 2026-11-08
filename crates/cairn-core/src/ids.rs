@@ -307,6 +307,12 @@ impl PrincipalId {
     }
 }
 
+impl Default for PrincipalId {
+    fn default() -> Self {
+        PrincipalId::anonymous()
+    }
+}
+
 impl fmt::Display for PrincipalId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.0)

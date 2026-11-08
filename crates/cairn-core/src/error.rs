@@ -62,6 +62,7 @@ codes! {
     InvalidObjectState = 403, "The operation is not valid for the current state of the object.";
     InvalidPart = 400, "One or more of the specified parts could not be found.";
     InvalidPartOrder = 400, "The list of parts was not in ascending order.";
+    InvalidPartNumber = 416, "The requested partnumber is not satisfiable.";
     InvalidPayer = 403, "All access to this object has been disabled.";
     InvalidPolicyDocument = 400, "The content of the form does not meet the conditions specified in the policy document.";
     InvalidRange = 416, "The requested range cannot be satisfied.";
@@ -139,6 +140,8 @@ pub struct S3Error {
     pub resource: Option<String>,
     /// Request id, filled in by the protocol layer.
     pub request_id: Option<String>,
+    /// Extra response headers (e.g. `x-amz-delete-marker`, `Content-Range`).
+    pub headers: Vec<(String, String)>,
 }
 
 /// Result alias with `S3Error`.
@@ -152,6 +155,7 @@ impl S3Error {
             message: message.into(),
             resource: None,
             request_id: None,
+            headers: Vec::new(),
         }
     }
 
@@ -163,6 +167,12 @@ impl S3Error {
     /// Attach a resource.
     pub fn with_resource(mut self, r: impl Into<String>) -> S3Error {
         self.resource = Some(r.into());
+        self
+    }
+
+    /// Attach a response header.
+    pub fn with_header(mut self, name: &str, value: impl Into<String>) -> S3Error {
+        self.headers.push((name.to_string(), value.into()));
         self
     }
 

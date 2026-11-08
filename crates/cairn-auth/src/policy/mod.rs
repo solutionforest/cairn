@@ -148,7 +148,9 @@ fn str_or_vec(v: &Value, field: &str) -> Result<Vec<String>, PolicyError> {
                     .ok_or_else(|| malformed(format!("{field}: array items must be strings")))
             })
             .collect(),
-        _ => Err(malformed(format!("{field}: expected a string or non-empty array of strings"))),
+        _ => Err(malformed(format!(
+            "{field}: expected a string or non-empty array of strings"
+        ))),
     }
 }
 
@@ -158,8 +160,13 @@ fn parse_principal(v: &Value) -> Result<PrincipalSpec, PolicyError> {
         Value::Object(m) if !m.is_empty() => {
             let mut typed = Vec::new();
             for (k, v) in m {
-                if !matches!(k.as_str(), "AWS" | "Service" | "Federated" | "CanonicalUser") {
-                    return Err(PolicyError::InvalidPrincipal(format!("unknown principal type {k}")));
+                if !matches!(
+                    k.as_str(),
+                    "AWS" | "Service" | "Federated" | "CanonicalUser"
+                ) {
+                    return Err(PolicyError::InvalidPrincipal(format!(
+                        "unknown principal type {k}"
+                    )));
                 }
                 let vals = str_or_vec(v, k)?;
                 if k == "AWS" && vals.iter().any(|x| x == "*") {
@@ -189,12 +196,21 @@ fn take_exclusive<'a>(
 }
 
 fn parse_statement(v: &Value, vars: bool) -> Result<Statement, PolicyError> {
-    let m = v.as_object().ok_or_else(|| malformed("Statement entries must be objects"))?;
+    let m = v
+        .as_object()
+        .ok_or_else(|| malformed("Statement entries must be objects"))?;
     for k in m.keys() {
         if !matches!(
             k.as_str(),
-            "Sid" | "Effect" | "Principal" | "NotPrincipal" | "Action" | "NotAction" | "Resource"
-                | "NotResource" | "Condition"
+            "Sid"
+                | "Effect"
+                | "Principal"
+                | "NotPrincipal"
+                | "Action"
+                | "NotAction"
+                | "Resource"
+                | "NotResource"
+                | "Condition"
         ) {
             return Err(malformed(format!("unknown statement element {k}")));
         }
@@ -258,7 +274,9 @@ impl FromStr for PolicyDocument {
             return Err(PolicyError::TooLarge(s.len(), MAX_POLICY_BYTES));
         }
         let v: Value = serde_json::from_str(s).map_err(|e| malformed(e.to_string()))?;
-        let m = v.as_object().ok_or_else(|| malformed("policy must be a JSON object"))?;
+        let m = v
+            .as_object()
+            .ok_or_else(|| malformed("policy must be a JSON object"))?;
         for k in m.keys() {
             if !matches!(k.as_str(), "Version" | "Id" | "Statement") {
                 return Err(malformed(format!("unknown top-level element {k}")));
@@ -276,11 +294,19 @@ impl FromStr for PolicyDocument {
             Some(_) => return Err(malformed("Id must be a string")),
         };
         let statements = match m.get("Statement") {
-            Some(Value::Array(a)) => a.iter().map(|s| parse_statement(s, vars)).collect::<Result<_, _>>()?,
+            Some(Value::Array(a)) => a
+                .iter()
+                .map(|s| parse_statement(s, vars))
+                .collect::<Result<_, _>>()?,
             Some(o @ Value::Object(_)) => vec![parse_statement(o, vars)?],
             _ => return Err(malformed("Statement must be an object or array")),
         };
-        Ok(PolicyDocument(Arc::new(Inner { source: s.to_string(), version, id, statements })))
+        Ok(PolicyDocument(Arc::new(Inner {
+            source: s.to_string(),
+            version,
+            id,
+            statements,
+        })))
     }
 }
 
@@ -315,11 +341,19 @@ fn validate_principal_value(ty: &str, v: &str) -> Result<(), PolicyError> {
     }
     let a = arn::parse(v).ok_or_else(bad)?;
     let ok = match a.service {
-        "iam" => a.resource == "root" || a.resource.starts_with("user/") || a.resource.starts_with("role/"),
+        "iam" => {
+            a.resource == "root"
+                || a.resource.starts_with("user/")
+                || a.resource.starts_with("role/")
+        }
         "sts" => a.resource.starts_with("assumed-role/"),
         _ => false,
     };
-    if ok && !a.account.is_empty() { Ok(()) } else { Err(bad()) }
+    if ok && !a.account.is_empty() {
+        Ok(())
+    } else {
+        Err(bad())
+    }
 }
 
 impl PolicyDocument {
@@ -421,7 +455,11 @@ impl PolicyDocument {
                     if st.principal.is_none() {
                         return k("trust policy statements need Principal");
                     }
-                    if st.actions.iter().any(|a| !a.to_ascii_lowercase().starts_with("sts:")) {
+                    if st
+                        .actions
+                        .iter()
+                        .any(|a| !a.to_ascii_lowercase().starts_with("sts:"))
+                    {
                         return k("trust policies may only use sts: actions");
                     }
                 }
@@ -487,7 +525,11 @@ impl Statement {
         let spec = self.principal.as_ref()?;
         let m = match_spec(spec, p);
         if self.not_principal {
-            if m.is_some() { None } else { Some(PrincipalMatch::Wide) }
+            if m.is_some() {
+                None
+            } else {
+                Some(PrincipalMatch::Wide)
+            }
         } else {
             m
         }
@@ -514,10 +556,15 @@ fn match_spec(spec: &PrincipalSpec, p: Option<&Principal>) -> Option<PrincipalMa
         for v in vals {
             let m = if *v == p.arn {
                 Some(PrincipalMatch::Exact)
-            } else if matches!(&p.kind, PrincipalKind::AssumedRole { role, .. } if *v == arn::role(role)) {
+            } else if matches!(&p.kind, PrincipalKind::AssumedRole { role, .. } if *v == arn::role(role))
+            {
                 Some(PrincipalMatch::Wide)
             } else if *v == root_arn || v == ACCOUNT_ID {
-                Some(if p.is_root { PrincipalMatch::Exact } else { PrincipalMatch::Account })
+                Some(if p.is_root {
+                    PrincipalMatch::Exact
+                } else {
+                    PrincipalMatch::Account
+                })
             } else {
                 None
             };

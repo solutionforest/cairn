@@ -207,8 +207,13 @@ fn be(e: BackendError) -> AuthError {
 pub fn validate_name(kind: &str, n: &str) -> Result<(), AuthError> {
     let ok = !n.is_empty()
         && n.len() <= 64
-        && n.chars().all(|c| c.is_ascii_alphanumeric() || "+=,.@_-".contains(c));
-    if ok { Ok(()) } else { Err(AuthError::Invalid(format!("invalid {kind} name {n:?}"))) }
+        && n.chars()
+            .all(|c| c.is_ascii_alphanumeric() || "+=,.@_-".contains(c));
+    if ok {
+        Ok(())
+    } else {
+        Err(AuthError::Invalid(format!("invalid {kind} name {n:?}")))
+    }
 }
 
 fn parse_cidrs(v: &[String]) -> Result<Vec<IpNet>, AuthError> {
@@ -260,7 +265,11 @@ impl CredentialStore {
     }
 
     fn get<T: serde::de::DeserializeOwned>(&self, k: &[u8]) -> Result<Option<T>, AuthError> {
-        self.backend.get(k).map_err(be)?.map(|b| decode(&b)).transpose()
+        self.backend
+            .get(k)
+            .map_err(be)?
+            .map(|b| decode(&b))
+            .transpose()
     }
 
     fn put<T: serde::Serialize>(&self, k: &[u8], v: &T) -> Result<(), AuthError> {
@@ -276,9 +285,17 @@ impl CredentialStore {
             .collect()
     }
 
-    fn must<T: serde::de::DeserializeOwned>(&self, prefix: &str, kind: &'static str, name: &str) -> Result<T, AuthError> {
+    fn must<T: serde::de::DeserializeOwned>(
+        &self,
+        prefix: &str,
+        kind: &'static str,
+        name: &str,
+    ) -> Result<T, AuthError> {
         self.get(&key(prefix, name))?
-            .ok_or_else(|| AuthError::NotFound { kind, name: name.to_string() })
+            .ok_or_else(|| AuthError::NotFound {
+                kind,
+                name: name.to_string(),
+            })
     }
 
     /// Parse a stored policy text, memoised by SHA-256 of the text.
@@ -325,7 +342,9 @@ impl CredentialStore {
                 },
             };
             principal.allowed_source_cidrs = parse_cidrs(&rec.allowed_source_cidrs)?;
-            let secret_key = self.key.open_secret(&rec.secret, &key(K_KEY, access_key_id))?;
+            let secret_key = self
+                .key
+                .open_secret(&rec.secret, &key(K_KEY, access_key_id))?;
             return Ok(Some(Credential {
                 access_key_id: rec.access_key_id,
                 secret_key,
@@ -346,12 +365,18 @@ impl CredentialStore {
                 Some(p) => p,
                 None => return Ok(None),
             },
-            SessionKind::Role { role, session_name, .. } => {
+            SessionKind::Role {
+                role, session_name, ..
+            } => {
                 let Some(r) = self.get::<RoleRecord>(&key(K_ROLE, role))? else {
                     return Ok(None);
                 };
                 let policies = self.policies_of(&r.inline, &r.attached)?;
-                let sp = s.session_policy.as_deref().map(|t| self.compiled(t)).transpose()?;
+                let sp = s
+                    .session_policy
+                    .as_deref()
+                    .map(|t| self.compiled(t))
+                    .transpose()?;
                 Principal::assumed_role(role, &r.role_id, session_name, policies, sp)
             }
         };
@@ -365,7 +390,10 @@ impl CredentialStore {
             access_key_id: s.access_key_id,
             secret_key,
             principal,
-            session: Some(SessionInfo { token, expires_at: s.expires_at }),
+            session: Some(SessionInfo {
+                token,
+                expires_at: s.expires_at,
+            }),
             expires_at: Some(s.expires_at),
         }))
     }
@@ -425,7 +453,10 @@ impl CredentialStore {
         let k = key(K_KEY, akid);
         if let Some(existing) = self.get::<AccessKeyRecord>(&k)? {
             if existing.owner != KeyOwner::Root {
-                return Err(AuthError::AlreadyExists { kind: "access key", name: akid.into() });
+                return Err(AuthError::AlreadyExists {
+                    kind: "access key",
+                    name: akid.into(),
+                });
             }
         }
         let rec = AccessKeyRecord {
@@ -437,7 +468,10 @@ impl CredentialStore {
             expires_at: None,
             allowed_source_cidrs: Vec::new(),
         };
-        let mut ops = vec![BackendOp::Put(k, encode(&rec)?), BackendOp::Put(K_ROOT.to_vec(), encode(&akid.to_string())?)];
+        let mut ops = vec![
+            BackendOp::Put(k, encode(&rec)?),
+            BackendOp::Put(K_ROOT.to_vec(), encode(&akid.to_string())?),
+        ];
         if let Some(old) = self.root_access_key_id_sync()? {
             if old != akid {
                 ops.push(BackendOp::Delete(key(K_KEY, &old)));
@@ -448,14 +482,24 @@ impl CredentialStore {
 
     /// Install the root credential from config (first boot or when config changes it).
     /// Any previous root key is removed. Accepts any id format (e.g. `AKIA…`).
-    pub async fn ensure_root(&self, access_key_id: &str, secret: &SecretString) -> Result<(), AuthError> {
+    pub async fn ensure_root(
+        &self,
+        access_key_id: &str,
+        secret: &SecretString,
+    ) -> Result<(), AuthError> {
         if access_key_id.len() < 3 || access_key_id.len() > 128 || secret.expose().len() < 8 {
-            return Err(AuthError::Invalid("root access key id 3..=128 chars, secret ≥ 8 chars".into()));
+            return Err(AuthError::Invalid(
+                "root access key id 3..=128 chars, secret ≥ 8 chars".into(),
+            ));
         }
         let _g = self.lock();
         if self.root_access_key_id_sync()?.as_deref() == Some(access_key_id) {
             if let Some(rec) = self.get::<AccessKeyRecord>(&key(K_KEY, access_key_id))? {
-                if self.key.open_secret(&rec.secret, &key(K_KEY, access_key_id))? == *secret {
+                if self
+                    .key
+                    .open_secret(&rec.secret, &key(K_KEY, access_key_id))?
+                    == *secret
+                {
                     return Ok(());
                 }
             }
@@ -470,7 +514,10 @@ impl CredentialStore {
         let sk = secret::generate_secret_key();
         self.install_root(&akid, &sk)?;
         tracing::warn!(access_key_id = %akid, "root credentials rotated");
-        Ok(NewAccessKey { access_key_id: akid, secret_key: sk })
+        Ok(NewAccessKey {
+            access_key_id: akid,
+            secret_key: sk,
+        })
     }
 
     // ---------------------------------------------------------------- users
@@ -494,7 +541,10 @@ impl CredentialStore {
         let _g = self.lock();
         let k = key(K_USER, name);
         if self.get::<UserRecord>(&k)?.is_some() {
-            return Err(AuthError::AlreadyExists { kind: "user", name: name.into() });
+            return Err(AuthError::AlreadyExists {
+                kind: "user",
+                name: name.into(),
+            });
         }
         let u = UserRecord {
             name: name.to_string(),
@@ -511,12 +561,17 @@ impl CredentialStore {
 
     /// Get a user.
     pub async fn get_user(&self, name: &str) -> Result<UserInfo, AuthError> {
-        self.must::<UserRecord>(K_USER, "user", name).map(Self::user_info)
+        self.must::<UserRecord>(K_USER, "user", name)
+            .map(Self::user_info)
     }
 
     /// List users.
     pub async fn list_users(&self) -> Result<Vec<UserInfo>, AuthError> {
-        Ok(self.list::<UserRecord>(K_USER)?.into_iter().map(Self::user_info).collect())
+        Ok(self
+            .list::<UserRecord>(K_USER)?
+            .into_iter()
+            .map(Self::user_info)
+            .collect())
     }
 
     /// Delete a user together with its access keys and sessions.
@@ -532,7 +587,9 @@ impl CredentialStore {
         for s in self.list::<SessionRecord>(K_SESSION)? {
             let mine = match &s.kind {
                 SessionKind::User(u) => u == name,
-                SessionKind::Role { source, .. } => *source == crate::types::PrincipalId::user(name),
+                SessionKind::Role { source, .. } => {
+                    *source == crate::types::PrincipalId::user(name)
+                }
                 SessionKind::Root => false,
             };
             if mine {
@@ -542,7 +599,11 @@ impl CredentialStore {
         self.backend.apply(ops).map_err(be)
     }
 
-    fn update_user(&self, name: &str, f: impl FnOnce(&mut UserRecord) -> Result<(), AuthError>) -> Result<(), AuthError> {
+    fn update_user(
+        &self,
+        name: &str,
+        f: impl FnOnce(&mut UserRecord) -> Result<(), AuthError>,
+    ) -> Result<(), AuthError> {
         let _g = self.lock();
         let mut u = self.must::<UserRecord>(K_USER, "user", name)?;
         f(&mut u)?;
@@ -558,7 +619,12 @@ impl CredentialStore {
     }
 
     /// Set an inline user policy.
-    pub async fn put_user_policy(&self, user: &str, policy_name: &str, document: &str) -> Result<(), AuthError> {
+    pub async fn put_user_policy(
+        &self,
+        user: &str,
+        policy_name: &str,
+        document: &str,
+    ) -> Result<(), AuthError> {
         validate_name("policy", policy_name)?;
         self.check_policy(document, PolicyKind::Identity)?;
         self.update_user(user, |u| {
@@ -573,7 +639,10 @@ impl CredentialStore {
             u.inline
                 .remove(policy_name)
                 .map(|_| ())
-                .ok_or_else(|| AuthError::NotFound { kind: "policy", name: policy_name.into() })
+                .ok_or_else(|| AuthError::NotFound {
+                    kind: "policy",
+                    name: policy_name.into(),
+                })
         })
     }
 
@@ -617,9 +686,20 @@ impl CredentialStore {
         let _g = self.lock();
         let k = key(K_GROUP, name);
         if self.get::<GroupRecord>(&k)?.is_some() {
-            return Err(AuthError::AlreadyExists { kind: "group", name: name.into() });
+            return Err(AuthError::AlreadyExists {
+                kind: "group",
+                name: name.into(),
+            });
         }
-        self.put(&k, &GroupRecord { name: name.into(), created_at: self.now(), attached: BTreeSet::new(), inline: BTreeMap::new() })
+        self.put(
+            &k,
+            &GroupRecord {
+                name: name.into(),
+                created_at: self.now(),
+                attached: BTreeSet::new(),
+                inline: BTreeMap::new(),
+            },
+        )
     }
 
     /// Get a group with its members.
@@ -630,7 +710,10 @@ impl CredentialStore {
 
     /// List groups.
     pub async fn list_groups(&self) -> Result<Vec<GroupInfo>, AuthError> {
-        self.list::<GroupRecord>(K_GROUP)?.into_iter().map(|g| self.group_info(g)).collect()
+        self.list::<GroupRecord>(K_GROUP)?
+            .into_iter()
+            .map(|g| self.group_info(g))
+            .collect()
     }
 
     /// Delete a group, removing it from all members.
@@ -671,7 +754,12 @@ impl CredentialStore {
     }
 
     /// Set an inline group policy.
-    pub async fn put_group_policy(&self, group: &str, policy_name: &str, document: &str) -> Result<(), AuthError> {
+    pub async fn put_group_policy(
+        &self,
+        group: &str,
+        policy_name: &str,
+        document: &str,
+    ) -> Result<(), AuthError> {
         validate_name("policy", policy_name)?;
         self.check_policy(document, PolicyKind::Identity)?;
         self.update_group(group, |g| {
@@ -680,7 +768,11 @@ impl CredentialStore {
     }
 
     /// Remove an inline group policy.
-    pub async fn delete_group_policy(&self, group: &str, policy_name: &str) -> Result<(), AuthError> {
+    pub async fn delete_group_policy(
+        &self,
+        group: &str,
+        policy_name: &str,
+    ) -> Result<(), AuthError> {
         self.update_group(group, |g| {
             g.inline.remove(policy_name);
         })
@@ -704,26 +796,48 @@ impl CredentialStore {
     // ---------------------------------------------------------------- managed policies
 
     fn policy_info(p: PolicyRecord) -> ManagedPolicyInfo {
-        ManagedPolicyInfo { arn: arn::policy(&p.name), name: p.name, document: p.document, version: p.version }
+        ManagedPolicyInfo {
+            arn: arn::policy(&p.name),
+            name: p.name,
+            document: p.document,
+            version: p.version,
+        }
     }
 
     /// Create a managed policy.
-    pub async fn create_policy(&self, name: &str, document: &str) -> Result<ManagedPolicyInfo, AuthError> {
+    pub async fn create_policy(
+        &self,
+        name: &str,
+        document: &str,
+    ) -> Result<ManagedPolicyInfo, AuthError> {
         validate_name("policy", name)?;
         self.check_policy(document, PolicyKind::Identity)?;
         let _g = self.lock();
         let k = key(K_POLICY, name);
         if self.get::<PolicyRecord>(&k)?.is_some() {
-            return Err(AuthError::AlreadyExists { kind: "policy", name: name.into() });
+            return Err(AuthError::AlreadyExists {
+                kind: "policy",
+                name: name.into(),
+            });
         }
         let now = self.now();
-        let p = PolicyRecord { name: name.into(), document: document.into(), created_at: now, updated_at: now, version: 1 };
+        let p = PolicyRecord {
+            name: name.into(),
+            document: document.into(),
+            created_at: now,
+            updated_at: now,
+            version: 1,
+        };
         self.put(&k, &p)?;
         Ok(Self::policy_info(p))
     }
 
     /// Replace a managed policy's document (takes effect on the next lookup).
-    pub async fn update_policy(&self, name: &str, document: &str) -> Result<ManagedPolicyInfo, AuthError> {
+    pub async fn update_policy(
+        &self,
+        name: &str,
+        document: &str,
+    ) -> Result<ManagedPolicyInfo, AuthError> {
         self.check_policy(document, PolicyKind::Identity)?;
         let _g = self.lock();
         let mut p = self.must::<PolicyRecord>(K_POLICY, "policy", name)?;
@@ -736,25 +850,44 @@ impl CredentialStore {
 
     /// Get a managed policy.
     pub async fn get_policy(&self, name: &str) -> Result<ManagedPolicyInfo, AuthError> {
-        self.must::<PolicyRecord>(K_POLICY, "policy", name).map(Self::policy_info)
+        self.must::<PolicyRecord>(K_POLICY, "policy", name)
+            .map(Self::policy_info)
     }
 
     /// List managed policies.
     pub async fn list_policies(&self) -> Result<Vec<ManagedPolicyInfo>, AuthError> {
-        Ok(self.list::<PolicyRecord>(K_POLICY)?.into_iter().map(Self::policy_info).collect())
+        Ok(self
+            .list::<PolicyRecord>(K_POLICY)?
+            .into_iter()
+            .map(Self::policy_info)
+            .collect())
     }
 
     /// Delete a managed policy; refused while attached anywhere (as in AWS).
     pub async fn delete_policy(&self, name: &str) -> Result<(), AuthError> {
         let _g = self.lock();
         self.must::<PolicyRecord>(K_POLICY, "policy", name)?;
-        let attached = self.list::<UserRecord>(K_USER)?.iter().any(|u| u.attached.contains(name))
-            || self.list::<GroupRecord>(K_GROUP)?.iter().any(|g| g.attached.contains(name))
-            || self.list::<RoleRecord>(K_ROLE)?.iter().any(|r| r.attached.contains(name));
+        let attached = self
+            .list::<UserRecord>(K_USER)?
+            .iter()
+            .any(|u| u.attached.contains(name))
+            || self
+                .list::<GroupRecord>(K_GROUP)?
+                .iter()
+                .any(|g| g.attached.contains(name))
+            || self
+                .list::<RoleRecord>(K_ROLE)?
+                .iter()
+                .any(|r| r.attached.contains(name));
         if attached {
-            return Err(AuthError::Invalid(format!("policy {name} is still attached")));
+            return Err(AuthError::Invalid(format!(
+                "policy {name} is still attached"
+            )));
         }
-        self.backend.delete(&key(K_POLICY, name)).map_err(be).map(|_| ())
+        self.backend
+            .delete(&key(K_POLICY, name))
+            .map_err(be)
+            .map(|_| ())
     }
 
     // ---------------------------------------------------------------- roles
@@ -772,17 +905,27 @@ impl CredentialStore {
     }
 
     /// Create a role with a trust policy. `max_session` defaults to 12 h (range 1 h–12 h).
-    pub async fn create_role(&self, name: &str, trust_policy: &str, max_session: Option<Duration>) -> Result<RoleInfo, AuthError> {
+    pub async fn create_role(
+        &self,
+        name: &str,
+        trust_policy: &str,
+        max_session: Option<Duration>,
+    ) -> Result<RoleInfo, AuthError> {
         validate_name("role", name)?;
         self.check_policy(trust_policy, PolicyKind::Trust)?;
         let max = max_session.unwrap_or(MAX_SESSION);
         if max < Duration::from_secs(3600) || max > MAX_SESSION {
-            return Err(AuthError::Invalid("max session duration must be 1h..=12h".into()));
+            return Err(AuthError::Invalid(
+                "max session duration must be 1h..=12h".into(),
+            ));
         }
         let _g = self.lock();
         let k = key(K_ROLE, name);
         if self.get::<RoleRecord>(&k)?.is_some() {
-            return Err(AuthError::AlreadyExists { kind: "role", name: name.into() });
+            return Err(AuthError::AlreadyExists {
+                kind: "role",
+                name: name.into(),
+            });
         }
         let r = RoleRecord {
             name: name.into(),
@@ -799,7 +942,8 @@ impl CredentialStore {
 
     /// Get a role.
     pub async fn get_role(&self, name: &str) -> Result<RoleInfo, AuthError> {
-        self.must::<RoleRecord>(K_ROLE, "role", name).map(Self::role_info)
+        self.must::<RoleRecord>(K_ROLE, "role", name)
+            .map(Self::role_info)
     }
 
     pub(crate) fn role_record(&self, name: &str) -> Result<RoleRecord, AuthError> {
@@ -808,7 +952,11 @@ impl CredentialStore {
 
     /// List roles.
     pub async fn list_roles(&self) -> Result<Vec<RoleInfo>, AuthError> {
-        Ok(self.list::<RoleRecord>(K_ROLE)?.into_iter().map(Self::role_info).collect())
+        Ok(self
+            .list::<RoleRecord>(K_ROLE)?
+            .into_iter()
+            .map(Self::role_info)
+            .collect())
     }
 
     /// Delete a role and its sessions.
@@ -832,13 +980,22 @@ impl CredentialStore {
     }
 
     /// Replace a role's trust policy.
-    pub async fn update_assume_role_policy(&self, name: &str, trust_policy: &str) -> Result<(), AuthError> {
+    pub async fn update_assume_role_policy(
+        &self,
+        name: &str,
+        trust_policy: &str,
+    ) -> Result<(), AuthError> {
         self.check_policy(trust_policy, PolicyKind::Trust)?;
         self.update_role(name, |r| r.trust_policy = trust_policy.into())
     }
 
     /// Set an inline role policy.
-    pub async fn put_role_policy(&self, role: &str, policy_name: &str, document: &str) -> Result<(), AuthError> {
+    pub async fn put_role_policy(
+        &self,
+        role: &str,
+        policy_name: &str,
+        document: &str,
+    ) -> Result<(), AuthError> {
         validate_name("policy", policy_name)?;
         self.check_policy(document, PolicyKind::Identity)?;
         self.update_role(role, |r| {
@@ -885,20 +1042,37 @@ impl CredentialStore {
     }
 
     /// Create an access key for `user` (`CAIRN…`, 20 chars; secret 40 chars base64url).
-    pub async fn create_access_key(&self, user: &str, opts: AccessKeyOptions) -> Result<NewAccessKey, AuthError> {
+    pub async fn create_access_key(
+        &self,
+        user: &str,
+        opts: AccessKeyOptions,
+    ) -> Result<NewAccessKey, AuthError> {
         let akid = secret::generate_access_key_id();
         let sk = secret::generate_secret_key();
         self.import_access_key(user, &akid, &sk, opts).await?;
-        Ok(NewAccessKey { access_key_id: akid, secret_key: sk })
+        Ok(NewAccessKey {
+            access_key_id: akid,
+            secret_key: sk,
+        })
     }
 
     /// Store an externally supplied key pair (migration from AWS/MinIO: any id format).
-    pub async fn import_access_key(&self, user: &str, access_key_id: &str, secret: &SecretString, opts: AccessKeyOptions) -> Result<(), AuthError> {
+    pub async fn import_access_key(
+        &self,
+        user: &str,
+        access_key_id: &str,
+        secret: &SecretString,
+        opts: AccessKeyOptions,
+    ) -> Result<(), AuthError> {
         if access_key_id.len() < 3
             || access_key_id.len() > 128
-            || !access_key_id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+            || !access_key_id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
         {
-            return Err(AuthError::Invalid("access key id must be 3..=128 chars [A-Za-z0-9_-]".into()));
+            return Err(AuthError::Invalid(
+                "access key id must be 3..=128 chars [A-Za-z0-9_-]".into(),
+            ));
         }
         parse_cidrs(&opts.allowed_source_cidrs)?;
         let now = self.now();
@@ -908,13 +1082,26 @@ impl CredentialStore {
         let _g = self.lock();
         self.must::<UserRecord>(K_USER, "user", user)?;
         let k = key(K_KEY, access_key_id);
-        if self.get::<AccessKeyRecord>(&k)?.is_some() || self.get::<SessionRecord>(&key(K_SESSION, access_key_id))?.is_some() {
-            return Err(AuthError::AlreadyExists { kind: "access key", name: access_key_id.into() });
+        if self.get::<AccessKeyRecord>(&k)?.is_some()
+            || self
+                .get::<SessionRecord>(&key(K_SESSION, access_key_id))?
+                .is_some()
+        {
+            return Err(AuthError::AlreadyExists {
+                kind: "access key",
+                name: access_key_id.into(),
+            });
         }
         let owner = KeyOwner::User(user.into());
-        let count = self.list::<AccessKeyRecord>(K_KEY)?.iter().filter(|r| r.owner == owner).count();
+        let count = self
+            .list::<AccessKeyRecord>(K_KEY)?
+            .iter()
+            .filter(|r| r.owner == owner)
+            .count();
         if count >= self.max_keys_per_user {
-            return Err(AuthError::LimitExceeded(format!("user {user} already has {count} access keys")));
+            return Err(AuthError::LimitExceeded(format!(
+                "user {user} already has {count} access keys"
+            )));
         }
         let rec = AccessKeyRecord {
             access_key_id: access_key_id.into(),
@@ -933,24 +1120,38 @@ impl CredentialStore {
         let _g = self.lock();
         let r = self.must::<AccessKeyRecord>(K_KEY, "access key", access_key_id)?;
         if r.owner == KeyOwner::Root {
-            return Err(AuthError::Invalid("use rotate_root to replace the root key".into()));
+            return Err(AuthError::Invalid(
+                "use rotate_root to replace the root key".into(),
+            ));
         }
-        self.backend.delete(&key(K_KEY, access_key_id)).map_err(be).map(|_| ())
+        self.backend
+            .delete(&key(K_KEY, access_key_id))
+            .map_err(be)
+            .map(|_| ())
     }
 
     /// Activate or deactivate a user access key.
-    pub async fn set_access_key_active(&self, access_key_id: &str, active: bool) -> Result<(), AuthError> {
+    pub async fn set_access_key_active(
+        &self,
+        access_key_id: &str,
+        active: bool,
+    ) -> Result<(), AuthError> {
         let _g = self.lock();
         let mut r = self.must::<AccessKeyRecord>(K_KEY, "access key", access_key_id)?;
         if r.owner == KeyOwner::Root {
-            return Err(AuthError::Invalid("the root key cannot be deactivated".into()));
+            return Err(AuthError::Invalid(
+                "the root key cannot be deactivated".into(),
+            ));
         }
         r.active = active;
         self.put(&key(K_KEY, access_key_id), &r)
     }
 
     /// List a user's access keys (`None` = all keys including root).
-    pub async fn list_access_keys(&self, user: Option<&str>) -> Result<Vec<AccessKeyInfo>, AuthError> {
+    pub async fn list_access_keys(
+        &self,
+        user: Option<&str>,
+    ) -> Result<Vec<AccessKeyInfo>, AuthError> {
         Ok(self
             .list::<AccessKeyRecord>(K_KEY)?
             .into_iter()
@@ -966,7 +1167,12 @@ impl CredentialStore {
         self.put(&key(K_SESSION, &rec.access_key_id), rec)
     }
 
-    pub(crate) fn seal_session(&self, akid: &str, secret: &SecretString, token: &SecretString) -> Result<(crate::secret::Sealed, crate::secret::Sealed), AuthError> {
+    pub(crate) fn seal_session(
+        &self,
+        akid: &str,
+        secret: &SecretString,
+        token: &SecretString,
+    ) -> Result<(crate::secret::Sealed, crate::secret::Sealed), AuthError> {
         let aad = key(K_SESSION, akid);
         let s = self.key.seal_secret(secret, &aad)?;
         let mut taad = aad;
@@ -975,7 +1181,11 @@ impl CredentialStore {
         Ok((s, t))
     }
 
-    pub(crate) fn compile_policy(&self, text: &str, kind: PolicyKind<'_>) -> Result<PolicyDocument, AuthError> {
+    pub(crate) fn compile_policy(
+        &self,
+        text: &str,
+        kind: PolicyKind<'_>,
+    ) -> Result<PolicyDocument, AuthError> {
         self.check_policy(text, kind)
     }
 
@@ -998,7 +1208,11 @@ impl CredentialStore {
 
     /// Number of stored sessions (including expired, not yet purged).
     pub async fn session_count(&self) -> Result<usize, AuthError> {
-        Ok(self.backend.list_prefix(K_SESSION.as_bytes()).map_err(be)?.len())
+        Ok(self
+            .backend
+            .list_prefix(K_SESSION.as_bytes())
+            .map_err(be)?
+            .len())
     }
 }
 

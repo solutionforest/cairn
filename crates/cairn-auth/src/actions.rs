@@ -270,26 +270,74 @@ mod tests {
 
     /// Every operation marked ✅ or 🟡 in DESIGN §6.
     const DESIGN_OPS: &[&str] = &[
-        "ListBuckets", "CreateBucket", "DeleteBucket", "HeadBucket", "GetBucketLocation",
-        "GetBucketVersioning", "PutBucketVersioning", "GetBucketTagging", "PutBucketTagging",
-        "DeleteBucketTagging", "GetBucketPolicy", "PutBucketPolicy", "DeleteBucketPolicy",
-        "GetBucketPolicyStatus", "GetBucketLifecycleConfiguration",
-        "PutBucketLifecycleConfiguration", "DeleteBucketLifecycle", "GetBucketCors",
-        "PutBucketCors", "DeleteBucketCors", "GetBucketEncryption", "PutBucketEncryption",
-        "DeleteBucketEncryption", "GetPublicAccessBlock", "PutPublicAccessBlock",
-        "DeletePublicAccessBlock", "GetBucketNotificationConfiguration",
-        "PutBucketNotificationConfiguration", "GetBucketReplication", "PutBucketReplication",
-        "DeleteBucketReplication", "GetObjectLockConfiguration", "PutObjectLockConfiguration",
-        "PutObject", "GetObject", "HeadObject", "DeleteObject", "DeleteObjects", "CopyObject",
-        "ListObjects", "ListObjectsV2", "ListObjectVersions", "GetObjectTagging",
-        "PutObjectTagging", "DeleteObjectTagging", "GetObjectAttributes", "GetObjectRetention",
-        "PutObjectRetention", "GetObjectLegalHold", "PutObjectLegalHold", "PostObject",
-        "CreateMultipartUpload", "UploadPart", "UploadPartCopy", "CompleteMultipartUpload",
-        "AbortMultipartUpload", "ListParts", "ListMultipartUploads", "AssumeRole",
-        "GetSessionToken", "AssumeRoleWithWebIdentity",
+        "ListBuckets",
+        "CreateBucket",
+        "DeleteBucket",
+        "HeadBucket",
+        "GetBucketLocation",
+        "GetBucketVersioning",
+        "PutBucketVersioning",
+        "GetBucketTagging",
+        "PutBucketTagging",
+        "DeleteBucketTagging",
+        "GetBucketPolicy",
+        "PutBucketPolicy",
+        "DeleteBucketPolicy",
+        "GetBucketPolicyStatus",
+        "GetBucketLifecycleConfiguration",
+        "PutBucketLifecycleConfiguration",
+        "DeleteBucketLifecycle",
+        "GetBucketCors",
+        "PutBucketCors",
+        "DeleteBucketCors",
+        "GetBucketEncryption",
+        "PutBucketEncryption",
+        "DeleteBucketEncryption",
+        "GetPublicAccessBlock",
+        "PutPublicAccessBlock",
+        "DeletePublicAccessBlock",
+        "GetBucketNotificationConfiguration",
+        "PutBucketNotificationConfiguration",
+        "GetBucketReplication",
+        "PutBucketReplication",
+        "DeleteBucketReplication",
+        "GetObjectLockConfiguration",
+        "PutObjectLockConfiguration",
+        "PutObject",
+        "GetObject",
+        "HeadObject",
+        "DeleteObject",
+        "DeleteObjects",
+        "CopyObject",
+        "ListObjects",
+        "ListObjectsV2",
+        "ListObjectVersions",
+        "GetObjectTagging",
+        "PutObjectTagging",
+        "DeleteObjectTagging",
+        "GetObjectAttributes",
+        "GetObjectRetention",
+        "PutObjectRetention",
+        "GetObjectLegalHold",
+        "PutObjectLegalHold",
+        "PostObject",
+        "CreateMultipartUpload",
+        "UploadPart",
+        "UploadPartCopy",
+        "CompleteMultipartUpload",
+        "AbortMultipartUpload",
+        "ListParts",
+        "ListMultipartUploads",
+        "AssumeRole",
+        "GetSessionToken",
+        "AssumeRoleWithWebIdentity",
         // ⚪ (accepted, stored)
-        "GetBucketOwnershipControls", "PutBucketOwnershipControls",
-        "DeleteBucketOwnershipControls", "GetBucketAcl", "PutBucketAcl", "GetObjectAcl",
+        "GetBucketOwnershipControls",
+        "PutBucketOwnershipControls",
+        "DeleteBucketOwnershipControls",
+        "GetBucketAcl",
+        "PutBucketAcl",
+        "GetObjectAcl",
         "PutObjectAcl",
     ];
 
@@ -305,16 +353,28 @@ mod tests {
     fn spot_checks() {
         assert_eq!(for_s3_operation("PutObject"), Some("s3:PutObject"));
         assert_eq!(for_s3_operation("ListObjectsV2"), Some("s3:ListBucket"));
-        assert_eq!(for_s3_operation("GetBucketLocation"), Some("s3:GetBucketLocation"));
-        assert_eq!(for_s3_operation("CompleteMultipartUpload"), Some("s3:PutObject"));
+        assert_eq!(
+            for_s3_operation("GetBucketLocation"),
+            Some("s3:GetBucketLocation")
+        );
+        assert_eq!(
+            for_s3_operation("CompleteMultipartUpload"),
+            Some("s3:PutObject")
+        );
         assert_eq!(for_s3_operation("DeleteObjects"), Some("s3:DeleteObject"));
-        assert_eq!(for_s3_operation("GetObjectTagging"), Some("s3:GetObjectTagging"));
+        assert_eq!(
+            for_s3_operation("GetObjectTagging"),
+            Some("s3:GetObjectTagging")
+        );
         assert_eq!(for_s3_operation("SelectObjectContent"), None);
         assert_eq!(
             for_s3_operation_versioned("GetObject", true),
             Some("s3:GetObjectVersion")
         );
-        assert_eq!(for_s3_operation_versioned("PutObject", true), Some("s3:PutObject"));
+        assert_eq!(
+            for_s3_operation_versioned("PutObject", true),
+            Some("s3:PutObject")
+        );
     }
 
     #[test]
@@ -324,7 +384,9 @@ mod tests {
         v.sort();
         v.dedup();
         assert_eq!(v.len(), n);
-        assert!(all().all(|a| a.starts_with("s3:") || a.starts_with("sts:") || a.starts_with("cairn:")));
+        assert!(
+            all().all(|a| a.starts_with("s3:") || a.starts_with("sts:") || a.starts_with("cairn:"))
+        );
         assert_eq!(canonical("S3:getobject"), Some("s3:GetObject"));
     }
 }

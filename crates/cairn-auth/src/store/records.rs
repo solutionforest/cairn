@@ -17,7 +17,9 @@ pub(crate) fn encode<T: Serialize>(v: &T) -> Result<Vec<u8>, AuthError> {
 
 pub(crate) fn decode<T: DeserializeOwned>(b: &[u8]) -> Result<T, AuthError> {
     match b.split_first() {
-        Some((&SCHEMA_V1, rest)) => postcard::from_bytes(rest).map_err(|e| AuthError::Corrupt(e.to_string())),
+        Some((&SCHEMA_V1, rest)) => {
+            postcard::from_bytes(rest).map_err(|e| AuthError::Corrupt(e.to_string()))
+        }
         Some((v, _)) => Err(AuthError::Corrupt(format!("unknown schema version {v}"))),
         None => Err(AuthError::Corrupt("empty record".into())),
     }
@@ -88,7 +90,11 @@ pub struct AccessKeyRecord {
 /// What an STS session stands for.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SessionKind {
-    Role { role: String, session_name: String, source: PrincipalId },
+    Role {
+        role: String,
+        session_name: String,
+        source: PrincipalId,
+    },
     User(String),
     Root,
 }

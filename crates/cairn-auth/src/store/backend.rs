@@ -118,7 +118,14 @@ mod tests {
         assert_eq!(b.list_prefix(b"u/").unwrap().len(), 2);
         assert!(b.delete(b"u/a").unwrap());
         assert!(!b.delete(b"u/a").unwrap());
-        b.apply(vec![BackendOp::Delete(b"u/b".to_vec()), BackendOp::Put(b"u/c".to_vec(), vec![])]).unwrap();
-        assert_eq!(b.list_prefix(b"u/").unwrap(), vec![(b"u/c".to_vec(), vec![])]);
+        b.apply(vec![
+            BackendOp::Delete(b"u/b".to_vec()),
+            BackendOp::Put(b"u/c".to_vec(), vec![]),
+        ])
+        .unwrap();
+        assert_eq!(
+            b.list_prefix(b"u/").unwrap(),
+            vec![(b"u/c".to_vec(), vec![])]
+        );
     }
 }

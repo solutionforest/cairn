@@ -18,15 +18,17 @@ pub mod types;
 
 pub use engine::{AuthzEngine, BucketAuthz};
 pub use error::{AuthError, PolicyError, PresignError};
-pub use eval::{AuthzRequest, ConditionContext, Decision, PolicySet, PublicAccessBlock};
+pub use eval::{
+    AuthzRequest, ConditionContext, Decision, PolicySet, PublicAccessBlock, ResourceVerdict,
+};
 pub use pattern::VarResolver;
 pub use policy::{PolicyDocument, PolicyKind};
 pub use principal::{Principal, PrincipalKind};
 pub use secret::{MasterKey, SecretString};
-pub use sigv4::{presign, MAX_PRESIGN_EXPIRY};
+pub use sigv4::{MAX_PRESIGN_EXPIRY, presign};
 pub use store::{
-    AccessKeyInfo, AccessKeyOptions, AssumeRoleRequest, Credential, CredentialBackend, CredentialStore,
-    MemoryBackend, NewAccessKey, SessionInfo, StsCredentials,
+    AccessKeyInfo, AccessKeyOptions, AssumeRoleRequest, Credential, CredentialBackend,
+    CredentialStore, MemoryBackend, NewAccessKey, SessionInfo, StsCredentials,
 };
 pub use types::{Clock, ManualClock, PrincipalId, SystemClock, Ts};
 

@@ -31,7 +31,11 @@ fn parses_full_grammar() {
     assert_eq!(st.conditions.len(), 7);
     let c = st.conditions.iter().find(|c| c.key == "s3:prefix").unwrap();
     assert!(c.if_exists && c.op == OpKind::StringLike && c.set == SetQualifier::None);
-    let c = st.conditions.iter().find(|c| c.key == "aws:tagkeys").unwrap();
+    let c = st
+        .conditions
+        .iter()
+        .find(|c| c.key == "aws:tagkeys")
+        .unwrap();
     assert_eq!(c.set, SetQualifier::ForAllValues);
     assert_eq!(d.to_string(), d.as_json());
     d.validate_for(PolicyKind::Bucket("b")).unwrap();
@@ -60,14 +64,30 @@ fn rejects_malformed() {
         &stmt(r#"{"Effect":"Allow","Action":[],"Resource":"*"}"#),
         &stmt(r#"{"Effect":"Allow","Action":[1],"Resource":"*"}"#),
         &stmt(r#"{"Effect":"Allow","Action":"s3:*","Resource":"*","Bogus":1}"#),
-        &stmt(r#"{"Effect":"Allow","Action":"s3:*","Resource":"*","Condition":{"StringFoo":{"a:b":"c"}}}"#),
-        &stmt(r#"{"Effect":"Allow","Action":"s3:*","Resource":"*","Condition":{"NumericEquals":{"a:b":"x"}}}"#),
-        &stmt(r#"{"Effect":"Allow","Action":"s3:*","Resource":"*","Condition":{"DateEquals":{"a:b":"yesterday"}}}"#),
-        &stmt(r#"{"Effect":"Allow","Action":"s3:*","Resource":"*","Condition":{"IpAddress":{"aws:SourceIp":"10.0.0.0/33"}}}"#),
-        &stmt(r#"{"Effect":"Allow","Action":"s3:*","Resource":"*","Condition":{"Bool":{"a:b":"yes"}}}"#),
-        &stmt(r#"{"Effect":"Allow","Action":"s3:*","Resource":"*","Condition":{"NullIfExists":{"a:b":"true"}}}"#),
-        &stmt(r#"{"Effect":"Allow","Action":"s3:*","Resource":"*","Condition":{"StringEquals":{"nokey":"x"}}}"#),
-        &stmt(r#"{"Effect":"Allow","Action":"s3:*","Resource":"*","Condition":{"StringEquals":{"a:b":{"x":1}}}}"#),
+        &stmt(
+            r#"{"Effect":"Allow","Action":"s3:*","Resource":"*","Condition":{"StringFoo":{"a:b":"c"}}}"#,
+        ),
+        &stmt(
+            r#"{"Effect":"Allow","Action":"s3:*","Resource":"*","Condition":{"NumericEquals":{"a:b":"x"}}}"#,
+        ),
+        &stmt(
+            r#"{"Effect":"Allow","Action":"s3:*","Resource":"*","Condition":{"DateEquals":{"a:b":"yesterday"}}}"#,
+        ),
+        &stmt(
+            r#"{"Effect":"Allow","Action":"s3:*","Resource":"*","Condition":{"IpAddress":{"aws:SourceIp":"10.0.0.0/33"}}}"#,
+        ),
+        &stmt(
+            r#"{"Effect":"Allow","Action":"s3:*","Resource":"*","Condition":{"Bool":{"a:b":"yes"}}}"#,
+        ),
+        &stmt(
+            r#"{"Effect":"Allow","Action":"s3:*","Resource":"*","Condition":{"NullIfExists":{"a:b":"true"}}}"#,
+        ),
+        &stmt(
+            r#"{"Effect":"Allow","Action":"s3:*","Resource":"*","Condition":{"StringEquals":{"nokey":"x"}}}"#,
+        ),
+        &stmt(
+            r#"{"Effect":"Allow","Action":"s3:*","Resource":"*","Condition":{"StringEquals":{"a:b":{"x":1}}}}"#,
+        ),
         &stmt(r#"{"Effect":"Allow","Principal":"alice","Action":"s3:*","Resource":"*"}"#),
         &stmt(r#"{"Effect":"Allow","Principal":{"Weird":"x"},"Action":"s3:*","Resource":"*"}"#),
     ];
@@ -78,37 +98,83 @@ fn rejects_malformed() {
 
 #[test]
 fn rejects_unknown_actions() {
-    for a in ["s3:GetObjekt", "s3:Frob*", "iam:CreateUser", "ec2:*", "GetObject", "s3:", "cairn:Nuke"] {
-        let r = parse(&stmt(&format!(r#"{{"Effect":"Allow","Action":"{a}","Resource":"*"}}"#)));
-        assert!(matches!(r, Err(PolicyError::UnknownAction(_))), "{a}: {r:?}");
+    for a in [
+        "s3:GetObjekt",
+        "s3:Frob*",
+        "iam:CreateUser",
+        "ec2:*",
+        "GetObject",
+        "s3:",
+        "cairn:Nuke",
+    ] {
+        let r = parse(&stmt(&format!(
+            r#"{{"Effect":"Allow","Action":"{a}","Resource":"*"}}"#
+        )));
+        assert!(
+            matches!(r, Err(PolicyError::UnknownAction(_))),
+            "{a}: {r:?}"
+        );
     }
-    for a in ["*", "s3:*", "s3:Get*", "S3:getobject", "cairn:*", "cairn:Pitr*", "sts:AssumeRole", "s3:?etObject"] {
-        parse(&stmt(&format!(r#"{{"Effect":"Allow","Action":"{a}","Resource":"*"}}"#))).unwrap();
+    for a in [
+        "*",
+        "s3:*",
+        "s3:Get*",
+        "S3:getobject",
+        "cairn:*",
+        "cairn:Pitr*",
+        "sts:AssumeRole",
+        "s3:?etObject",
+    ] {
+        parse(&stmt(&format!(
+            r#"{{"Effect":"Allow","Action":"{a}","Resource":"*"}}"#
+        )))
+        .unwrap();
     }
 }
 
 #[test]
 fn rejects_bad_resources_and_principals() {
     for r in ["bucket/*", "arn:aws:s3:::", "arn:aws:s3:eu-west-1::b"] {
-        let e = parse(&stmt(&format!(r#"{{"Effect":"Allow","Action":"s3:*","Resource":"{r}"}}"#)));
-        assert!(matches!(e, Err(PolicyError::InvalidResource(_))), "{r}: {e:?}");
+        let e = parse(&stmt(&format!(
+            r#"{{"Effect":"Allow","Action":"s3:*","Resource":"{r}"}}"#
+        )));
+        assert!(
+            matches!(e, Err(PolicyError::InvalidResource(_))),
+            "{r}: {e:?}"
+        );
     }
-    for p in ["alice", "arn:aws:s3:::b", "arn:aws:iam::000000000000:group/x", "12345"] {
+    for p in [
+        "alice",
+        "arn:aws:s3:::b",
+        "arn:aws:iam::000000000000:group/x",
+        "12345",
+    ] {
         let e = parse(&stmt(&format!(
             r#"{{"Effect":"Allow","Principal":{{"AWS":"{p}"}},"Action":"s3:*","Resource":"*"}}"#
         )));
-        assert!(matches!(e, Err(PolicyError::InvalidPrincipal(_))), "{p}: {e:?}");
+        assert!(
+            matches!(e, Err(PolicyError::InvalidPrincipal(_))),
+            "{p}: {e:?}"
+        );
     }
 }
 
 #[test]
 fn size_limit() {
     let pad = "x".repeat(MAX_POLICY_BYTES);
-    let big = stmt(&format!(r#"{{"Sid":"{pad}","Effect":"Allow","Action":"s3:*","Resource":"*"}}"#));
+    let big = stmt(&format!(
+        r#"{{"Sid":"{pad}","Effect":"Allow","Action":"s3:*","Resource":"*"}}"#
+    ));
     assert!(matches!(parse(&big), Err(PolicyError::TooLarge(..))));
     let huge = "x".repeat(5 * MAX_POLICY_BYTES);
-    assert!(matches!(huge.parse::<PolicyDocument>(), Err(PolicyError::TooLarge(..))));
-    let ok = stmt(&format!(r#"{{"Sid":"{}","Effect":"Allow","Action":"s3:*","Resource":"*"}}"#, "y".repeat(MAX_POLICY_BYTES - 200)));
+    assert!(matches!(
+        huge.parse::<PolicyDocument>(),
+        Err(PolicyError::TooLarge(..))
+    ));
+    let ok = stmt(&format!(
+        r#"{{"Sid":"{}","Effect":"Allow","Action":"s3:*","Resource":"*"}}"#,
+        "y".repeat(MAX_POLICY_BYTES - 200)
+    ));
     parse(&ok).unwrap();
 }
 
@@ -123,8 +189,12 @@ fn duplicate_sid() {
 #[test]
 fn kind_rules() {
     let id = stmt(r#"{"Effect":"Allow","Action":"s3:*","Resource":"*"}"#);
-    let bp = stmt(r#"{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::b/*"}"#);
-    let trust = stmt(r#"{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::000000000000:user/alice"},"Action":"sts:AssumeRole"}"#);
+    let bp = stmt(
+        r#"{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::b/*"}"#,
+    );
+    let trust = stmt(
+        r#"{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::000000000000:user/alice"},"Action":"sts:AssumeRole"}"#,
+    );
     let p = |s: &str| s.parse::<PolicyDocument>().unwrap();
     p(&id).validate_for(PolicyKind::Identity).unwrap();
     p(&id).validate_for(PolicyKind::Session).unwrap();

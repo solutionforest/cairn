@@ -24,7 +24,8 @@ update them when behaviour or decisions change.
 - Custom headers are `x-cairn-*`, custom IAM actions are `cairn:*`, documented in
   `docs/EXTENSIONS.md`.
 - Commit at green milestones with a message that names the phase (e.g. `phase 1a: redb meta store
-  with head_at PITR query`). Do not push.
+  with head_at PITR query`). Do not push; the orchestrator pushes to `origin`.
+- Respect crate ownership in BUILD-PLAN "Working agreements" when several agents run at once.
 
 ## Layout
 `crates/cairn-{core,meta,blob,auth,engine,s3,admin,events,mcp,server,cli}` — see DESIGN §3 for

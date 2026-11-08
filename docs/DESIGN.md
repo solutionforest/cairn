@@ -420,6 +420,13 @@ Admin-only actions are in the `cairn:` namespace (`cairn:CreateUser`, `cairn:Lis
   Dockerfile, SBOM.
 - Threat model documented in `docs/SECURITY.md`; `SECURITY.md` disclosure policy.
 
+- **Rate limiting and abuse controls**: token-bucket limits per access key, per source IP and
+  per bucket (`[limits] rps_per_key`, `rps_per_ip`, `concurrent_per_key`, `anonymous_rps`); excess
+  returns `503 SlowDown` with `Retry-After`, matching AWS. Hard caps on request body for non-object
+  calls (1 MiB), header count/size, multipart part count (10 000), list page size (1 000),
+  concurrent multipart uploads per bucket, and total open connections. Anonymous access is off
+  unless a bucket policy grants it; anonymous requests get a separate, lower bucket.
+
 ---
 
 ## 9. Durability, backup and disaster recovery
@@ -455,6 +462,14 @@ Admin-only actions are in the `cairn:` namespace (`cairn:CreateUser`, `cairn:Lis
 - Sinks: **webhook** (HTTP POST, HMAC-SHA256 signature header, batching) ✅; **SSE stream**
   `/_cairn/v1/events?filter=…` for lightweight external extensions (any language) 🟡; **NATS /
   MQTT / Kafka** 🟡 behind cargo features; **AMQP** ❌.
+- **Function sinks (serverless targets)**: `arn:cairn:sink::fn-<name>` is a webhook sink with a
+  pluggable auth mode so bucket notifications can call serverless functions directly, exactly as
+  S3 → Lambda does: `hmac` (default, signature header), `bearer` (static token), `sigv4-lambda`
+  (signs an AWS Lambda `Invoke` call with stored credentials; `LambdaFunctionConfigurations`
+  in the notification XML maps `LambdaFunctionArn` to the sink), `cf-access` (Cloudflare Access
+  service token for Workers). Payload is the S3 event record; delivery is the same outbox,
+  retries and DLQ. Object Lambda-style GET-time transforms are *not* in scope: do them in a
+  sidecar that writes a derived object, or wait for the Phase 4 WASM experiment.
 - Bucket notification configuration (`PutBucketNotificationConfiguration`) maps `TopicArn`/
   `QueueArn` to named Cairn sinks (`arn:cairn:sink::webhook-1`).
 - Extension model: "sidecars", not in-process plugins. A sidecar subscribes to the SSE stream with
@@ -520,9 +535,24 @@ Prompts: `summarize_bucket`, `audit_access`.
   at `/_cairn/ui`: buckets, browse, trash, PITR timeline slider, users/policies, replication
   status, metrics summary.
 
-Future (post-v1, keep traits ready): multi-disk local erasure coding (`reed-solomon-simd`),
-multi-node with Raft metadata (`openraft`) and placement by consistent hashing, tiering to
-remote S3 for cold blobs.
+### 12.1 Scaling path and HA posture
+
+Cairn v1 is deliberately **scale-up, single-writer**. Capacity goes as far as the host's
+filesystem (ZFS/btrfs/LVM over many disks, hundreds of TB); throughput targets are in §13. The
+promise that stays fixed across every stage below is that the S3 layer, `cairn-engine`, IAM and
+the MCP server never change — only `MetaStore` / `BlobStore` implementations do.
+
+| Stage | What | Availability | Status |
+|-------|------|--------------|--------|
+| v1 | One node, one data dir, `redb` + fs blobs | Restart = seconds of downtime; no automatic failover | Phase 1–2 |
+| v1.x | Async replication to another Cairn or any S3 (§9); clients repointed on failure | Active-passive, manual or DNS/LB failover, RPO = replication lag | Phase 3 |
+| v1.x | **Blob tiering**: `BlobStore` that keeps hot blobs local and moves cold blobs to remote S3 by age/size rule, metadata stays local | Capacity beyond the host; unchanged write path | Phase 3 |
+| v2 | Multi-node: `openraft` replicated metadata, consistent-hash blob placement, optional local erasure coding (`reed-solomon-simd`) | Active-active, automatic failover | Post-v1, only if demand is real |
+
+Running Cairn *as* a serverless function is a non-goal: it owns local disk and a single metadata
+writer. It runs well in any container platform with a persistent volume (Fly.io, Railway,
+Kubernetes StatefulSet with one replica). Cairn *calling* serverless functions is first-class via
+function sinks (§10).
 
 ---
 
@@ -558,3 +588,9 @@ remote S3 for cold blobs.
 3. Whether `latest` should also cache the small `ObjectBody` to make HEAD/list one lookup (likely
    yes; store `Version` inline in `latest` and keep `versions` as the history).
 4. Name: "Cairn" collides with a few small projects; check crates.io/Docker Hub before 1.0.
+5. Dedup across encryption keys (SSE-C / per-tenant KMS keys): blob ids are plaintext BLAKE3, so a
+   second tenant uploading the same bytes under a different key would hit the first tenant's
+   blob. Phase 2 must scope blob ids by key id for customer-keyed blobs; decide whether SSE-S3
+   blobs stay globally deduplicated (likely yes).
+6. Rate-limiter placement: tower middleware before SigV4 verification (cheap, per-IP only) plus a
+   second per-key check after auth. Confirm `s3s` lets us run middleware at both points.

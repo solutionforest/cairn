@@ -59,7 +59,10 @@ impl MasterKey {
     /// Key check value: first 8 bytes of SHA-256("cairn-kcv" ‖ key), for detecting a wrong key.
     pub fn check_value(&self) -> [u8; 8] {
         use sha2::Digest;
-        let d = sha2::Sha256::new().chain_update(b"cairn-kcv").chain_update(self.0).finalize();
+        let d = sha2::Sha256::new()
+            .chain_update(b"cairn-kcv")
+            .chain_update(self.0)
+            .finalize();
         let mut o = [0u8; 8];
         o.copy_from_slice(&d[..8]);
         o
@@ -159,10 +162,17 @@ mod tests {
         let id = generate_access_key_id();
         assert_eq!(id.len(), 20);
         assert!(id.starts_with("CAIRN"));
-        assert!(id.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit()));
+        assert!(
+            id.bytes()
+                .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
+        );
         let s = generate_secret_key();
         assert_eq!(s.expose().len(), 40);
-        assert!(s.expose().bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'));
+        assert!(
+            s.expose()
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        );
         assert_ne!(generate_secret_key(), s);
         assert!(generate_session_token().expose().len() >= 43);
     }
@@ -174,8 +184,15 @@ mod tests {
         let sealed = k.seal_secret(&sec, b"k/AK").unwrap();
         assert!(!sealed.ct.windows(7).any(|w| w == b"hunter2"));
         assert_eq!(k.open_secret(&sealed, b"k/AK").unwrap(), sec);
-        assert!(matches!(k.open_secret(&sealed, b"k/OTHER"), Err(AuthError::Crypto)));
-        assert!(MasterKey::new([8; 32]).open_secret(&sealed, b"k/AK").is_err());
+        assert!(matches!(
+            k.open_secret(&sealed, b"k/OTHER"),
+            Err(AuthError::Crypto)
+        ));
+        assert!(
+            MasterKey::new([8; 32])
+                .open_secret(&sealed, b"k/AK")
+                .is_err()
+        );
         let mut bad = sealed.clone();
         bad.ct[0] ^= 1;
         assert!(k.open_secret(&bad, b"k/AK").is_err());

@@ -37,7 +37,10 @@ impl ConditionContext {
     }
     /// Append a value to `key`.
     pub fn insert(&mut self, key: &str, value: impl Into<String>) -> &mut Self {
-        self.map.entry(normalize_key(key)).or_default().push(value.into());
+        self.map
+            .entry(normalize_key(key))
+            .or_default()
+            .push(value.into());
         self
     }
     /// Replace all values of `key`.
@@ -86,6 +89,17 @@ pub struct PublicAccessBlock {
     pub restrict_public_buckets: bool,
 }
 
+/// Outcome of matching a resource policy alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResourceVerdict {
+    /// A Deny statement applies.
+    Deny,
+    /// Best-matching Allow statement and how the principal matched.
+    Allow(PrincipalMatch),
+    /// No statement applies.
+    NoMatch,
+}
+
 /// One authorisation request.
 #[derive(Debug, Clone, Copy)]
 pub struct AuthzRequest<'a> {
@@ -118,11 +132,7 @@ struct Tally {
     deny: bool,
 }
 
-fn scan<'s>(
-    stmts: impl Iterator<Item = &'s Statement>,
-    req: &AuthzRequest<'_>,
-    t: &mut Tally,
-) {
+fn scan<'s>(stmts: impl Iterator<Item = &'s Statement>, req: &AuthzRequest<'_>, t: &mut Tally) {
     for st in stmts {
         if t.deny {
             return;
@@ -141,13 +151,47 @@ fn scan<'s>(
 
 impl PolicySet {
     /// Policy set from a principal's own policies plus optional resource policy.
-    pub fn for_principal(p: Option<&Principal>, resource: Option<PolicyDocument>, pab: PublicAccessBlock) -> Self {
+    pub fn for_principal(
+        p: Option<&Principal>,
+        resource: Option<PolicyDocument>,
+        pab: PublicAccessBlock,
+    ) -> Self {
         PolicySet {
             identity: p.map(|p| p.policies.clone()).unwrap_or_default(),
             session: p.and_then(|p| p.session_policy.clone()),
             resource,
             public_access_block: pab,
         }
+    }
+
+    /// Best principal match among Allow statements of the resource policy that apply to
+    /// `req` (`Err` if a resource-policy Deny applies). Honours `RestrictPublicBuckets`.
+    pub fn resource_match(&self, req: &AuthzRequest<'_>) -> ResourceVerdict {
+        let Some(rp) = &self.resource else {
+            return ResourceVerdict::NoMatch;
+        };
+        let mut best: Option<PrincipalMatch> = None;
+        for st in rp.statements() {
+            let Some(pm) = st.match_principal(req.principal) else {
+                continue;
+            };
+            if st.matches_action(req.action)
+                && st.matches_resource(req.resource, req.context)
+                && st.matches_conditions(req.context, req.context)
+            {
+                match st.effect {
+                    Effect::Deny => return ResourceVerdict::Deny,
+                    Effect::Allow => best = best.max(Some(pm)),
+                }
+            }
+        }
+        if req.principal.is_none()
+            && self.public_access_block.restrict_public_buckets
+            && rp.is_public()
+        {
+            best = None;
+        }
+        best.map_or(ResourceVerdict::NoMatch, ResourceVerdict::Allow)
     }
 
     /// Evaluate per AWS rules:
@@ -164,7 +208,11 @@ impl PolicySet {
         let mut id = Tally::default();
         let mut sess = Tally::default();
         if req.principal.is_some() {
-            scan(self.identity.iter().flat_map(|d| d.statements()), req, &mut id);
+            scan(
+                self.identity.iter().flat_map(|d| d.statements()),
+                req,
+                &mut id,
+            );
             if id.deny {
                 return Decision::Deny;
             }
@@ -176,33 +224,21 @@ impl PolicySet {
             }
         }
         let sess_ok = self.session.is_none() || sess.allow;
-        let mut res_best: Option<PrincipalMatch> = None;
-        if let Some(rp) = &self.resource {
-            for st in rp.statements() {
-                let Some(pm) = st.match_principal(req.principal) else { continue };
-                if st.matches_action(req.action)
-                    && st.matches_resource(req.resource, req.context)
-                    && st.matches_conditions(req.context, req.context)
-                {
-                    match st.effect {
-                        Effect::Deny => return Decision::Deny,
-                        Effect::Allow => res_best = res_best.max(Some(pm)),
-                    }
-                }
-            }
-            if req.principal.is_none()
-                && self.public_access_block.restrict_public_buckets
-                && rp.is_public()
-            {
-                res_best = None;
-            }
-        }
+        let res_best = match self.resource_match(req) {
+            ResourceVerdict::Deny => return Decision::Deny,
+            ResourceVerdict::Allow(m) => Some(m),
+            ResourceVerdict::NoMatch => None,
+        };
         let allowed = (req.principal.is_some() && id.allow && sess_ok)
             || match res_best {
                 Some(PrincipalMatch::Exact) => true,
                 Some(PrincipalMatch::Wide) => sess_ok,
                 Some(PrincipalMatch::Account) | None => false,
             };
-        if allowed { Decision::Allow } else { Decision::Implicit }
+        if allowed {
+            Decision::Allow
+        } else {
+            Decision::Implicit
+        }
     }
 }

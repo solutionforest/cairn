@@ -14,13 +14,25 @@ use url::Url;
 pub const MAX_PRESIGN_EXPIRY: Duration = Duration::from_secs(7 * 24 * 3600);
 
 const ALGORITHM: &str = "AWS4-HMAC-SHA256";
+const AUTH_PARAMS: &[&str] = &[
+    "x-amz-algorithm",
+    "x-amz-credential",
+    "x-amz-date",
+    "x-amz-expires",
+    "x-amz-signedheaders",
+    "x-amz-signature",
+    "x-amz-security-token",
+];
 
 /// RFC 3986 encoding as SigV4 requires: unreserved `A-Za-z0-9-_.~` kept, everything else
 /// `%XX` (upper-case hex); `/` kept only when `keep_slash`.
 pub fn uri_encode(input: &[u8], keep_slash: bool) -> String {
     let mut out = String::with_capacity(input.len() * 3);
     for &b in input {
-        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') || (keep_slash && b == b'/') {
+        if b.is_ascii_alphanumeric()
+            || matches!(b, b'-' | b'_' | b'.' | b'~')
+            || (keep_slash && b == b'/')
+        {
             out.push(b as char);
         } else {
             out.push_str(&format!("%{b:02X}"));
@@ -68,7 +80,11 @@ pub fn signing_key(secret: &str, date: &str, region: &str, service: &str) -> [u8
 pub fn object_url(endpoint: &Url, bucket: &str, key: &str) -> Url {
     let mut u = endpoint.clone();
     let base = u.path().trim_end_matches('/').to_string();
-    u.set_path(&format!("{base}/{}/{}", uri_encode(bucket.as_bytes(), false), uri_encode(key.as_bytes(), true)));
+    u.set_path(&format!(
+        "{base}/{}/{}",
+        uri_encode(bucket.as_bytes(), false),
+        uri_encode(key.as_bytes(), true)
+    ));
     u.set_query(None);
     u
 }
@@ -142,12 +158,23 @@ pub fn presign_raw(
         .filter(|p| !p.is_empty())
         .map(|p| {
             let (k, v) = p.split_once('=').unwrap_or((p, ""));
-            (percent_decode(&k.replace('+', " ")), percent_decode(&v.replace('+', " ")))
+            (
+                percent_decode(&k.replace('+', " ")),
+                percent_decode(&v.replace('+', " ")),
+            )
         })
-        .filter(|(k, _)| !k.to_ascii_lowercase().starts_with(b"x-amz-signature"))
+        .filter(|(k, _)| {
+            let k = k.to_ascii_lowercase();
+            !AUTH_PARAMS.iter().any(|a| k == a.as_bytes())
+        })
         .map(|(k, v)| (uri_encode(&k, false), uri_encode(&v, false)))
         .collect();
-    let mut add = |k: &str, v: &str| query.push((uri_encode(k.as_bytes(), false), uri_encode(v.as_bytes(), false)));
+    let mut add = |k: &str, v: &str| {
+        query.push((
+            uri_encode(k.as_bytes(), false),
+            uri_encode(v.as_bytes(), false),
+        ))
+    };
     add("X-Amz-Algorithm", ALGORITHM);
     add("X-Amz-Credential", &format!("{access_key_id}/{scope}"));
     add("X-Amz-Date", &amz_date);
@@ -157,10 +184,18 @@ pub fn presign_raw(
         add("X-Amz-Security-Token", tok);
     }
     query.sort();
-    let canonical_query = query.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join("&");
+    let canonical_query = query
+        .iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect::<Vec<_>>()
+        .join("&");
 
     let path = url.path();
-    let canonical_uri = if path.is_empty() { "/".to_string() } else { uri_encode(&percent_decode(path), true) };
+    let canonical_uri = if path.is_empty() {
+        "/".to_string()
+    } else {
+        uri_encode(&percent_decode(path), true)
+    };
 
     let canonical_request = format!(
         "{method}\n{canonical_uri}\n{canonical_query}\n{canonical_headers}\n{signed_headers}\nUNSIGNED-PAYLOAD"
@@ -174,8 +209,15 @@ pub fn presign_raw(
 
     let mut out = url.clone();
     out.set_path(&canonical_uri);
-    out.set_query(Some(&format!("{canonical_query}&X-Amz-Signature={signature}")));
-    Ok(Presigned { url: out, canonical_request, string_to_sign, signature })
+    out.set_query(Some(&format!(
+        "{canonical_query}&X-Amz-Signature={signature}"
+    )));
+    Ok(Presigned {
+        url: out,
+        canonical_request,
+        string_to_sign,
+        signature,
+    })
 }
 
 /// Presign `method url` for `cred` (adds `X-Amz-Security-Token` for STS sessions).

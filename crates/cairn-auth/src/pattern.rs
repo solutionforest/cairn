@@ -37,7 +37,10 @@ enum Part {
     Lit(String),
     Star,
     Qm,
-    Var { key: String, default: Option<String> },
+    Var {
+        key: String,
+        default: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,7 +90,10 @@ impl Pattern {
                                 }
                                 None => (inner.trim(), None),
                             };
-                            parts.push(Part::Var { key: normalize_key(key), default });
+                            parts.push(Part::Var {
+                                key: normalize_key(key),
+                                default,
+                            });
                         }
                     }
                     continue;
@@ -112,7 +118,12 @@ impl Pattern {
         let has_vars = parts.iter().any(|p| matches!(p, Part::Var { .. }));
         let has_qm = parts.iter().any(|p| matches!(p, Part::Qm));
         let has_wild = has_qm || parts.iter().any(|p| matches!(p, Part::Star));
-        Pattern { parts, has_vars, has_wild, has_qm }
+        Pattern {
+            parts,
+            has_vars,
+            has_wild,
+            has_qm,
+        }
     }
 
     /// Glob source for globset, if this pattern can be compiled statically.
@@ -155,9 +166,19 @@ impl Pattern {
         if !self.has_wild {
             let lit: String = toks
                 .iter()
-                .map(|t| if let Tok::Ch(c) = t { *c } else { unreachable!() })
+                .map(|t| {
+                    if let Tok::Ch(c) = t {
+                        *c
+                    } else {
+                        unreachable!()
+                    }
+                })
                 .collect();
-            return if ignore_case { lit.to_lowercase() == cand.to_lowercase() } else { lit == cand };
+            return if ignore_case {
+                lit.to_lowercase() == cand.to_lowercase()
+            } else {
+                lit == cand
+            };
         }
         if ignore_case {
             let toks: Vec<Tok> = toks
@@ -257,7 +278,10 @@ impl PatternSet {
     pub(crate) fn is_match(&self, cand: &str, vars: &dyn VarResolver) -> bool {
         self.any
             || (!self.set.is_empty() && self.set.is_match(cand))
-            || self.dynamic.iter().any(|p| p.matches(cand, vars, self.ignore_case))
+            || self
+                .dynamic
+                .iter()
+                .any(|p| p.matches(cand, vars, self.ignore_case))
     }
 }
 
@@ -292,8 +316,14 @@ mod tests {
 
     #[test]
     fn variables() {
-        assert!(m("arn:aws:s3:::home/${aws:username}/*", "arn:aws:s3:::home/alice/f"));
-        assert!(!m("arn:aws:s3:::home/${aws:username}/*", "arn:aws:s3:::home/bob/f"));
+        assert!(m(
+            "arn:aws:s3:::home/${aws:username}/*",
+            "arn:aws:s3:::home/alice/f"
+        ));
+        assert!(!m(
+            "arn:aws:s3:::home/${aws:username}/*",
+            "arn:aws:s3:::home/bob/f"
+        ));
         assert!(!m("home/${aws:userid}/*", "home/x/f"));
         assert!(m("home/${aws:userid, 'anon'}/*", "home/anon/f"));
         assert!(m("lit${*}x", "lit*x"));

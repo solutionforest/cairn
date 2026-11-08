@@ -187,10 +187,16 @@ pub fn parse_date(s: &str) -> Option<Ts> {
         return Some(Ts::from_jiff(t));
     }
     if let Ok(dt) = s.parse::<jiff::civil::DateTime>() {
-        return dt.to_zoned(jiff::tz::TimeZone::UTC).ok().map(|z| Ts::from_jiff(z.timestamp()));
+        return dt
+            .to_zoned(jiff::tz::TimeZone::UTC)
+            .ok()
+            .map(|z| Ts::from_jiff(z.timestamp()));
     }
     if let Ok(d) = s.parse::<jiff::civil::Date>() {
-        return d.to_zoned(jiff::tz::TimeZone::UTC).ok().map(|z| Ts::from_jiff(z.timestamp()));
+        return d
+            .to_zoned(jiff::tz::TimeZone::UTC)
+            .ok()
+            .map(|z| Ts::from_jiff(z.timestamp()));
     }
     None
 }
@@ -202,13 +208,17 @@ fn parse_net(s: &str) -> Option<IpNet> {
 }
 
 fn split_arn(p: &str, vars: bool) -> Vec<Pattern> {
-    p.splitn(6, ':').map(|c| Pattern::parse(c, true, vars)).collect()
+    p.splitn(6, ':')
+        .map(|c| Pattern::parse(c, true, vars))
+        .collect()
 }
 
 /// Parse a whole `Condition` block.
 pub(crate) fn parse_block(v: &Value, vars: bool) -> Result<Vec<Condition>, PolicyError> {
     let bad = |m: String| PolicyError::InvalidCondition(m);
-    let obj = v.as_object().ok_or_else(|| bad("Condition must be an object".into()))?;
+    let obj = v
+        .as_object()
+        .ok_or_else(|| bad("Condition must be an object".into()))?;
     let mut out = Vec::new();
     for (opname, body) in obj {
         let (set, rest) = if let Some(r) = opname.strip_prefix("ForAnyValue:") {
@@ -222,7 +232,8 @@ pub(crate) fn parse_block(v: &Value, vars: bool) -> Result<Vec<Condition>, Polic
             Some(b) => (true, b),
             None => (false, rest),
         };
-        let op = OpKind::from_name(base).ok_or_else(|| bad(format!("unknown operator {opname}")))?;
+        let op =
+            OpKind::from_name(base).ok_or_else(|| bad(format!("unknown operator {opname}")))?;
         if op == OpKind::Null && (if_exists || set != SetQualifier::None) {
             return Err(bad(format!("{opname}: Null takes no qualifiers")));
         }
@@ -237,8 +248,15 @@ pub(crate) fn parse_block(v: &Value, vars: bool) -> Result<Vec<Condition>, Polic
                 return Err(bad(format!("{key}: condition keys look like ns:name")));
             }
             let raw = scalar_strings(vals).map_err(|e| bad(format!("{key}: {e}")))?;
-            let values = build_values(op, &raw, vars).map_err(|e| bad(format!("{opname} {key}: {e}")))?;
-            out.push(Condition { op, set, if_exists, key: normalize_key(key), values });
+            let values =
+                build_values(op, &raw, vars).map_err(|e| bad(format!("{opname} {key}: {e}")))?;
+            out.push(Condition {
+                op,
+                set,
+                if_exists,
+                key: normalize_key(key),
+                values,
+            });
         }
     }
     Ok(out)
@@ -250,14 +268,28 @@ fn build_values(op: OpKind, raw: &[String], vars: bool) -> Result<Values, String
         StringEquals | StringNotEquals | StringEqualsIgnoreCase | StringNotEqualsIgnoreCase => {
             Values::Str(raw.iter().map(|s| Pattern::parse(s, false, vars)).collect())
         }
-        StringLike | StringNotLike => Values::Str(raw.iter().map(|s| Pattern::parse(s, true, vars)).collect()),
-        NumericEquals | NumericNotEquals | NumericLessThan | NumericLessThanEquals
-        | NumericGreaterThan | NumericGreaterThanEquals => Values::Num(
+        StringLike | StringNotLike => {
+            Values::Str(raw.iter().map(|s| Pattern::parse(s, true, vars)).collect())
+        }
+        NumericEquals
+        | NumericNotEquals
+        | NumericLessThan
+        | NumericLessThanEquals
+        | NumericGreaterThan
+        | NumericGreaterThanEquals => Values::Num(
             raw.iter()
-                .map(|s| s.trim().parse::<f64>().map_err(|_| format!("{s} is not a number")))
+                .map(|s| {
+                    s.trim()
+                        .parse::<f64>()
+                        .map_err(|_| format!("{s} is not a number"))
+                })
                 .collect::<Result<_, _>>()?,
         ),
-        DateEquals | DateNotEquals | DateLessThan | DateLessThanEquals | DateGreaterThan
+        DateEquals
+        | DateNotEquals
+        | DateLessThan
+        | DateLessThanEquals
+        | DateGreaterThan
         | DateGreaterThanEquals => Values::Date(
             raw.iter()
                 .map(|s| parse_date(s).ok_or_else(|| format!("{s} is not a date")))
@@ -267,7 +299,11 @@ fn build_values(op: OpKind, raw: &[String], vars: bool) -> Result<Values, String
             raw.iter()
                 .map(|s| {
                     let l = s.to_ascii_lowercase();
-                    if l == "true" || l == "false" { Ok(l) } else { Err(format!("{s} is not a boolean")) }
+                    if l == "true" || l == "false" {
+                        Ok(l)
+                    } else {
+                        Err(format!("{s} is not a boolean"))
+                    }
                 })
                 .collect::<Result<_, _>>()?,
         ),
@@ -345,7 +381,11 @@ impl Condition {
                     return false;
                 }
                 arns.iter().any(|comps| {
-                    comps.len() == 6 && comps.iter().zip(&req).all(|(p, r)| p.matches(r, vars, false))
+                    comps.len() == 6
+                        && comps
+                            .iter()
+                            .zip(&req)
+                            .all(|(p, r)| p.matches(r, vars, false))
                 })
             }
             Values::Null(_) => false,

@@ -5,7 +5,7 @@ use super::{CredentialStore, validate_name};
 use crate::arn;
 use crate::engine::{AuthzEngine, BucketAuthz};
 use crate::error::AuthError;
-use crate::eval::{ConditionContext, Decision};
+use crate::eval::{AuthzRequest, ConditionContext, Decision, PolicySet, ResourceVerdict};
 use crate::policy::PolicyKind;
 use crate::principal::{Principal, PrincipalKind};
 use crate::secret::{self, SecretString};
@@ -80,19 +80,34 @@ impl CredentialStore {
 
     /// AssumeRole: checks the trust policy (and caller's identity policies) for
     /// `sts:AssumeRole` on the role ARN, then issues temporary credentials.
-    pub async fn assume_role(&self, caller: &Principal, req: AssumeRoleRequest<'_>) -> Result<StsCredentials, AuthError> {
+    pub async fn assume_role(
+        &self,
+        caller: &Principal,
+        req: AssumeRoleRequest<'_>,
+    ) -> Result<StsCredentials, AuthError> {
         let role_name = req
             .role
             .strip_prefix(&format!("arn:aws:iam::{}:role/", crate::types::ACCOUNT_ID))
             .unwrap_or(req.role);
         let sn = req.session_name;
-        if sn.len() < 2 || sn.len() > 64 || !sn.chars().all(|c| c.is_ascii_alphanumeric() || "_+=,.@-".contains(c)) {
-            return Err(AuthError::Invalid("RoleSessionName must be 2..=64 chars of [\\w+=,.@-]".into()));
+        if sn.len() < 2
+            || sn.len() > 64
+            || !sn
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "_+=,.@-".contains(c))
+        {
+            return Err(AuthError::Invalid(
+                "RoleSessionName must be 2..=64 chars of [\\w+=,.@-]".into(),
+            ));
         }
         validate_name("role", role_name)?;
         let role = self.role_record(role_name)?;
         let chained = matches!(caller.kind, PrincipalKind::AssumedRole { .. });
-        let max = Duration::from_secs(role.max_session_secs).min(if chained { MAX_CHAINED_SESSION } else { MAX_SESSION });
+        let max = Duration::from_secs(role.max_session_secs).min(if chained {
+            MAX_CHAINED_SESSION
+        } else {
+            MAX_SESSION
+        });
         if req.duration < MIN_SESSION || req.duration > max {
             return Err(AuthError::Invalid(format!(
                 "DurationSeconds must be between {} and {}",
@@ -109,13 +124,45 @@ impl CredentialStore {
         };
         let trust = self.compile_policy(&role.trust_policy, PolicyKind::Trust)?;
         let engine = AuthzEngine::with_clock(self.clock());
-        let bucket = BucketAuthz { policy: Some(trust), ..Default::default() };
-        let d = engine.authorize(Some(caller), "sts:AssumeRole", &arn::role(role_name), req.context, Some(&bucket));
-        if d != Decision::Allow {
-            return Err(AuthError::AccessDenied(format!("{} is not allowed to assume role {role_name}", caller.arn)));
+        let role_arn = arn::role(role_name);
+        let ctx = engine.enrich(Some(caller), req.context);
+        let set = PolicySet {
+            resource: Some(trust.clone()),
+            ..Default::default()
+        };
+        let trusted = caller.is_root
+            || matches!(
+                set.resource_match(&AuthzRequest {
+                    principal: Some(caller),
+                    action: "sts:AssumeRole",
+                    resource: &role_arn,
+                    context: &ctx
+                }),
+                ResourceVerdict::Allow(_)
+            );
+        let bucket = BucketAuthz {
+            policy: Some(trust),
+            ..Default::default()
+        };
+        let d = engine.authorize(
+            Some(caller),
+            "sts:AssumeRole",
+            &role_arn,
+            req.context,
+            Some(&bucket),
+        );
+        if !trusted || d != Decision::Allow {
+            return Err(AuthError::AccessDenied(format!(
+                "{} is not allowed to assume role {role_name}",
+                caller.arn
+            )));
         }
         let (rec, sk, token) = self.new_session(
-            SessionKind::Role { role: role_name.into(), session_name: sn.into(), source: caller.id.clone() },
+            SessionKind::Role {
+                role: role_name.into(),
+                session_name: sn.into(),
+                source: caller.id.clone(),
+            },
             req.duration,
             session_policy,
             Vec::new(),
@@ -133,7 +180,11 @@ impl CredentialStore {
 
     /// GetSessionToken: temporary credentials with the caller's own permissions.
     /// Only users and root may call it (not role sessions); 15 min – 12 h.
-    pub async fn get_session_token(&self, caller: &Principal, duration: Duration) -> Result<StsCredentials, AuthError> {
+    pub async fn get_session_token(
+        &self,
+        caller: &Principal,
+        duration: Duration,
+    ) -> Result<StsCredentials, AuthError> {
         if duration < MIN_SESSION || duration > MAX_SESSION {
             return Err(AuthError::Invalid(format!(
                 "DurationSeconds must be between {} and {}",
@@ -145,10 +196,16 @@ impl CredentialStore {
             PrincipalKind::Root => SessionKind::Root,
             PrincipalKind::User { name } => SessionKind::User(name.clone()),
             PrincipalKind::AssumedRole { .. } => {
-                return Err(AuthError::AccessDenied("role sessions cannot call GetSessionToken".into()));
+                return Err(AuthError::AccessDenied(
+                    "role sessions cannot call GetSessionToken".into(),
+                ));
             }
         };
-        let cidrs = caller.allowed_source_cidrs.iter().map(|n| n.to_string()).collect();
+        let cidrs = caller
+            .allowed_source_cidrs
+            .iter()
+            .map(|n| n.to_string())
+            .collect();
         let (rec, sk, token) = self.new_session(kind, duration, None, cidrs)?;
         Ok(StsCredentials {
             access_key_id: rec.access_key_id,
