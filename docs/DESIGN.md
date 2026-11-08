@@ -110,7 +110,9 @@ cairn/
 └── deploy/                     Dockerfile (distroless/scratch), docker-compose, systemd unit
 ```
 
-Dependency direction: `core ← meta, blob, auth ← engine ← s3, admin, events, mcp ← server ← cli`.
+Dependency direction: `core ← meta, blob, auth ← engine ← s3, admin, mcp ← server ← cli`, with
+`events` depending only on `core` + `meta` so the engine can append to the outbox inside its
+commit transaction (`core ← meta ← events ← engine`; BUILD-PLAN decisions log 2026-11-08).
 `cairn-auth` and the storage crates do not depend on each other; both are pure logic with unit
 tests and can be built in parallel.
 

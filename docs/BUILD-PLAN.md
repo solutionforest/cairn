@@ -106,11 +106,11 @@ MCP, **C** = events/replication-adjacent/tooling. Status dates are UTC.
 | 1c | `cairn-engine` (bucket/object/multipart/commit landed; **recovery, GC tick, lifecycle hooks pending**) + `cairn-s3` (s3s impl) + `cairn-server` + `cairn-cli serve/init`: bucket CRUD, Put/Get/Head/Delete(s), Copy, ListObjects v1/v2, ListObjectVersions, versioning, multipart (7 ops), tagging, metadata, range/conditional, checksums, soft delete + shadow versioning, root-only `S3Auth`. Create `docs/COMPAT.md` and `docs/EXTENSIONS.md`, example `cairn.toml`. | A | in progress | `crates/cairn-server/tests/` with aws-sdk-s3 cover every op; `aws s3 cp/sync/ls/rm` and `rclone` work manually |
 | 2a | Engine/S3 features: trash list/restore/purge, PITR restore + `x-cairn-as-of`, lifecycle worker (expiration, noncurrent, abort-mpu), GC worker, Object Lock (governance/compliance/legal hold), SSE-S3 / SSE-C (key-scoped blob ids, DESIGN §15 Q5) / named KMS keys, CORS, PublicAccessBlock, bucket quota (507), rate limiting (§8.3), `/metrics` `/healthz` `/readyz`, audit JSONL, graceful shutdown | A | todo | integration tests per feature; `s3-tests` tagged subset ≥ 80% |
 | 2b | Wire `cairn-auth` into s3s `S3Auth`/`S3Access` (bucket policy ∪ identity ∪ PAB); Put/Get/Delete BucketPolicy + GetBucketPolicyStatus; STS endpoint (`/?Action=AssumeRole|GetSessionToken`); `cairn-admin` REST API (`/_cairn/v1/...`) + `cairn admin` CLI (users/keys/groups/policies/roles/buckets/trash/pitr/quota/lock); metadata **migrations framework** (schema version in `kv`, pre-upgrade snapshot, `cairn migrate --dry-run`) | B | todo | policy/STS/admin integration tests; migration test from a v1 fixture |
-| 3a | `cairn-events`: event types (S3 schema 2.1 + `cairn:`), durable outbox + cursor, delivery worker with backoff + DLQ, sinks: webhook (HMAC), **function sinks** (bearer / sigv4-lambda / cf-access, §10), SSE stream `/_cairn/v1/events`; `Put/GetBucketNotificationConfiguration` mapping incl. `LambdaFunctionConfigurations` | C | todo | outbox delivers exactly the committed set after crash (test); fake HTTP sink tests per auth mode |
+| 3a | `cairn-events`: event types (S3 schema 2.1 + `cairn:`), durable outbox + cursor, delivery worker with backoff + DLQ, sinks: webhook (HMAC), **function sinks** (bearer / sigv4-lambda / cf-access, §10), SSE stream `/_cairn/v1/events`; `Put/GetBucketNotificationConfiguration` mapping incl. `LambdaFunctionConfigurations` | C | **done (library)** 2026-11-08: 30 tests incl. crash test + per-auth-mode fake HTTP sinks; wiring into engine/s3/server (A) and admin SSE mount (B) pending, see decisions log | outbox delivers exactly the committed set after crash (test); fake HTTP sink tests per auth mode |
 | 3b | Replication worker + Put/Get/DeleteBucketReplication, `x-cairn-version-id` on Cairn→Cairn; **blob tiering** `BlobStore` (hot local / cold remote S3, age+size rules, transparent read-through); `cairn backup/restore` (snapshot + incremental blobs, age-style encryption); `cairn fsck` / `cairn scrub` | A | todo | replication round-trip between two in-process servers; tiered GET of a cold blob; fsck detects an injected orphan and a corrupt blob |
 | 3c | `cairn-mcp` (stdio + streamable HTTP, tools in DESIGN §11.1, `cairn:McpTool` condition key); OIDC federation for STS (`AssumeRoleWithWebIdentity`); PostObject (browser form upload) | B | todo | MCP tools exercised with an rmcp client under a restricted policy; OIDC test with a local JWKS |
-| 3d | Tooling: `bench/` harness (warp or custom, reproducing §13 targets, results committed as markdown); `s3-tests` (ceph) runner script + tag list + CI job (nightly, allowed-failure list); config reference generator (`cairn config schema`) | C | todo | bench runs on the dev host; `s3-tests` subset ≥ 95% by end of phase 3 |
-| R | Release engineering: `cargo deny` + `cargo audit` in CI; release workflow (tags → static musl x86_64/aarch64, Docker image to GHCR, SBOM, checksums); CHANGELOG; **name check** on crates.io / Docker Hub / GitHub before first public tag; `SECURITY.md` with disclosure policy | C | todo | `v0.1.0-alpha` tag produces downloadable binaries |
+| 3d | Tooling: `bench/` harness (warp or custom, reproducing §13 targets, results committed as markdown); `s3-tests` (ceph) runner script + tag list + CI job (nightly, allowed-failure list); config reference generator (`cairn config schema`) | C | in progress 2026-11-08: `bench/run.sh` (warp) + `RESULTS.md` template, `scripts/s3-tests/` runner + nightly workflow (gated by `S3_TESTS_ENABLED`) landed; no runs yet (needs `cairn serve`); `cairn config schema` not started (cairn-cli, A) | bench runs on the dev host; `s3-tests` subset ≥ 95% by end of phase 3 |
+| R | Release engineering: `cargo deny` + `cargo audit` in CI; release workflow (tags → static musl x86_64/aarch64, Docker image to GHCR, SBOM, checksums); CHANGELOG; **name check** on crates.io / Docker Hub / GitHub before first public tag; `SECURITY.md` with disclosure policy | C | in progress 2026-11-08: `cargo deny` green + `security.yml`, `release.yml`, SECURITY.md, CHANGELOG.md, name check run (rename recommended); remaining: first `v0.1.0-alpha` tag once `cairn serve` exists | `v0.1.0-alpha` tag produces downloadable binaries |
 | 4 | Admin UI (`/_cairn/ui`); `ai` feature (extraction, embeddings, search); ACME; otel; WASM GET-hook experiment; Helm; docs site | later | todo | |
 
 ### Gaps closed on 2026-11-08 (second planning pass)
@@ -186,3 +186,85 @@ Entries are dated (UTC) and name the author. Newest last.
   B's uncommitted rewrite (store/sts/sigv4 tests, 3.2k lines) and Agent A's engine
   bucket/object/multipart/commit modules compiled and passed tests, so they were committed to
   give phase 1c a clean baseline. `recovery.rs` is an empty placeholder owned by A.
+- **2026-11-08 (Agent C) — `cairn-events` sits beside `cairn-meta`, below the engine; engine
+  hook.** `cairn-events` depends on `cairn-core` + `cairn-meta` only (the `cairn-engine` edge was
+  removed), so the engine can depend on it and emit events inside its commit closure. DESIGN §3
+  dependency line updated. The hook A calls (one per committed mutation, same closure, then wake
+  the workers after the write resolves):
+  ```rust
+  // cairn_events::Outbox (cheap Clone; one per server, built with Outbox::new(capture_all))
+  pub fn append(&self, txn: &cairn_meta::WriteTxn, bucket: cairn_core::BucketId,
+                event: &cairn_events::Event) -> Result<Option<u64>, cairn_events::EventsError>;
+  pub fn notify(&self);
+  // e.g. store.write(move |txn| { /* mutate */ ob.append(txn, b, &ev)?; Ok(r) }).await?; ob.notify();
+  ```
+  `append` reads the bucket's notification configuration from the same transaction, so it is
+  deterministic under group-commit re-runs, and returns `None` (writes nothing) when no rule
+  matches and `capture_all` is false (set it true when the SSE stream is enabled). The engine
+  error type needs `From<EventsError>`. `Event::new(name, bucket, key)` plus the public fields
+  (`size`, `etag`, `version_id`, `principal`, `source_ip`, `request_id`, `region`, `time`,
+  `extra`) build the record. `cairn-s3` maps `Put/GetBucketNotificationConfiguration` with
+  `cairn_events::notification::{store, load, remove}` (kv, keyed by `BucketId`) and
+  `NotificationConfiguration::{from_xml, to_xml, validate_destinations}`; call `remove` when a
+  bucket is purged. Admin (B) mounts `cairn_events::sse_router(SseBroadcast)` behind its auth layer.
+- **2026-11-08 (Agent C) — outbox layout, no new tables.** The brief said `events_outbox`; the
+  existing `events_queue` table (DESIGN §4.3) is used instead so `cairn-meta` needed no change:
+  `0x01 ‖ seq:u64be → OutboxRecord {event, targets, only_sink}`, DLQ rows
+  `0x02 ‖ sink ‖ 0x00 ‖ seq:u64be → DlqRecord`. `kv` holds `events/seq` (last sequence),
+  `events/cursor/<sink>` and `events/notification/<BucketId>`. Delivery is at-least-once of
+  exactly the committed set: the cursor advances only after the destination accepts a batch or
+  the batch is dead-lettered; receivers dedupe on the idempotency key (16-hex sequence, in
+  `cairn.id` of each record and the `x-cairn-idempotency-key` header, comma-joined for batches).
+  Rows below the minimum cursor of all sinks are removed by `worker::compact_outbox`. Backoff:
+  `base·2^(n-1)` capped, equal jitter; defaults 8 attempts, 500 ms → 5 min. 4xx other than
+  408/429 is permanent (straight to DLQ); redirects are not followed.
+- **2026-11-08 (Agent C) — wire formats for sinks.** Body = S3 event message
+  `{"Records":[…]}` (schema 2.1; `eventSource` is `aws:s3` for S3 event types so existing Lambda
+  handlers work, `cairn:s3` for `cairn:*`; keys form-URL-encoded with `/` kept, like AWS).
+  HMAC: `x-cairn-timestamp: <unix s>`, `x-cairn-signature: v1=hex(HMAC-SHA256(secret,
+  "<timestamp>.<body>"))`. `sigv4-lambda`: `POST /2015-03-31/functions/<fn>/invocations` on
+  `lambda.<region>.amazonaws.com` (or `url` override), `X-Amz-Invocation-Type: Event` default,
+  signed with the in-crate SigV4 signer (AWS test-suite vectors in `sigv4.rs`). Function sinks
+  default to one record per request (Lambda semantics), webhooks to 10. Sink definitions
+  deserialize as `cairn_events::SinkConfig` (TOML `[[events.sinks]]`, `auth = { mode = … }`);
+  **request to A:** add `sinks: Vec<toml::Table>` (or similar passthrough) to
+  `cairn_core::EventsConfig` so the server can hand each entry to `WebhookSink::from_config`
+  (core cannot depend on events). Secrets are a deserialize-only `Secret` (zeroized, redacted
+  `Debug`), outbound credential headers are marked sensitive.
+- **2026-11-08 (Agent C) — release engineering choices.** Release builds use **cargo-zigbuild**
+  (not `cross`: no Docker-in-Docker, zig cross-compiles `ring`'s C/asm for aarch64-musl) wrapped
+  by `cargo auditable`, on **GitHub-hosted `ubuntu-latest`** (tags only; >1 vCPU for LTO, Docker
+  daemon for GHCR), while `ci.yml`/`security.yml`/`s3-tests.yml` stay on `self-hosted`. Images
+  are `distroless/static:nonroot` (uid 65532) built from the released binaries
+  (`deploy/Dockerfile --target release`), so nothing compiles under QEMU. SBOM = CycloneDX from
+  syft over the auditable binary. Release-workflow actions are pinned by commit SHA. Workspace
+  `rust-version` raised 1.85 → **1.88** (let-chains are already used; ctutils 0.4.8 needs ≥ 1.87)
+  and internal path deps carry `version = "0.1.0"` (cargo-deny wildcard ban). `cargo deny` ignores
+  three unmaintained-only advisories with reasons in `deny.toml` (atomic-polyfill via postcard,
+  pin-utils via aws-sdk dev-dep, **rustls-pemfile — direct dep of cairn-server, A should move to
+  `rustls-pki-types` `PemObject` in 2a**). GitHub private vulnerability reporting cannot be
+  enabled while the repo is private (API 404); enable it when the repo goes public (SECURITY.md
+  already points to it).
+- **2026-11-08 (Agent C) — name check (`scripts/name-check.sh`, run 2026-11-08 12:19 UTC).**
+  | name | crates.io | Docker Hub | GitHub |
+  |------|-----------|------------|--------|
+  | `cairn` | **taken** (v0.0.0, "build-gated version control", 256 dl) | 10 repos named cairn (top `wabarc/cairn`, 21k pulls); no official image | 62 repos (top `oritera/Cairn`, 4.9k★, AI pentest engine, also AGPL); org `@cairn` exists |
+  | `cairn-s3` | free | free | free |
+  | `cairnstore` | free | free | free |
+  | `cairn-server` | free | 1 repo (196 pulls) | 4 small repos |
+  | `cairn-cli` | **taken** (v0.1.6) | free | 5 small repos |
+  | `cairn-core` | **taken** (v0.1.0) | free | 1 repo; org `@cairn-core` exists |
+  Also found by search: `Harsh-2002/Cairn`, "self-hosted, S3-compatible object storage" (6★) and
+  `bdarwin/cairn` (S3 server in Java) — same product category. Trademarks not checked (manual:
+  USPTO/EUIPO classes 9/42). **Recommendation: rename before the first public tag.** The bare
+  name is crowded in exactly our category and three of our crate names are taken on crates.io,
+  so publishing crates would be impossible as-is. If the brand is kept, distribution names
+  become `cairnstore` (crates `cairnstore-*`, binary `cairn` is fine, image
+  `ghcr.io/solutionforest/cairn` is namespaced and fine); otherwise pick a new name and re-run
+  `scripts/name-check.sh <name>`. Decision belongs to the maintainers; PRODUCTION-READINESS F5
+  stays open until then.
+- **2026-11-08 (Agent C) — conformance and benchmark tooling.** `ceph/s3-tests` upstream has
+  moved into `ceph/ceph`; `scripts/s3-tests/run.sh` pins the last standalone commit
+  (`5b39871`, 2026-10-12) and deselects unimplemented feature markers (list in its README).
+  Benchmarks use MinIO `warp` v1.8.2 via `bench/run.sh` rather than a custom Rust harness (no
+  extra compile on the 1-vCPU host, results comparable with published MinIO numbers).
