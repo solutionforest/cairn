@@ -66,6 +66,9 @@ pub struct ServerConfig {
     pub tls_cert: Option<PathBuf>,
     /// TLS private key (PEM).
     pub tls_key: Option<PathBuf>,
+    /// How long in-flight requests may drain after SIGTERM / ctrl-c.
+    #[serde(with = "duration_serde")]
+    pub shutdown_grace: Duration,
 }
 
 impl Default for ServerConfig {
@@ -76,6 +79,7 @@ impl Default for ServerConfig {
             region: "us-east-1".into(),
             tls_cert: None,
             tls_key: None,
+            shutdown_grace: Duration::from_secs(30),
         }
     }
 }
@@ -324,6 +328,55 @@ impl Config {
     pub fn master_key_path(&self) -> PathBuf {
         self.storage.data_dir.join("keys").join("master.key")
     }
+
+    /// Semantic checks beyond parsing; returns every problem found.
+    pub fn validate(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        if self.server.listen.parse::<std::net::SocketAddr>().is_err() {
+            out.push(format!(
+                "server.listen {:?} is not an ip:port address",
+                self.server.listen
+            ));
+        }
+        if self.server.tls_cert.is_some() != self.server.tls_key.is_some() {
+            out.push("server.tls_cert and server.tls_key must be set together".into());
+        }
+        for p in [&self.server.tls_cert, &self.server.tls_key].into_iter().flatten() {
+            if !p.exists() {
+                out.push(format!("TLS file {} does not exist", p.display()));
+            }
+        }
+        match (&self.auth.root_access_key, &self.auth.root_secret_key) {
+            (Some(a), Some(s)) => {
+                if a.len() < 3 || a.len() > 128 {
+                    out.push("auth.root_access_key must be 3..=128 characters".into());
+                }
+                if s.len() < 8 {
+                    out.push("auth.root_secret_key must be at least 8 characters".into());
+                }
+            }
+            _ => out.push(
+                "auth.root_access_key and auth.root_secret_key are required (or CAIRN_ROOT_ACCESS_KEY / CAIRN_ROOT_SECRET)"
+                    .into(),
+            ),
+        }
+        if self.limits.min_part_size > self.limits.max_part_size {
+            out.push("limits.min_part_size exceeds limits.max_part_size".into());
+        }
+        if self.limits.max_parts == 0 || self.limits.max_parts > 10_000 {
+            out.push("limits.max_parts must be 1..=10000".into());
+        }
+        out
+    }
+
+    /// TOML rendering with secrets masked (for `cairn config check` and logs).
+    pub fn to_redacted_toml(&self) -> String {
+        let mut c = self.clone();
+        if c.auth.root_secret_key.is_some() {
+            c.auth.root_secret_key = Some("********".into());
+        }
+        toml::to_string_pretty(&c).unwrap_or_default()
+    }
 }
 
 fn known_optional(section: &str, field: &str) -> bool {
@@ -412,6 +465,15 @@ mod tests {
         assert_eq!(c.retention.gc_grace, Duration::from_secs(60));
         assert_eq!(c.limits.max_parts, 10_000);
         assert!(Config::from_toml("[server]\nbogus = 1").is_err());
+        assert_eq!(c.server.shutdown_grace, Duration::from_secs(30));
+        assert!(!c.validate().is_empty());
+        let mut ok = c.clone();
+        ok.auth.root_access_key = Some("rootkey".into());
+        ok.auth.root_secret_key = Some("s3cr3t-value".into());
+        assert_eq!(ok.validate(), Vec::<String>::new());
+        let shown = ok.to_redacted_toml();
+        assert!(!shown.contains("s3cr3t-value"));
+        assert_eq!(Config::from_toml(&shown).unwrap().server, ok.server);
     }
 
     #[test]
