@@ -17,9 +17,9 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done.
 - [ ] A7 **claim 3** Dedup proven: N uploads of identical bytes leave one blob file; CopyObject, trash restore and PITR restore add zero blob bytes on disk (asserted by walking `blobs/`); an encrypted store dedups the same way.
 
 ## B. Security
-- [~] B1 SigV4 header + presigned verification with credential-store lookup; expired presign rejected. (bridge + STS sessions done in cairn-auth; server wiring + expired-presign test pending)
-- [~] B2 Policy evaluation on every S3, admin and MCP request: identity ∪ group ∪ bucket policy ∪ PublicAccessBlock; explicit deny wins. (cairn-auth/src/s3s_bridge/tests.rs 19 tests; server wiring pending)
-- [~] B3 STS `AssumeRole` / `GetSessionToken`; sessions expire and are revocable. (cairn-auth/src/sts/tests.rs; router not mounted)
+- [x] B1 SigV4 header + presigned verification with credential-store lookup; expired presign rejected. (crates/cairn-server/tests/auth_wire.rs::unsigned_and_badly_signed_requests_are_rejected, ::expired_presigned_url_is_rejected)
+- [x] B2 Policy evaluation on every S3, admin and MCP request: identity ∪ group ∪ bucket policy ∪ PublicAccessBlock; explicit deny wins. (crates/cairn-server/tests/auth_wire.rs::identity_group_and_bucket_policy_denies_win, ::public_bucket_policy_respects_public_access_block, ::admin_api_is_mounted_and_authenticated, ::mcp_http_is_mounted_and_authenticated; cairn-auth/src/s3s_bridge/tests.rs)
+- [x] B3 STS `AssumeRole` / `GetSessionToken`; sessions expire and are revocable. (crates/cairn-server/tests/auth_wire.rs::sts_session_works_and_is_revocable; cairn-auth/src/sts/tests.rs)
 - [~] B4 Root credentials sealed in the credential store at `cairn init`, never logged; secrets zeroized and redacted. (cairn-admin/src/tests.rs::secrets_never_logged; `ensure_root` not called from init)
 - [ ] B5 SSE-S3 at rest with a master key from file or env; plaintext blobs never written when enabled.
 - [x] B6 `cargo deny` + `cargo audit` in CI, `SECURITY.md`, `forbid(unsafe_code)` everywhere. (.github/workflows/security.yml, deny.toml)
