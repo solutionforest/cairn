@@ -478,13 +478,13 @@ impl CredentialStore {
 
     fn install_root(&self, akid: &str, secret: &SecretString) -> Result<(), AuthError> {
         let k = key(K_KEY, akid);
-        if let Some(existing) = self.get::<AccessKeyRecord>(&k)? {
-            if existing.owner != KeyOwner::Root {
-                return Err(AuthError::AlreadyExists {
-                    kind: "access key",
-                    name: akid.into(),
-                });
-            }
+        if let Some(existing) = self.get::<AccessKeyRecord>(&k)?
+            && existing.owner != KeyOwner::Root
+        {
+            return Err(AuthError::AlreadyExists {
+                kind: "access key",
+                name: akid.into(),
+            });
         }
         let rec = AccessKeyRecord {
             access_key_id: akid.to_string(),
@@ -499,10 +499,10 @@ impl CredentialStore {
             BackendOp::Put(k, encode(&rec)?),
             BackendOp::Put(K_ROOT.to_vec(), encode(&akid.to_string())?),
         ];
-        if let Some(old) = self.root_access_key_id_sync()? {
-            if old != akid {
-                ops.push(BackendOp::Delete(key(K_KEY, &old)));
-            }
+        if let Some(old) = self.root_access_key_id_sync()?
+            && old != akid
+        {
+            ops.push(BackendOp::Delete(key(K_KEY, &old)));
         }
         self.backend.apply(ops).map_err(be)
     }
@@ -520,16 +520,14 @@ impl CredentialStore {
             ));
         }
         let _g = self.lock();
-        if self.root_access_key_id_sync()?.as_deref() == Some(access_key_id) {
-            if let Some(rec) = self.get::<AccessKeyRecord>(&key(K_KEY, access_key_id))? {
-                if self
-                    .key
-                    .open_secret(&rec.secret, &key(K_KEY, access_key_id))?
-                    == *secret
-                {
-                    return Ok(());
-                }
-            }
+        if self.root_access_key_id_sync()?.as_deref() == Some(access_key_id)
+            && let Some(rec) = self.get::<AccessKeyRecord>(&key(K_KEY, access_key_id))?
+            && self
+                .key
+                .open_secret(&rec.secret, &key(K_KEY, access_key_id))?
+                == *secret
+        {
+            return Ok(());
         }
         self.install_root(access_key_id, secret)
     }

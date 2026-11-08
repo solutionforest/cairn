@@ -118,6 +118,7 @@ pub const CAIRN_ACTIONS: &[&str] = &[
     "cairn:DeletePolicy",
     "cairn:GetPolicy",
     "cairn:ListPolicies",
+    "cairn:UpdatePolicy",
     "cairn:AttachUserPolicy",
     "cairn:DetachUserPolicy",
     "cairn:AttachGroupPolicy",
@@ -131,6 +132,8 @@ pub const CAIRN_ACTIONS: &[&str] = &[
     "cairn:PutRolePolicy",
     "cairn:DeleteRolePolicy",
     "cairn:CreateServiceAccount",
+    "cairn:ListSessions",
+    "cairn:RevokeSession",
     // Recovery / time travel (§7)
     "cairn:ListTrash",
     "cairn:Restore",

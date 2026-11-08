@@ -71,33 +71,34 @@ impl Pattern {
             }
         };
         while let Some(c) = rest.chars().next() {
-            if vars && rest.starts_with("${") {
-                if let Some(end) = rest.find('}') {
-                    let inner = &rest[2..end];
-                    rest = &rest[end + 1..];
-                    match inner {
-                        "*" | "?" | "$" => lit.push_str(inner),
-                        _ => {
-                            flush(&mut lit, &mut parts);
-                            let (key, default) = match inner.split_once(',') {
-                                Some((k, d)) => {
-                                    let d = d.trim();
-                                    let d = d
-                                        .strip_prefix('\'')
-                                        .and_then(|d| d.strip_suffix('\''))
-                                        .unwrap_or(d);
-                                    (k.trim(), Some(d.to_string()))
-                                }
-                                None => (inner.trim(), None),
-                            };
-                            parts.push(Part::Var {
-                                key: normalize_key(key),
-                                default,
-                            });
-                        }
+            if vars
+                && rest.starts_with("${")
+                && let Some(end) = rest.find('}')
+            {
+                let inner = &rest[2..end];
+                rest = &rest[end + 1..];
+                match inner {
+                    "*" | "?" | "$" => lit.push_str(inner),
+                    _ => {
+                        flush(&mut lit, &mut parts);
+                        let (key, default) = match inner.split_once(',') {
+                            Some((k, d)) => {
+                                let d = d.trim();
+                                let d = d
+                                    .strip_prefix('\'')
+                                    .and_then(|d| d.strip_suffix('\''))
+                                    .unwrap_or(d);
+                                (k.trim(), Some(d.to_string()))
+                            }
+                            None => (inner.trim(), None),
+                        };
+                        parts.push(Part::Var {
+                            key: normalize_key(key),
+                            default,
+                        });
                     }
-                    continue;
                 }
+                continue;
             }
             rest = &rest[c.len_utf8()..];
             match c {

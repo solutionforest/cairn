@@ -396,10 +396,10 @@ impl PolicyDocument {
         }
         let mut sids = std::collections::HashSet::new();
         for st in &self.0.statements {
-            if let Some(s) = &st.sid {
-                if !sids.insert(s.clone()) {
-                    return Err(malformed(format!("duplicate Sid {s}")));
-                }
+            if let Some(s) = &st.sid
+                && !sids.insert(s.clone())
+            {
+                return Err(malformed(format!("duplicate Sid {s}")));
             }
             for a in &st.actions {
                 validate_action(a)?;

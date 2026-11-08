@@ -106,16 +106,16 @@ impl AuthzEngine {
         ctx: &ConditionContext,
         bucket: Option<&BucketAuthz>,
     ) -> Decision {
-        if let Some(p) = principal {
-            if !p.allowed_source_cidrs.is_empty() {
-                let ok = ctx
-                    .get("aws:SourceIp")
-                    .and_then(|v| v.first())
-                    .and_then(|ip| ip.parse::<IpAddr>().ok())
-                    .is_some_and(|ip| p.allowed_source_cidrs.iter().any(|n| n.contains(&ip)));
-                if !ok {
-                    return Decision::Deny;
-                }
+        if let Some(p) = principal
+            && !p.allowed_source_cidrs.is_empty()
+        {
+            let ok = ctx
+                .get("aws:SourceIp")
+                .and_then(|v| v.first())
+                .and_then(|ip| ip.parse::<IpAddr>().ok())
+                .is_some_and(|ip| p.allowed_source_cidrs.iter().any(|n| n.contains(&ip)));
+            if !ok {
+                return Decision::Deny;
             }
         }
         let ctx = self.enrich(principal, ctx);

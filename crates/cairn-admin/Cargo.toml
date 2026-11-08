@@ -7,11 +7,12 @@ repository.workspace = true
 rust-version.workspace = true
 description = "Cairn object storage: admin"
 
+# cairn-engine is intentionally not a dependency in phase 2b: the admin API talks to storage
+# through the `AdminEngine` trait defined here, which cairn-engine implements when wired.
 [dependencies]
-cairn-core.workspace = true
-cairn-engine.workspace = true
 cairn-auth.workspace = true
 axum.workspace = true
+async-trait.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
@@ -19,3 +20,12 @@ tracing.workspace = true
 http.workspace = true
 jiff.workspace = true
 thiserror.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+reqwest.workspace = true
+url.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tower.workspace = true
+http-body-util.workspace = true
