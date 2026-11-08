@@ -18,7 +18,7 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done.
 
 ## B. Security
 - [x] B1 SigV4 header + presigned verification with credential-store lookup; expired presign rejected. (crates/cairn-server/tests/auth_wire.rs::unsigned_and_badly_signed_requests_are_rejected, ::expired_presigned_url_is_rejected)
-- [x] B2 Policy evaluation on every S3, admin and MCP request: identity ∪ group ∪ bucket policy ∪ PublicAccessBlock; explicit deny wins. (crates/cairn-server/tests/auth_wire.rs::identity_group_and_bucket_policy_denies_win, ::public_bucket_policy_respects_public_access_block, ::admin_api_is_mounted_and_authenticated, ::mcp_http_is_mounted_and_authenticated; cairn-auth/src/s3s_bridge/tests.rs)
+- [x] B2 Policy evaluation on every S3, admin and MCP request: identity ∪ group ∪ bucket policy ∪ PublicAccessBlock; explicit deny wins. (crates/cairn-server/tests/auth_wire.rs::identity_group_and_bucket_policy_denies_win, ::public_bucket_policy_respects_public_access_block, ::admin_api_is_mounted_and_authenticated, ::admin_api_refuses_non_root_without_policy, ::mcp_http_is_mounted_and_authenticated, ::mcp_http_applies_the_same_explicit_deny_as_s3; cairn-auth/src/s3s_bridge/tests.rs)
 - [x] B3 STS `AssumeRole` / `GetSessionToken`; sessions expire and are revocable. (crates/cairn-server/tests/auth_wire.rs::sts_session_works_and_is_revocable; cairn-auth/src/sts/tests.rs)
 - [~] B4 Root credentials sealed in the credential store at `cairn init`, never logged; secrets zeroized and redacted. (cairn-admin/src/tests.rs::secrets_never_logged; `ensure_root` not called from init)
 - [ ] B5 SSE-S3 at rest with a master key from file or env; plaintext blobs never written when enabled.

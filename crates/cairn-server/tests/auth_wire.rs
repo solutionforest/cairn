@@ -397,3 +397,191 @@ async fn oidc_federation_is_not_wired_even_when_configured() {
     assert!(body.contains("not configured"), "{body}");
     handle.shutdown().await.unwrap();
 }
+
+#[tokio::test]
+async fn admin_api_refuses_non_root_without_policy() {
+    let env = Env::new().await;
+    let a = root_admin(&env);
+    a.call("POST", "/users", &[], Some(&json!({"name": "dave"})))
+        .await
+        .unwrap();
+    let k = a
+        .call("POST", "/users/dave/access-keys", &[], None)
+        .await
+        .unwrap();
+    let dave = admin(
+        &env,
+        k["access_key_id"].as_str().unwrap(),
+        k["secret_access_key"].as_str().unwrap(),
+    );
+    for (m, p, body) in [
+        ("GET", "/users", None),
+        ("POST", "/users", Some(json!({"name": "mallory"}))),
+        ("GET", "/trash", None),
+        ("POST", "/root/rotate", None),
+    ] {
+        match dave.call(m, p, &[], body.as_ref()).await {
+            Err(cairn_admin::ClientError::Api { status, code, .. }) => {
+                assert_eq!(status, 403, "{m} {p}");
+                assert_eq!(code, "AccessDenied", "{m} {p}");
+            }
+            other => panic!("{m} {p}: expected AccessDenied, got {other:?}"),
+        }
+    }
+    // An explicit cairn:* grant opens exactly that action.
+    a.call(
+        "PUT",
+        "/users/dave/policies/read-users",
+        &[],
+        Some(&json!({"document": {"Version":"2012-10-17","Statement":[
+            {"Effect":"Allow","Action":"cairn:ListUsers","Resource":"*"}]}})),
+    )
+    .await
+    .unwrap();
+    assert!(dave.call("GET", "/users", &[], None).await.is_ok());
+    assert!(dave.call("GET", "/trash", &[], None).await.is_err());
+    env.stop().await;
+}
+
+/// The JSON-RPC message in a JSON or SSE response body.
+fn rpc_message(body: &str) -> serde_json::Value {
+    if let Ok(v) = serde_json::from_str(body) {
+        return v;
+    }
+    body.lines()
+        .filter_map(|l| l.strip_prefix("data:"))
+        .filter_map(|d| serde_json::from_str::<serde_json::Value>(d.trim()).ok())
+        .find(|v| v.get("id").is_some())
+        .unwrap_or_else(|| panic!("no JSON-RPC message in {body}"))
+}
+
+struct Mcp {
+    url: String,
+    auth: String,
+    sid: Option<String>,
+    http: reqwest::Client,
+}
+
+impl Mcp {
+    async fn post(&mut self, body: serde_json::Value) -> (u16, String) {
+        let mut rb = self
+            .http
+            .post(&self.url)
+            .header("content-type", "application/json")
+            .header("accept", "application/json, text/event-stream")
+            .header("authorization", &self.auth);
+        if let Some(s) = &self.sid {
+            rb = rb
+                .header("mcp-session-id", s)
+                .header("mcp-protocol-version", "2025-06-18");
+        }
+        let r = rb.body(body.to_string()).send().await.unwrap();
+        if let Some(s) = r.headers().get("mcp-session-id") {
+            self.sid = Some(s.to_str().unwrap().to_string());
+        }
+        (r.status().as_u16(), r.text().await.unwrap())
+    }
+
+    async fn connect(url: String, ak: &str, sk: &str) -> Mcp {
+        let mut m = Mcp {
+            url,
+            auth: format!("Bearer {ak}:{sk}"),
+            sid: None,
+            http: reqwest::Client::new(),
+        };
+        let (st, body) = m
+            .post(
+                json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+                "protocolVersion":"2025-06-18","capabilities":{},
+                "clientInfo":{"name":"t","version":"0"}}}),
+            )
+            .await;
+        assert_eq!(st, 200, "{body}");
+        let (st, _) = m
+            .post(json!({"jsonrpc":"2.0","method":"notifications/initialized"}))
+            .await;
+        assert!((200..300).contains(&st));
+        m
+    }
+
+    async fn tool(&mut self, id: u64, name: &str, args: serde_json::Value) -> serde_json::Value {
+        let (st, body) = self
+            .post(json!({"jsonrpc":"2.0","id":id,"method":"tools/call",
+                "params":{"name":name,"arguments":args}}))
+            .await;
+        assert_eq!(st, 200, "{body}");
+        rpc_message(&body)["result"].clone()
+    }
+}
+
+#[tokio::test]
+async fn mcp_http_applies_the_same_explicit_deny_as_s3() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = cairn_server::test_support::test_config(dir.path());
+    cfg.mcp.enabled = true;
+    let (addr, root, handle) = cairn_server::test_support::spawn_with(cfg).await;
+    let s3 = client(addr, &root);
+    s3.create_bucket().bucket("wire").send().await.unwrap();
+    for k in ["open", "secret/a"] {
+        s3.put_object()
+            .bucket("wire")
+            .key(k)
+            .body(aws_sdk_s3::primitives::ByteStream::from_static(b"bytes"))
+            .send()
+            .await
+            .unwrap();
+    }
+    let a = AdminClient::new(
+        &format!("http://{addr}"),
+        &root.access_key,
+        SecretString::new(root.secret_key.clone()),
+        None,
+        "us-east-1",
+    )
+    .unwrap();
+    a.call("POST", "/users", &[], Some(&json!({"name": "agent"})))
+        .await
+        .unwrap();
+    a.call(
+        "PUT",
+        "/users/agent/policies/inline",
+        &[],
+        Some(&json!({"document": {"Version":"2012-10-17","Statement":[
+            {"Effect":"Allow","Action":"s3:*","Resource":["arn:aws:s3:::wire","arn:aws:s3:::wire/*"]},
+            {"Effect":"Deny","Action":"s3:GetObject","Resource":"arn:aws:s3:::wire/secret/*"}]}})),
+    )
+    .await
+    .unwrap();
+    let k = a
+        .call("POST", "/users/agent/access-keys", &[], None)
+        .await
+        .unwrap();
+    let (ak, sk) = (
+        k["access_key_id"].as_str().unwrap(),
+        k["secret_access_key"].as_str().unwrap(),
+    );
+    let agent_s3 = client(addr, &creds(ak, sk));
+    let e = agent_s3
+        .get_object()
+        .bucket("wire")
+        .key("secret/a")
+        .send()
+        .await;
+    assert_eq!(code(e), "AccessDenied");
+
+    let mut mcp = Mcp::connect(format!("http://{addr}/_cairn/mcp"), ak, sk).await;
+    let ok = mcp
+        .tool(2, "get_object", json!({"bucket":"wire","key":"open"}))
+        .await;
+    assert_eq!(ok["isError"], false, "{ok}");
+    assert_eq!(ok["structuredContent"]["content"], "bytes", "{ok}");
+    let denied = mcp
+        .tool(3, "get_object", json!({"bucket":"wire","key":"secret/a"}))
+        .await;
+    assert_eq!(denied["isError"], true, "{denied}");
+    assert_eq!(
+        denied["structuredContent"]["error"], "AccessDenied",
+        "{denied}"
+    );
+    handle.shutdown().await.unwrap();
+}
