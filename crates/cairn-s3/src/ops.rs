@@ -64,7 +64,10 @@ fn max_keys(m: Option<i32>) -> CResult<usize> {
 }
 
 fn not_implemented(what: &str) -> cairn_core::S3Error {
-    err(Code::NotImplemented, format!("{what} is not implemented yet"))
+    err(
+        Code::NotImplemented,
+        format!("{what} is not implemented yet"),
+    )
 }
 
 fn bool_header(h: &HeaderMap, name: &str) -> bool {
@@ -120,7 +123,10 @@ fn token_decode(t: &str) -> CResult<String> {
 }
 
 impl CairnS3 {
-    fn sse_out(&self, requested: Option<&ServerSideEncryption>) -> CResult<Option<ServerSideEncryption>> {
+    fn sse_out(
+        &self,
+        requested: Option<&ServerSideEncryption>,
+    ) -> CResult<Option<ServerSideEncryption>> {
         match requested.map(|s| s.as_str()) {
             None => Ok(None),
             Some("AES256") if self.engine.config().at_rest_key.is_some() => Ok(requested.cloned()),
@@ -171,10 +177,17 @@ impl CairnS3 {
     async fn do_list_buckets(&self, req: S3Request<ListBucketsInput>) -> Res<ListBucketsOutput> {
         let who = self.principal(&req);
         let i = req.input;
-        let after = i.continuation_token.as_deref().map(token_decode).transpose()?;
+        let after = i
+            .continuation_token
+            .as_deref()
+            .map(token_decode)
+            .transpose()?;
         let max = match i.max_buckets {
             Some(n) if !(1..=10_000).contains(&n) => {
-                return Err(err(Code::InvalidArgument, "max-buckets must be between 1 and 10000"));
+                return Err(err(
+                    Code::InvalidArgument,
+                    "max-buckets must be between 1 and 10000",
+                ));
             }
             Some(n) => n as usize,
             None => usize::MAX,
@@ -221,7 +234,9 @@ impl CairnS3 {
         req: S3Request<PutBucketTaggingInput>,
     ) -> Res<PutBucketTaggingOutput> {
         let tags = tags_in(&req.input.tagging.tag_set)?;
-        self.engine.put_bucket_tagging(&req.input.bucket, tags).await?;
+        self.engine
+            .put_bucket_tagging(&req.input.bucket, tags)
+            .await?;
         ok(PutBucketTaggingOutput::default())
     }
 
@@ -248,15 +263,22 @@ impl CairnS3 {
         req: S3Request<PutBucketVersioningInput>,
     ) -> Res<PutBucketVersioningOutput> {
         let c = &req.input.versioning_configuration;
-        if c.mfa_delete.as_ref().is_some_and(|m| m.as_str() == "Enabled") {
+        if c.mfa_delete
+            .as_ref()
+            .is_some_and(|m| m.as_str() == "Enabled")
+        {
             return Err(not_implemented("MFA delete"));
         }
         match c.status.as_ref().map(|s| s.as_str()) {
             Some(BucketVersioningStatus::ENABLED) => {
-                self.engine.put_bucket_versioning(&req.input.bucket, true).await?
+                self.engine
+                    .put_bucket_versioning(&req.input.bucket, true)
+                    .await?
             }
             Some(BucketVersioningStatus::SUSPENDED) => {
-                self.engine.put_bucket_versioning(&req.input.bucket, false).await?
+                self.engine
+                    .put_bucket_versioning(&req.input.bucket, false)
+                    .await?
             }
             None => {
                 self.engine.head_bucket(&req.input.bucket)?;
@@ -290,7 +312,10 @@ impl CairnS3 {
         let who = self.principal(&req);
         let i = req.input;
         reject_sse_c(i.sse_customer_algorithm.as_ref())?;
-        reject_lock(i.object_lock_mode.as_ref(), i.object_lock_legal_hold_status.as_ref())?;
+        reject_lock(
+            i.object_lock_mode.as_ref(),
+            i.object_lock_legal_hold_status.as_ref(),
+        )?;
         if i.write_offset_bytes.is_some() {
             return Err(not_implemented("Appending with x-amz-write-offset-bytes"));
         }
@@ -404,7 +429,10 @@ impl CairnS3 {
             i.if_modified_since.as_ref(),
             i.if_unmodified_since.as_ref(),
         );
-        let checksum_mode = i.checksum_mode.as_ref().is_some_and(|m| m.as_str() == "ENABLED");
+        let checksum_mode = i
+            .checksum_mode
+            .as_ref()
+            .is_some_and(|m| m.as_str() == "ENABLED");
         let mut r = self
             .read_object(
                 &req.headers,
@@ -437,7 +465,10 @@ impl CairnS3 {
             i.if_modified_since.as_ref(),
             i.if_unmodified_since.as_ref(),
         );
-        let checksum_mode = i.checksum_mode.as_ref().is_some_and(|m| m.as_str() == "ENABLED");
+        let checksum_mode = i
+            .checksum_mode
+            .as_ref()
+            .is_some_and(|m| m.as_str() == "ENABLED");
         let r = self
             .read_object(
                 &req.headers,
@@ -473,7 +504,10 @@ impl CairnS3 {
         })
     }
 
-    async fn do_delete_objects(&self, req: S3Request<DeleteObjectsInput>) -> Res<DeleteObjectsOutput> {
+    async fn do_delete_objects(
+        &self,
+        req: S3Request<DeleteObjectsInput>,
+    ) -> Res<DeleteObjectsOutput> {
         let who = self.principal(&req);
         let i = req.input;
         if i.delete.objects.len() > 1000 {
@@ -503,11 +537,7 @@ impl CairnS3 {
                         key: Some(key),
                         version_id: asked.clone(),
                         delete_marker: d.delete_marker.then_some(true),
-                        delete_marker_version_id: if d.delete_marker {
-                            d.version_id
-                        } else {
-                            None
-                        },
+                        delete_marker_version_id: if d.delete_marker { d.version_id } else { None },
                     });
                 }
                 Err(e) => errors.push(Error {
@@ -530,7 +560,10 @@ impl CairnS3 {
         let i = req.input;
         reject_sse_c(i.sse_customer_algorithm.as_ref())?;
         reject_sse_c(i.copy_source_sse_customer_algorithm.as_ref())?;
-        reject_lock(i.object_lock_mode.as_ref(), i.object_lock_legal_hold_status.as_ref())?;
+        reject_lock(
+            i.object_lock_mode.as_ref(),
+            i.object_lock_legal_hold_status.as_ref(),
+        )?;
         let sse = self.sse_out(i.server_side_encryption.as_ref())?;
         let (src_bucket, src_key, src_version) = copy_source(&i.copy_source)?;
         let directive = |d: Option<&str>| match d {
@@ -593,7 +626,14 @@ impl CairnS3 {
         })
     }
 
-    fn list_entry(&self, b: &ObjectBody, key: String, at: cairn_core::Ts, who: Option<&PrincipalId>, url: bool) -> Object {
+    fn list_entry(
+        &self,
+        b: &ObjectBody,
+        key: String,
+        at: cairn_core::Ts,
+        who: Option<&PrincipalId>,
+        url: bool,
+    ) -> Object {
         Object {
             key: Some(if url { url_encode(&key) } else { key }),
             last_modified: Some(ts_out(at)),
@@ -629,7 +669,13 @@ impl CairnS3 {
             .iter()
             .map(|o| {
                 let b = o.version.body().expect("object");
-                self.list_entry(b, o.version.key.clone(), o.version.created_at, Some(&o.version.owner), url)
+                self.list_entry(
+                    b,
+                    o.version.key.clone(),
+                    o.version.created_at,
+                    Some(&o.version.owner),
+                    url,
+                )
             })
             .collect();
         let enc = |s: Option<String>| if url { s.map(|s| url_encode(&s)) } else { s };
@@ -648,11 +694,18 @@ impl CairnS3 {
         })
     }
 
-    async fn do_list_objects_v2(&self, req: S3Request<ListObjectsV2Input>) -> Res<ListObjectsV2Output> {
+    async fn do_list_objects_v2(
+        &self,
+        req: S3Request<ListObjectsV2Input>,
+    ) -> Res<ListObjectsV2Output> {
         let i = req.input;
         let url = encoding_url(i.encoding_type.as_ref())?;
         let max = max_keys(i.max_keys)?;
-        let token_key = i.continuation_token.as_deref().map(token_decode).transpose()?;
+        let token_key = i
+            .continuation_token
+            .as_deref()
+            .map(token_decode)
+            .transpose()?;
         let after = match (token_key, i.start_after.clone().filter(|s| !s.is_empty())) {
             (Some(t), Some(s)) => Some(t.max(s)),
             (t, s) => t.or(s),
@@ -791,9 +844,9 @@ impl CairnS3 {
         req: S3Request<GetObjectTaggingInput>,
     ) -> Res<GetObjectTaggingOutput> {
         let i = req.input;
-        let (tags, vid) = self
-            .engine
-            .get_object_tagging(&i.bucket, &i.key, i.version_id.as_deref())?;
+        let (tags, vid) =
+            self.engine
+                .get_object_tagging(&i.bucket, &i.key, i.version_id.as_deref())?;
         ok(GetObjectTaggingOutput {
             tag_set: tags_out(&tags),
             version_id: vid,
@@ -820,7 +873,12 @@ impl CairnS3 {
         let i = req.input;
         let vid = self
             .engine
-            .put_object_tagging(&i.bucket, &i.key, i.version_id.as_deref(), Default::default())
+            .put_object_tagging(
+                &i.bucket,
+                &i.key,
+                i.version_id.as_deref(),
+                Default::default(),
+            )
             .await?;
         ok(DeleteObjectTaggingOutput { version_id: vid })
     }
@@ -832,7 +890,10 @@ impl CairnS3 {
         let who = self.principal(&req);
         let i = req.input;
         reject_sse_c(i.sse_customer_algorithm.as_ref())?;
-        reject_lock(i.object_lock_mode.as_ref(), i.object_lock_legal_hold_status.as_ref())?;
+        reject_lock(
+            i.object_lock_mode.as_ref(),
+            i.object_lock_legal_hold_status.as_ref(),
+        )?;
         let sse = self.sse_out(i.server_side_encryption.as_ref())?;
         let algo = algo_in(i.checksum_algorithm.as_ref())?;
         let full = match i.checksum_type.as_ref().map(|t| t.as_str()) {
@@ -924,7 +985,10 @@ impl CairnS3 {
         ok(out)
     }
 
-    async fn do_upload_part_copy(&self, req: S3Request<UploadPartCopyInput>) -> Res<UploadPartCopyOutput> {
+    async fn do_upload_part_copy(
+        &self,
+        req: S3Request<UploadPartCopyInput>,
+    ) -> Res<UploadPartCopyOutput> {
         let i = req.input;
         reject_sse_c(i.sse_customer_algorithm.as_ref())?;
         reject_sse_c(i.copy_source_sse_customer_algorithm.as_ref())?;
@@ -1046,10 +1110,15 @@ impl CairnS3 {
         let i = req.input;
         let max = match i.max_parts {
             None => 1000,
-            Some(n) if n < 0 => return Err(err(Code::InvalidArgument, "max-parts must be non-negative")),
+            Some(n) if n < 0 => {
+                return Err(err(Code::InvalidArgument, "max-parts must be non-negative"));
+            }
             Some(n) => n as usize,
         };
-        let marker = i.part_number_marker.and_then(|n| u32::try_from(n).ok()).filter(|n| *n > 0);
+        let marker = i
+            .part_number_marker
+            .and_then(|n| u32::try_from(n).ok())
+            .filter(|n| *n > 0);
         let r = self
             .engine
             .list_parts(&i.bucket, &i.key, &i.upload_id, marker, max)?;
@@ -1112,7 +1181,12 @@ impl CairnS3 {
         let url = encoding_url(i.encoding_type.as_ref())?;
         let max = match i.max_uploads {
             None => 1000,
-            Some(n) if n < 0 => return Err(err(Code::InvalidArgument, "max-uploads must be non-negative")),
+            Some(n) if n < 0 => {
+                return Err(err(
+                    Code::InvalidArgument,
+                    "max-uploads must be non-negative",
+                ));
+            }
             Some(n) => n as usize,
         };
         let r = self.engine.list_multipart_uploads(
@@ -1137,9 +1211,13 @@ impl CairnS3 {
                 }),
                 owner: Some(owner(&u.owner)),
                 storage_class: Some(StorageClass::from(
-                    u.template.storage_class.unwrap_or_else(|| "STANDARD".to_string()),
+                    u.template
+                        .storage_class
+                        .unwrap_or_else(|| "STANDARD".to_string()),
                 )),
-                checksum_algorithm: u.checksum_algo.map(|a| ChecksumAlgorithm::from(a.as_str().to_string())),
+                checksum_algorithm: u
+                    .checksum_algo
+                    .map(|a| ChecksumAlgorithm::from(a.as_str().to_string())),
                 ..Default::default()
             })
             .collect();
@@ -1174,7 +1252,10 @@ fn encoding_url(e: Option<&EncodingType>) -> CResult<bool> {
     match e.map(|e| e.as_str()) {
         None => Ok(false),
         Some(EncodingType::URL) => Ok(true),
-        Some(_) => Err(err(Code::InvalidArgument, "Invalid Encoding Method specified in Request")),
+        Some(_) => Err(err(
+            Code::InvalidArgument,
+            "Invalid Encoding Method specified in Request",
+        )),
     }
 }
 

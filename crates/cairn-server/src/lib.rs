@@ -112,7 +112,10 @@ impl Server {
         }
         let ecfg = engine_config(&config)?;
         let engine = CairnEngine::open(&config.storage.data_dir, ecfg).with_context(|| {
-            format!("opening data directory {}", config.storage.data_dir.display())
+            format!(
+                "opening data directory {}",
+                config.storage.data_dir.display()
+            )
         })?;
         let report = engine.recover(false).await.context("startup recovery")?;
         if report.unclean_shutdown {
@@ -230,7 +233,10 @@ impl Server {
         state.shutting_down.store(true, Ordering::SeqCst);
         drop(listener);
         tracing::info!(in_flight = graceful.count(), ?grace, "draining connections");
-        if tokio::time::timeout(grace, graceful.shutdown()).await.is_err() {
+        if tokio::time::timeout(grace, graceful.shutdown())
+            .await
+            .is_err()
+        {
             tracing::warn!("drain timeout elapsed; aborting remaining connections");
         }
         conns.abort_all();
@@ -260,13 +266,14 @@ async fn gc_loop(engine: CairnEngine, every: Duration, mut stop: watch::Receiver
 async fn os_signal() {
     #[cfg(unix)]
     {
-        let mut term = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
-            Ok(s) => s,
-            Err(_) => {
-                let _ = tokio::signal::ctrl_c().await;
-                return;
-            }
-        };
+        let mut term =
+            match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+                Ok(s) => s,
+                Err(_) => {
+                    let _ = tokio::signal::ctrl_c().await;
+                    return;
+                }
+            };
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {}
             _ = term.recv() => {}

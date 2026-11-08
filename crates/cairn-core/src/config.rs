@@ -341,7 +341,10 @@ impl Config {
         if self.server.tls_cert.is_some() != self.server.tls_key.is_some() {
             out.push("server.tls_cert and server.tls_key must be set together".into());
         }
-        for p in [&self.server.tls_cert, &self.server.tls_key].into_iter().flatten() {
+        for p in [&self.server.tls_cert, &self.server.tls_key]
+            .into_iter()
+            .flatten()
+        {
             if !p.exists() {
                 out.push(format!("TLS file {} does not exist", p.display()));
             }
@@ -412,7 +415,7 @@ pub fn format_duration(d: Duration) -> String {
         return format!("{}ms", d.as_millis());
     }
     for (m, u) in [(86400, "d"), (3600, "h"), (60, "m")] {
-        if s != 0 && s % m == 0 {
+        if s != 0 && s.is_multiple_of(m) {
             return format!("{}{u}", s / m);
         }
     }

@@ -56,13 +56,15 @@ pub(crate) async fn serve<IO>(
         .route("/healthz", get(|| async { (StatusCode::OK, "ok\n") }))
         .route(
             "/readyz",
-            get(|axum::extract::State(st): axum::extract::State<Arc<State>>| async move {
-                if st.ready() {
-                    (StatusCode::OK, "ready\n")
-                } else {
-                    (StatusCode::SERVICE_UNAVAILABLE, "not ready\n")
-                }
-            }),
+            get(
+                |axum::extract::State(st): axum::extract::State<Arc<State>>| async move {
+                    if st.ready() {
+                        (StatusCode::OK, "ready\n")
+                    } else {
+                        (StatusCode::SERVICE_UNAVAILABLE, "not ready\n")
+                    }
+                },
+            ),
         )
         .with_state(st.clone());
     let trace = TraceLayer::new_for_http()
@@ -81,15 +83,17 @@ pub(crate) async fn serve<IO>(
         })
         .on_request(DefaultOnRequest::new().level(Level::DEBUG))
         .on_response(DefaultOnResponse::new().level(Level::INFO));
-    let inner = tower::ServiceBuilder::new()
-        .layer(trace)
-        .service_fn(move |req: Request<Incoming>| {
-            let st = st.clone();
-            let health = health.clone();
-            let fut: std::pin::Pin<Box<dyn Future<Output = Result<Response<BoxBody>, Infallible>> + Send>> =
-                Box::pin(async move { Ok::<_, Infallible>(handle(st, health, req).await) });
-            fut
-        });
+    let inner =
+        tower::ServiceBuilder::new()
+            .layer(trace)
+            .service_fn(move |req: Request<Incoming>| {
+                let st = st.clone();
+                let health = health.clone();
+                let fut: std::pin::Pin<
+                    Box<dyn Future<Output = Result<Response<BoxBody>, Infallible>> + Send>,
+                > = Box::pin(async move { Ok::<_, Infallible>(handle(st, health, req).await) });
+                fut
+            });
     let svc = hyper::service::service_fn(move |mut req: Request<Incoming>| {
         let rid = new_request_id();
         req.extensions_mut().insert(RequestId(rid.clone()));
@@ -103,7 +107,8 @@ pub(crate) async fn serve<IO>(
             Ok::<_, Infallible>(stamp(resp, &rid))
         }
     });
-    let builder = hyper_util::server::conn::auto::Builder::new(hyper_util::rt::TokioExecutor::new());
+    let builder =
+        hyper_util::server::conn::auto::Builder::new(hyper_util::rt::TokioExecutor::new());
     let conn = builder
         .serve_connection(hyper_util::rt::TokioIo::new(io), svc)
         .into_owned();
@@ -119,7 +124,11 @@ fn is_health(req: &Request<Incoming>) -> bool {
         && !req.headers().contains_key(http::header::AUTHORIZATION)
 }
 
-async fn handle(st: Arc<State>, mut health: axum::Router, req: Request<Incoming>) -> Response<BoxBody> {
+async fn handle(
+    st: Arc<State>,
+    mut health: axum::Router,
+    req: Request<Incoming>,
+) -> Response<BoxBody> {
     let rid = req
         .extensions()
         .get::<RequestId>()
@@ -143,8 +152,10 @@ async fn handle(st: Arc<State>, mut health: axum::Router, req: Request<Incoming>
                 &rid,
             )));
             *r.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
-            r.headers_mut()
-                .insert(http::header::CONTENT_TYPE, HeaderValue::from_static("application/xml"));
+            r.headers_mut().insert(
+                http::header::CONTENT_TYPE,
+                HeaderValue::from_static("application/xml"),
+            );
             r
         }
     };
@@ -190,10 +201,9 @@ async fn decorate_error(resp: Response<BoxBody>, rid: String, path: String) -> R
             extra.push_str(&format!("<RequestId>{rid}</RequestId>"));
         }
         text.insert_str(end, &extra);
-        parts.headers.insert(
-            http::header::CONTENT_LENGTH,
-            HeaderValue::from(text.len()),
-        );
+        parts
+            .headers
+            .insert(http::header::CONTENT_LENGTH, HeaderValue::from(text.len()));
         return Response::from_parts(parts, full(text));
     }
     Response::from_parts(parts, full(bytes))

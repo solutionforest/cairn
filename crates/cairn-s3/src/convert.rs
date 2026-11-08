@@ -2,8 +2,8 @@
 
 use bytes::Bytes;
 use cairn_core::{ChecksumAlgo, S3ErrorCode as Code, Ts};
-use cairn_engine::{Body, ChecksumInput, ObjectMeta, ReadConditions, WriteConditions};
 use cairn_engine::cairn_meta::ObjectBody;
+use cairn_engine::{Body, ChecksumInput, ObjectMeta, ReadConditions, WriteConditions};
 use futures::StreamExt;
 use http::HeaderMap;
 use s3s::dto::{ETag, ETagCondition, StreamingBlob, Timestamp, TimestampFormat};
@@ -16,7 +16,11 @@ pub struct RequestId(pub String);
 
 /// Convert an engine error into an `s3s` error (code, message, status, extra headers).
 pub fn to_s3s(e: cairn_core::S3Error, req_id: Option<&RequestId>) -> S3Error {
-    let code: S3ErrorCode = e.code.as_str().parse().unwrap_or(S3ErrorCode::InternalError);
+    let code: S3ErrorCode = e
+        .code
+        .as_str()
+        .parse()
+        .unwrap_or(S3ErrorCode::InternalError);
     if e.code == Code::InternalError {
         tracing::error!(error = %e.message, "internal error");
     }
@@ -121,7 +125,10 @@ pub fn body_in(b: Option<StreamingBlob>) -> Body {
                 if e.is::<s3s::BodySizeLimitExceeded>() {
                     cairn_core::S3Error::code(Code::EntityTooLarge)
                 } else {
-                    err(Code::IncompleteBody, format!("error reading request body: {e}"))
+                    err(
+                        Code::IncompleteBody,
+                        format!("error reading request body: {e}"),
+                    )
                 }
             })
         })),
@@ -136,7 +143,10 @@ pub fn parse_tagging(h: Option<&str>) -> Result<BTreeMap<String, String>, cairn_
     };
     for (k, v) in url::form_urlencoded::parse(h.as_bytes()) {
         if out.insert(k.into_owned(), v.into_owned()).is_some() {
-            return Err(err(Code::InvalidTag, "Cannot provide multiple Tags with the same key"));
+            return Err(err(
+                Code::InvalidTag,
+                "Cannot provide multiple Tags with the same key",
+            ));
         }
     }
     Ok(out)
@@ -147,11 +157,11 @@ pub fn tags_in(set: &[s3s::dto::Tag]) -> Result<BTreeMap<String, String>, cairn_
     let mut out = BTreeMap::new();
     for t in set {
         let k = t.key.clone().unwrap_or_default();
-        if out
-            .insert(k, t.value.clone().unwrap_or_default())
-            .is_some()
-        {
-            return Err(err(Code::InvalidTag, "Cannot provide multiple Tags with the same key"));
+        if out.insert(k, t.value.clone().unwrap_or_default()).is_some() {
+            return Err(err(
+                Code::InvalidTag,
+                "Cannot provide multiple Tags with the same key",
+            ));
         }
     }
     Ok(out)
@@ -181,7 +191,9 @@ pub fn user_meta(
     if size > max {
         return Err(err(
             Code::MetadataTooLarge,
-            format!("Your metadata headers exceed the maximum allowed metadata size of {max} bytes"),
+            format!(
+                "Your metadata headers exceed the maximum allowed metadata size of {max} bytes"
+            ),
         ));
     }
     Ok(out)
@@ -213,7 +225,9 @@ pub fn storage_class_in(
 
 /// Stored storage class reported on listings.
 pub fn storage_class_name(b: &ObjectBody) -> String {
-    b.storage_class.clone().unwrap_or_else(|| "STANDARD".to_string())
+    b.storage_class
+        .clone()
+        .unwrap_or_else(|| "STANDARD".to_string())
 }
 
 /// Collect HTTP metadata fields from a request.
@@ -244,7 +258,9 @@ pub fn object_meta(
 }
 
 /// Checksum algorithm from the `s3s` enum.
-pub fn algo_in(a: Option<&s3s::dto::ChecksumAlgorithm>) -> Result<Option<ChecksumAlgo>, cairn_core::S3Error> {
+pub fn algo_in(
+    a: Option<&s3s::dto::ChecksumAlgorithm>,
+) -> Result<Option<ChecksumAlgo>, cairn_core::S3Error> {
     match a {
         None => Ok(None),
         Some(a) => ChecksumAlgo::parse(a.as_str()).map(Some).ok_or_else(|| {
@@ -316,9 +332,11 @@ pub fn checksum_in(
             return Ok(ChecksumInput::Trailer(
                 algo,
                 Box::new(move || {
-                    handle
-                        .take()
-                        .and_then(|m| m.get(&name).and_then(|v| v.to_str().ok()).map(str::to_string))
+                    handle.take().and_then(|m| {
+                        m.get(&name)
+                            .and_then(|v| v.to_str().ok())
+                            .map(str::to_string)
+                    })
                 }),
             ));
         }
@@ -398,7 +416,8 @@ mod tests {
 
     #[test]
     fn error_mapping_keeps_status_and_headers() {
-        let e = cairn_core::S3Error::code(Code::NoSuchKey).with_header("x-amz-delete-marker", "true");
+        let e =
+            cairn_core::S3Error::code(Code::NoSuchKey).with_header("x-amz-delete-marker", "true");
         let s = to_s3s(e, Some(&RequestId("abc".into())));
         assert_eq!(*s.code(), S3ErrorCode::NoSuchKey);
         assert_eq!(s.status_code(), Some(http::StatusCode::NOT_FOUND));

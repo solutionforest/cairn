@@ -127,12 +127,15 @@ impl CairnS3Builder {
             f(&mut b);
         }
         if let Some(d) = &self.domain {
-            let host = s3s::host::SingleDomain::new(d).map_err(|e| BuildError::Domain(e.to_string()))?;
+            let host =
+                s3s::host::SingleDomain::new(d).map_err(|e| BuildError::Domain(e.to_string()))?;
             b.set_host(host);
         }
         let mut cfg = s3s::config::S3Config::default();
         cfg.put_object_max_size = Some(self.max_object_size);
-        b.set_config(Arc::new(s3s::config::StaticConfigProvider::new(Arc::new(cfg))));
+        b.set_config(Arc::new(s3s::config::StaticConfigProvider::new(Arc::new(
+            cfg,
+        ))));
         Ok(b.build())
     }
 }
