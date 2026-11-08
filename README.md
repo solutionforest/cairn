@@ -78,14 +78,14 @@ or the missing proof named (rows in [`docs/PRODUCTION-READINESS.md`](docs/PRODUC
 
 Cairn is deliberately narrow: no dashboard, erasure coding, clustering, replication, OIDC, search,
 FUSE or S3 Select in v0.1 (DESIGN §0 "Shelved"). Idle memory, binary size and 10 GiB-transfer RSS
-are produced by [`scripts/footprint.sh`](scripts/footprint.sh) and appear here only once measured
-on a release build:
+are produced by [`scripts/footprint.sh`](scripts/footprint.sh); method and caveats in
+[`docs/OPERATIONS.md`](docs/OPERATIONS.md#footprint):
 
-| Footprint (release build, `scripts/footprint.sh`) | Cairn |
-|---|---|
-| Idle RSS after a 110 s settle | not yet measured |
-| Peak RSS during a 10 GiB upload + download | not yet measured |
-| Static binary size | not yet measured |
+| Footprint (static musl release build, 2026-11-08) | Cairn | v0.1 target |
+|---|---|---|
+| Idle RSS after a 110 s settle | 42.9 MiB | ≤ 25 MiB (missed) |
+| Peak RSS during a 10 GiB upload + download | 69.3 MiB | < 256 MiB |
+| Static binary size | 29.4 MiB | ≤ 20 MB (missed) |
 
 VaultS3 publishes 17 MiB idle on its own hardware; we do not quote other projects' numbers as if
 they were measured on ours. If a cell about Cairn is wrong, open an issue; the table is part of

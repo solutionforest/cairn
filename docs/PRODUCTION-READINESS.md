@@ -45,8 +45,8 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done.
 - [x] D7 **claim 4** MCP server (stdio + HTTP) with the DESIGN §11 tools under policy: a principal denied `s3:GetObject` on a key is denied the same key through MCP `get_object`, and `as_of` tools require `cairn:TimeTravel`. (crates/cairn-mcp/tests/tools.rs; HTTP at `/_cairn/mcp` when `[mcp] enabled`: crates/cairn-server/tests/auth_wire.rs::mcp_http_applies_the_same_explicit_deny_as_s3; stdio through the binary, deny + TimeTravel gate: crates/cairn-cli/tests/mcp_stdio.rs)
 
 ## E. Limits
-- [~] E1 A 10 GiB upload and download complete with RSS under 256 MiB (streaming end to end); number recorded in OPERATIONS.md and README. (measured by scripts/footprint.sh, default 10 GiB streamed through `aws s3 cp -` with sha256 round-trip check; release-build run pending)
-- [~] E2 Idle RSS ≤ 25 MiB (container working set after a 110 s settle, same method VaultS3 publishes) and static binary ≤ 20 MB; `scripts/footprint.sh` produces both, numbers in README next to the competitor table. (scripts/footprint.sh written and smoke-tested on a debug build with a 64 MiB transfer; release-build numbers not yet measured)
+- [x] E1 A 10 GiB upload and download complete with RSS under 256 MiB (streaming end to end); number recorded in OPERATIONS.md and README. (scripts/footprint.sh on a static musl release build @ 4a65d45, 2026-11-08: peak sampled VmRSS 69.3 MiB over a 10 GiB `aws s3 cp -` round trip, sha256 match; docs/OPERATIONS.md "Footprint", README)
+- [ ] E2 Idle RSS ≤ 25 MiB (container working set after a 110 s settle, same method VaultS3 publishes) and static binary ≤ 20 MB; `scripts/footprint.sh` produces both, numbers in README next to the competitor table. (script done; measured 2026-11-08 on a static musl release build: idle VmRSS 42.9 MiB, binary 29.4 MiB — both over target; numbers in README and docs/OPERATIONS.md "Footprint")
 
 ## F. Release
 - [x] F1 fmt, clippy `-D warnings`, tests, docs green on every push. (.github/workflows/ci.yml, self-hosted while private)

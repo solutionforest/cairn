@@ -2,6 +2,25 @@
 
 Sections are owned by the agent that wrote them; append new sections, do not rewrite others.
 
+## Footprint
+
+Run 2026-11-08T17:59Z by `scripts/footprint.sh`: cairn 0.1.0 @ 4a65d45, `cargo build --release --target x86_64-unknown-linux-musl` (thin LTO, stripped), x86_64 gVisor sandbox reporting 1 vCPU. RSS is the process VmRSS from `/proc` (not a container working set; this sandbox exposes no VmHWM, so the peak is the max of 0.2 s samples and a shorter spike could be missed).
+
+| Measure | Value |
+|---|---|
+| Binary size | 30829064 bytes (29.4 MiB), static |
+| RSS at ready | 42.9 MiB |
+| Idle RSS after 110 s | 42.9 MiB |
+| Peak RSS (max of 0.2 s VmRSS samples; VmHWM unavailable), 10240 MiB upload + download | 69.3 MiB |
+| Max sampled RSS (0.2 s interval) during transfer | 69.3 MiB |
+| Upload / download wall time | 30 s / 47 s |
+| Round-trip sha256 | match |
+
+Against the v0.1 limits (PRODUCTION-READINESS E1, E2): the 10 GiB round trip stays far under
+256 MiB, so uploads and downloads stream. Idle RSS (42.9 MiB vs ≤ 25 MiB) and binary size
+(29.4 MiB vs ≤ 20 MB) **miss** their targets today. Re-measure with
+`scripts/footprint.sh target/x86_64-unknown-linux-musl/release/cairn`.
+
 ## Upgrades
 
 Cairn keeps its metadata (buckets, versions, IAM, sessions, outbox) in one redb file,
