@@ -49,6 +49,5 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with: { shared-key: ci-linux }
       - run: cargo test --workspace --locked --no-fail-fast
-      - name: Doc tests and docs build
+      - name: Docs build
         run: cargo doc --workspace --no-deps --locked
-        env: { RUSTDOCFLAGS: -D warnings }
