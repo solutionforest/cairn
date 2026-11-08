@@ -805,6 +805,7 @@ dependencies = [
  "cairn-blob",
  "cairn-core",
  "cairn-meta",
+ "cairn-server",
  "chacha20poly1305",
  "crc64fast-nvme",
  "futures",

@@ -13,6 +13,7 @@ mod list;
 mod multipart;
 mod object;
 mod recovery;
+pub mod replication;
 pub mod scrub;
 mod trash;
 pub mod types;
