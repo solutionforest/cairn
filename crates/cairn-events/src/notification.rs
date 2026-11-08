@@ -231,40 +231,38 @@ impl NotificationConfiguration {
         out.push_str(&format!(
             r#"<NotificationConfiguration xmlns="{S3_XMLNS}">"#
         ));
-        {
-            for r in &self.rules {
-                let kind = r.kind;
-                out.push_str(&format!("<{}>", kind.element()));
-                if let Some(id) = &r.id {
-                    out.push_str(&format!("<Id>{}</Id>", escape(id.as_str())));
-                }
+        for r in &self.rules {
+            let kind = r.kind;
+            out.push_str(&format!("<{}>", kind.element()));
+            if let Some(id) = &r.id {
+                out.push_str(&format!("<Id>{}</Id>", escape(id.as_str())));
+            }
+            out.push_str(&format!(
+                "<{0}>{1}</{0}>",
+                kind.arn_element(),
+                escape(r.arn.as_str())
+            ));
+            if let Some(role) = &r.invocation_role {
                 out.push_str(&format!(
-                    "<{0}>{1}</{0}>",
-                    kind.arn_element(),
-                    escape(r.arn.as_str())
+                    "<InvocationRole>{}</InvocationRole>",
+                    escape(role.as_str())
                 ));
-                if let Some(role) = &r.invocation_role {
+            }
+            for e in &r.events {
+                out.push_str(&format!("<Event>{}</Event>", escape(e.as_str())));
+            }
+            if !r.filter.is_empty() {
+                out.push_str("<Filter><S3Key>");
+                for f in &r.filter {
                     out.push_str(&format!(
-                        "<InvocationRole>{}</InvocationRole>",
-                        escape(role.as_str())
+                        "<FilterRule><Name>{}</Name><Value>{}</Value></FilterRule>",
+                        escape(f.name.as_str()),
+                        escape(f.value.as_str())
                     ));
                 }
-                for e in &r.events {
-                    out.push_str(&format!("<Event>{}</Event>", escape(e.as_str())));
-                }
-                if !r.filter.is_empty() {
-                    out.push_str("<Filter><S3Key>");
-                    for f in &r.filter {
-                        out.push_str(&format!(
-                            "<FilterRule><Name>{}</Name><Value>{}</Value></FilterRule>",
-                            escape(f.name.as_str()),
-                            escape(f.value.as_str())
-                        ));
-                    }
-                    out.push_str("</S3Key></Filter>");
-                }
-                out.push_str(&format!("</{}>", kind.element()));
+                out.push_str("</S3Key></Filter>");
             }
+            out.push_str(&format!("</{}>", kind.element()));
         }
         if self.event_bridge {
             out.push_str("<EventBridgeConfiguration></EventBridgeConfiguration>");
