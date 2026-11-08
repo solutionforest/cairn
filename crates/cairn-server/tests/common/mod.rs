@@ -202,6 +202,31 @@ impl Node {
             .unwrap_or_else(|e| panic!("{method} {path}: {e}"))
     }
 
+    /// Create IAM user `name` with an inline policy; returns an S3 client signed with its key
+    /// and the key pair.
+    pub async fn user_with_policy(
+        &self,
+        name: &str,
+        policy: serde_json::Value,
+    ) -> (Client, RootCreds) {
+        self.admin("POST", "/users", Some(serde_json::json!({ "name": name })))
+            .await;
+        self.admin(
+            "PUT",
+            &format!("/users/{name}/policies/inline"),
+            Some(serde_json::json!({ "document": policy })),
+        )
+        .await;
+        let k = self
+            .admin("POST", &format!("/users/{name}/access-keys"), None)
+            .await;
+        let creds = RootCreds {
+            access_key: k["access_key_id"].as_str().unwrap().into(),
+            secret_key: k["secret_access_key"].as_str().unwrap().into(),
+        };
+        (client(self.addr, &creds), creds)
+    }
+
     pub async fn bucket(&self, name: &str) {
         self.s3.create_bucket().bucket(name).send().await.unwrap();
     }

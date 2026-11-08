@@ -133,10 +133,18 @@ pub struct RestoreResult {
 /// Restore a trashed bucket.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RestoreBucketRequest {
-    /// Bucket id of the trashed bucket.
+    /// Bucket id of the trashed bucket (or give `bucket`).
+    #[serde(default)]
     pub bucket_id: String,
+    /// Name of the trashed bucket: the most recently created trashed bucket of that name.
+    #[serde(default)]
+    pub bucket: Option<String>,
     /// Restore under a new name.
     pub as_name: Option<String>,
+    /// Also replay every soft-deleted / superseded version of every key (undo the whole
+    /// delete in one call).
+    #[serde(default)]
+    pub all_versions: bool,
 }
 
 /// Irreversibly purge trash entries.
@@ -171,6 +179,9 @@ pub struct PurgeResult {
 pub struct PitrRequest {
     /// Source bucket.
     pub bucket: String,
+    /// Source bucket by identity (may be trashed; overrides the name lookup of `bucket`).
+    #[serde(default)]
+    pub bucket_id: Option<String>,
     /// Limit to a prefix.
     pub prefix: Option<String>,
     /// Target time (RFC 3339).

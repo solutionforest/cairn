@@ -164,3 +164,85 @@ async fn restored_bucket_survives_restart() {
     assert_eq!(node.get("logs", "a").await, b"alpha");
     node.stop().await;
 }
+
+/// The CLI leg of claim 1: `cairn admin trash restore --bucket NAME` (no `--key`) undoes a
+/// bucket delete in one command, bringing back the bucket and every version of every key.
+/// Driven through the same argument parser and client the `cairn` binary mounts as `admin`.
+#[tokio::test]
+async fn cli_trash_restore_brings_back_whole_bucket_in_one_command() {
+    let dir = tempfile::tempdir().unwrap();
+    let node = Node::open(dir.path()).await;
+    let s3 = &node.s3;
+    node.bucket("photos").await;
+    let v1: Vec<u8> = (0..50_000u32).map(|i| (i % 253) as u8).collect();
+    node.put("photos", "cat.jpg", v1.clone()).await;
+    node.put("photos", "cat.jpg", "cat v2").await;
+    node.put("photos", "dir/dog.jpg", "dog").await;
+    for k in ["cat.jpg", "dir/dog.jpg"] {
+        s3.delete_object()
+            .bucket("photos")
+            .key(k)
+            .send()
+            .await
+            .unwrap();
+    }
+    s3.delete_bucket().bucket("photos").send().await.unwrap();
+    let blobs = blob_files(dir.path());
+
+    let endpoint = format!("http://{}", node.addr);
+    let args = [
+        "admin",
+        "--endpoint",
+        endpoint.as_str(),
+        "--access-key",
+        cairn_server::test_support::TEST_ACCESS_KEY,
+        "--secret-key",
+        cairn_server::test_support::TEST_SECRET_KEY,
+        "--json",
+        "trash",
+        "restore",
+        "--bucket",
+        "photos",
+    ];
+    let m = cairn_admin::cli::cli().try_get_matches_from(args).unwrap();
+    let client = cairn_admin::cli::client_from_matches(&m).unwrap();
+    let mut out = String::new();
+    cairn_admin::cli::run_to(&m, &client, &mut out)
+        .await
+        .unwrap();
+    assert!(out.contains("\"photos\""), "{out}");
+
+    // Current state is what it was right before the deletes.
+    assert_eq!(node.get("photos", "cat.jpg").await, b"cat v2");
+    assert_eq!(node.get("photos", "dir/dog.jpg").await, b"dog");
+    // Every version is back in the key's history: the replayed copy of v1 sits in the trash
+    // as the version v2 superseded, and comes back byte-identical.
+    let trash = node
+        .admin
+        .call(
+            "GET",
+            "/trash",
+            &[("bucket", "photos".into()), ("prefix", "cat.jpg".into())],
+            None,
+        )
+        .await
+        .unwrap();
+    let v1_entries: Vec<_> = trash["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["size"] == v1.len())
+        .collect();
+    assert_eq!(v1_entries.len(), 2, "original + replayed v1: {trash}");
+    for e in v1_entries {
+        node.admin(
+            "POST",
+            "/trash/restore",
+            Some(json!({ "bucket": "photos", "key": "cat.jpg", "version_id": e["version_id"] })),
+        )
+        .await;
+        assert_eq!(node.get("photos", "cat.jpg").await, v1);
+    }
+    assert_eq!(blob_files(dir.path()), blobs, "undo wrote blob bytes");
+    node.stop().await;
+}

@@ -121,8 +121,22 @@ fn pitr_body(bucket: &str, as_of: &str) -> serde_json::Value {
     serde_json::json!({ "bucket": bucket, "as_of": as_of })
 }
 
-/// Claim 2 (A5): no snapshot was ever taken; reads and a restore reach an instant before a
-/// bucket delete.
+/// Id of the trashed bucket `name` (admin API).
+async fn trashed_id(node: &Node, name: &str) -> String {
+    let v = node.admin("GET", "/buckets", None).await;
+    v["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|b| b["name"] == name && b["trashed"] == true)
+        .unwrap_or_else(|| panic!("no trashed bucket {name}: {v}"))["id"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+/// Claim 2 (A5): no snapshot was ever taken; a restore reaches an instant before a bucket
+/// delete. The deleted bucket is addressed by identity (its id), never by name.
 #[tokio::test]
 async fn pitr_restore_to_instant_before_bucket_delete() {
     let dir = tempfile::tempdir().unwrap();
@@ -150,38 +164,31 @@ async fn pitr_restore_to_instant_before_bucket_delete() {
             .unwrap();
     }
     s3.delete_bucket().bucket("proj").send().await.unwrap();
+    let id = trashed_id(&node, "proj").await;
 
-    // Time travel reads reach into the deleted bucket.
-    assert_eq!(node.get_as_of("proj", "a", &t0).await.unwrap(), b"A1");
-    assert_eq!(node.get_as_of("proj", "b", &t0).await.unwrap(), b"B1");
+    // By name the bucket is gone, also for time travel.
     assert_eq!(
-        node.get_as_of("proj", "a", &t1).await.unwrap(),
-        b"A2-longer"
-    );
-    assert_eq!(
-        node.get_as_of("proj", "b", &t1).await.unwrap_err(),
-        "NoSuchKey"
-    );
-    let t0c = t0.clone();
-    let l = s3
-        .list_objects_v2()
-        .bucket("proj")
-        .customize()
-        .mutate_request(move |r| {
-            r.headers_mut().insert("x-cairn-as-of", t0c.clone());
-        })
-        .send()
-        .await
-        .unwrap();
-    let keys: Vec<_> = l.contents().iter().map(|o| o.key().unwrap()).collect();
-    assert_eq!(keys, vec!["a", "b"]);
-    assert_eq!(
-        code(s3.get_object().bucket("proj").key("a").send().await),
+        node.get_as_of("proj", "a", &t0).await.unwrap_err(),
         "NoSuchBucket"
     );
+    // By identity its history is intact.
+    let bid: cairn_core::BucketId = id.parse().unwrap();
+    let ts = |t: &str| cairn_core::Ts(t.parse::<jiff::Timestamp>().unwrap().as_nanosecond());
+    let e = node.engine();
+    assert!(
+        e.pitr_head_at_id(bid, "a", ts(&t0))
+            .unwrap()
+            .unwrap()
+            .body()
+            .unwrap()
+            .size
+            == 2
+    );
+    assert!(e.pitr_head_at_id(bid, "b", ts(&t1)).unwrap().is_none());
 
     // Dry run plans the restore without bringing the bucket back.
     let mut dry = pitr_body("proj", &t0);
+    dry["bucket_id"] = id.clone().into();
     dry["dry_run"] = true.into();
     let plan = node.admin("POST", "/pitr/restore", Some(dry)).await;
     assert_eq!(plan["changes"].as_array().unwrap().len(), 2, "{plan}");
@@ -192,16 +199,22 @@ async fn pitr_restore_to_instant_before_bucket_delete() {
 
     // Restore to t0: the bucket comes back with a=A1, b=B1 and no c.
     let blobs_before = blob_files(dir.path());
-    node.admin("POST", "/pitr/restore", Some(pitr_body("proj", &t0)))
-        .await;
+    let mut body = pitr_body("proj", &t0);
+    body["bucket_id"] = id.clone().into();
+    node.admin("POST", "/pitr/restore", Some(body)).await;
     assert_eq!(node.get("proj", "a").await, b"A1");
     assert_eq!(node.get("proj", "b").await, b"B1");
     assert_eq!(
         code(s3.get_object().bucket("proj").key("c").send().await),
         "NoSuchKey"
     );
+    // Now it is live again, x-cairn-as-of by name works on it.
+    assert_eq!(
+        node.get_as_of("proj", "a", &t1).await.unwrap(),
+        b"A2-longer"
+    );
 
-    // Then forward to t1, in place: a=A2, c=C1, b gone.
+    // Then forward to t1, in place by name: a=A2, c=C1, b gone.
     node.admin("POST", "/pitr/restore", Some(pitr_body("proj", &t1)))
         .await;
     assert_eq!(node.get("proj", "a").await, b"A2-longer");
@@ -218,10 +231,11 @@ async fn pitr_restore_to_instant_before_bucket_delete() {
     node.stop().await;
 }
 
-/// The bucket name was reused after the delete: as-of reads and a restore into another bucket
-/// still find the old bucket's contents.
+/// The bucket name was reused after the delete. A time-travel read by name resolves the bucket
+/// that holds the name now and never leaks the old bucket's objects (whose policies may differ);
+/// the old bucket is reachable only by identity. `cairn:TimeTravel` is still required.
 #[tokio::test]
-async fn pitr_across_bucket_name_reuse() {
+async fn time_travel_never_crosses_bucket_identity() {
     let dir = tempfile::tempdir().unwrap();
     let node = Node::open(dir.path()).await;
     let s3 = &node.s3;
@@ -238,27 +252,96 @@ async fn pitr_across_bucket_name_reuse() {
             .unwrap();
     }
     s3.delete_bucket().bucket("site").send().await.unwrap();
+    let old_id = trashed_id(&node, "site").await;
     node.bucket("site").await;
     node.put("site", "index.html", "new site").await;
 
+    // By name: the new bucket did not exist at t0, so there is nothing to read.
     assert_eq!(node.get("site", "index.html").await, b"new site");
     assert_eq!(
-        node.get_as_of("site", "index.html", &t0).await.unwrap(),
-        b"old site"
+        node.get_as_of("site", "index.html", &t0).await.unwrap_err(),
+        "NoSuchKey"
     );
     let now = instant().await;
     assert_eq!(
         node.get_as_of("site", "index.html", &now).await.unwrap(),
         b"new site"
     );
+    let t0c = t0.clone();
+    let l = s3
+        .list_objects_v2()
+        .bucket("site")
+        .customize()
+        .mutate_request(move |r| {
+            r.headers_mut().insert("x-cairn-as-of", t0c.clone());
+        })
+        .send()
+        .await
+        .unwrap();
+    assert!(l.contents().is_empty(), "as-of list leaked the old bucket");
 
+    // By identity: the old bucket's objects, restored into another bucket.
+    let bid: cairn_core::BucketId = old_id.parse().unwrap();
+    let at = cairn_core::Ts(t0.parse::<jiff::Timestamp>().unwrap().as_nanosecond());
+    assert!(
+        node.engine()
+            .pitr_head_at_id(bid, "logo.png", at)
+            .unwrap()
+            .is_some()
+    );
     node.bucket("site-old").await;
     let mut body = pitr_body("site", &t0);
+    body["bucket_id"] = old_id.clone().into();
     body["target_bucket"] = "site-old".into();
     node.admin("POST", "/pitr/restore", Some(body)).await;
     assert_eq!(node.get("site-old", "index.html").await, b"old site");
     assert_eq!(node.get("site-old", "logo.png").await, b"old logo");
     assert_eq!(node.get("site", "index.html").await, b"new site");
+
+    // A bucket id must belong to the bucket the request was authorized for.
+    let mut body = pitr_body("site-old", &t0);
+    body["bucket_id"] = old_id.into();
+    body["target_bucket"] = "site-old".into();
+    assert!(
+        node.admin
+            .call("POST", "/pitr/restore", &[], Some(&body))
+            .await
+            .is_err()
+    );
+
+    // Without cairn:TimeTravel a principal can read the present but not the past.
+    let (reader, _) = node
+        .user_with_policy(
+            "reader",
+            serde_json::json!({
+                "Version": "2012-10-17",
+                "Statement": [{ "Effect": "Allow", "Action": "s3:*", "Resource": "*" }]
+            }),
+        )
+        .await;
+    let body = reader
+        .get_object()
+        .bucket("site")
+        .key("index.html")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        body.body.collect().await.unwrap().into_bytes().as_ref(),
+        b"new site"
+    );
+    let nowc = now.clone();
+    let r = reader
+        .get_object()
+        .bucket("site")
+        .key("index.html")
+        .customize()
+        .mutate_request(move |r| {
+            r.headers_mut().insert("x-cairn-as-of", nowc.clone());
+        })
+        .send()
+        .await;
+    assert_eq!(code(r), "AccessDenied");
     node.stop().await;
 }
 

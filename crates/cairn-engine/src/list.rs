@@ -44,7 +44,7 @@ impl CairnEngine {
     /// `req.after`.
     pub fn list_objects(&self, bucket: &str, req: &ListReq) -> S3Result<ListRes> {
         let r = self.read()?;
-        let b = crate::resolve_bucket_at(&r, bucket, req.as_of)?;
+        let b = resolve_bucket(&r, bucket)?;
         let max = req.max.min(MAX_LIST_KEYS);
         if max == 0 {
             return Ok(ListRes::default());

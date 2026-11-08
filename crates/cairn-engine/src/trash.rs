@@ -4,7 +4,7 @@ use crate::commit::{active_bucket, commit_version, retention};
 use crate::gc::purge_version;
 use crate::types::*;
 use crate::{CairnEngine, resolve_bucket};
-use cairn_core::{PrincipalId, S3Error, S3ErrorCode, S3Result, Ts, VersionId};
+use cairn_core::{BucketId, PrincipalId, S3Error, S3ErrorCode, S3Result, Ts, VersionId};
 use cairn_meta::{
     BucketRecord, BucketState, Flow, ReadExt, Reader, Table, VersionRecord, VersionState, decode,
     keys, pitr,
@@ -117,6 +117,36 @@ impl CairnEngine {
         })
     }
 
+    /// Undo a bucket delete in one step: bring the trashed bucket `id` back (under its old name
+    /// or `as_name`) and replay every hidden version of every key, oldest first, so each key's
+    /// newest version is current again and its whole history is visible. Versions share their
+    /// blobs (no blob bytes are written). Returns the bucket and the number of versions replayed.
+    pub async fn restore_bucket_all(
+        &self,
+        id: BucketId,
+        as_name: Option<String>,
+        by: &PrincipalId,
+    ) -> S3Result<(cairn_meta::BucketRecord, u64)> {
+        let b = self.restore_bucket(id, as_name).await?;
+        let mut hidden: Vec<VersionRecord> = Vec::new();
+        self.read()?
+            .scan_prefix(Table::Versions, &b.id.to_bytes(), &mut |_, v| {
+                let rec: VersionRecord = decode(v)?;
+                if !rec.is_live() && !rec.is_delete_marker() {
+                    hidden.push(rec);
+                }
+                Ok(Flow::Continue)
+            })?;
+        hidden.sort_by(|a, b| a.key.cmp(&b.key).then(a.created_at.cmp(&b.created_at)));
+        let mut n = 0;
+        for v in &hidden {
+            self.trash_restore(&b.name, &v.key, Some(v.version_id), by)
+                .await?;
+            n += 1;
+        }
+        Ok((self.bucket_by_id(id)?, n))
+    }
+
     /// Irreversibly purge one hidden version now (refused under an active Object Lock).
     pub async fn trash_purge(&self, bucket: &str, key: &str, version: VersionId) -> S3Result<()> {
         let b = self.bucket(bucket)?;
@@ -140,14 +170,28 @@ impl CairnEngine {
     /// marker).
     pub fn pitr_head_at(&self, bucket: &str, key: &str, at: Ts) -> S3Result<Option<VersionRecord>> {
         let r = self.read()?;
-        let b = crate::resolve_bucket_at(&r, bucket, Some(at))?;
+        let b = resolve_bucket(&r, bucket)?;
+        Ok(pitr::head_at(&r, b.id, key, at)?)
+    }
+
+    /// [`CairnEngine::pitr_head_at`] by bucket identity; reaches a trashed bucket.
+    pub fn pitr_head_at_id(
+        &self,
+        bucket: BucketId,
+        key: &str,
+        at: Ts,
+    ) -> S3Result<Option<VersionRecord>> {
+        let r = self.read()?;
+        let b = r
+            .bucket(bucket)?
+            .ok_or_else(|| crate::no_such_bucket(&bucket.to_string()))?;
         Ok(pitr::head_at(&r, b.id, key, at)?)
     }
 
     /// Differences between the current state of `prefix` and its state at `at`.
     pub fn pitr_diff(&self, bucket: &str, prefix: &str, at: Ts) -> S3Result<Vec<DiffEntry>> {
         let r = self.read()?;
-        let b = crate::resolve_bucket_at(&r, bucket, Some(at))?;
+        let b = resolve_bucket(&r, bucket)?;
         let mut out = Vec::new();
         pitr::keys_with_history(&r, b.id, prefix, |key| {
             let then = pitr::head_at(&r, b.id, key, at)?;
@@ -187,17 +231,31 @@ impl CairnEngine {
         dry_run: bool,
         by: &PrincipalId,
     ) -> S3Result<PitrReport> {
-        let mut src = crate::resolve_bucket_at(&self.read()?, bucket, Some(at))?;
-        let dst_name = target.bucket.clone().unwrap_or_else(|| bucket.to_string());
-        let src_trashed = !matches!(src.state, BucketState::Active);
-        // In place across a bucket delete: the bucket itself comes back first.
-        if src_trashed && dst_name == bucket {
+        let src = self.bucket(bucket)?;
+        self.pitr_restore_id(src.id, prefix, at, target, dry_run, by)
+            .await
+    }
+
+    /// [`CairnEngine::pitr_restore`] from a bucket addressed by identity, which may be trashed.
+    /// In place (no target bucket) a trashed source bucket is first brought back under its
+    /// old name; a dry run plans that without doing it.
+    pub async fn pitr_restore_id(
+        &self,
+        src_id: BucketId,
+        prefix: &str,
+        at: Ts,
+        target: PitrTarget,
+        dry_run: bool,
+        by: &PrincipalId,
+    ) -> S3Result<PitrReport> {
+        let mut src = self.bucket_by_id(src_id)?;
+        let bucket = src.name.clone();
+        let dst_name = target.bucket.clone().unwrap_or_else(|| bucket.clone());
+        if !matches!(src.state, BucketState::Active) && target.bucket.is_none() {
             if dry_run {
                 return self.pitr_plan(&src, &src, prefix, at, &target, true);
             }
-            src = self
-                .restore_bucket(src.id, Some(bucket.to_string()))
-                .await?;
+            src = self.restore_bucket(src.id, None).await?;
         }
         let dst = self.bucket(&dst_name)?;
         let mut report = self.pitr_plan(&src, &dst, prefix, at, &target, false)?;

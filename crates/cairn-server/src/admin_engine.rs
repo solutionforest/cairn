@@ -265,15 +265,33 @@ impl AdminEngine for EngineAdmin {
     }
 
     async fn restore_bucket(&self, r: RestoreBucketRequest) -> Result<BucketSummary, AdminError> {
-        let id: BucketId = r
-            .bucket_id
-            .parse()
-            .map_err(|_| AdminError::invalid("invalid bucket id"))?;
-        let b = self
-            .engine
-            .restore_bucket(id, r.as_name)
-            .await
-            .map_err(map)?;
+        let id: BucketId = match (&r.bucket, r.bucket_id.is_empty()) {
+            (Some(name), true) => {
+                self.engine
+                    .trashed_buckets()
+                    .map_err(map)?
+                    .into_iter()
+                    .find(|b| &b.name == name)
+                    .ok_or_else(|| AdminError::not_found(format!("no trashed bucket {name:?}")))?
+                    .id
+            }
+            _ => r
+                .bucket_id
+                .parse()
+                .map_err(|_| AdminError::invalid("invalid bucket id"))?,
+        };
+        let b = if r.all_versions {
+            self.engine
+                .restore_bucket_all(id, r.as_name, &admin_principal())
+                .await
+                .map_err(map)?
+                .0
+        } else {
+            self.engine
+                .restore_bucket(id, r.as_name)
+                .await
+                .map_err(map)?
+        };
         self.summary(&b)
     }
 
@@ -312,10 +330,23 @@ impl AdminEngine for EngineAdmin {
 
     async fn pitr_restore(&self, r: PitrRequest) -> Result<PitrResult, AdminError> {
         let at = parse_time(&r.as_of)?;
+        let src = match &r.bucket_id {
+            Some(id) => {
+                let id = id
+                    .parse::<BucketId>()
+                    .map_err(|_| AdminError::invalid("invalid bucket id"))?;
+                // Authorization was decided on `bucket`; the id must name that bucket.
+                if self.engine.bucket_by_id(id).map_err(map)?.name != r.bucket {
+                    return Err(AdminError::invalid("bucket_id does not belong to bucket"));
+                }
+                id
+            }
+            None => self.engine.bucket(&r.bucket).map_err(map)?.id,
+        };
         let rep = self
             .engine
-            .pitr_restore(
-                &r.bucket,
+            .pitr_restore_id(
+                src,
                 r.prefix.as_deref().unwrap_or(""),
                 at,
                 PitrTarget {

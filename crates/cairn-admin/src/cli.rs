@@ -409,14 +409,15 @@ pub enum BucketCmd {
 pub enum TrashCmd {
     /// List soft-deleted versions.
     Ls(TrashLs),
-    /// Restore a soft-deleted version.
+    /// Restore a soft-deleted version; without `--key`, undo the delete of the whole bucket
+    /// (the bucket and every version of every key).
     Restore {
         /// Bucket.
         #[arg(long)]
         bucket: String,
-        /// Key.
+        /// Key (omit to restore a deleted bucket with all its versions).
         #[arg(long)]
-        key: String,
+        key: Option<String>,
         /// Version (default newest deleted).
         #[arg(long)]
         version: Option<String>,
@@ -796,10 +797,20 @@ pub async fn run_to(m: &ArgMatches, c: &AdminClient, out: &mut String) -> Result
                 bucket,
                 key,
                 version,
-            } => {
-                let body = json!({ "bucket": bucket, "key": key, "version_id": version });
-                c.call("POST", "/trash/restore", none, Some(&body)).await?
-            }
+            } => match key {
+                Some(key) => {
+                    let body = json!({ "bucket": bucket, "key": key, "version_id": version });
+                    c.call("POST", "/trash/restore", none, Some(&body)).await?
+                }
+                None => {
+                    if version.is_some() {
+                        bail!("--version needs --key");
+                    }
+                    let body = json!({ "bucket": bucket, "all_versions": true });
+                    c.call("POST", "/trash/restore-bucket", none, Some(&body))
+                        .await?
+                }
+            },
             TrashCmd::RestoreBucket { id, as_name } => {
                 let body = json!({ "bucket_id": id, "as_name": as_name });
                 c.call("POST", "/trash/restore-bucket", none, Some(&body))

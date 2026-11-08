@@ -24,10 +24,8 @@ mod util;
 
 use cairn_blob::{DataKey, FsBlobStore};
 use cairn_core::config::{LimitsConfig, RetentionConfig};
-use cairn_core::{BucketName, S3Error, S3ErrorCode, S3Result, Ts};
-use cairn_meta::{
-    BucketRecord, BucketState, Flow, MetaStore, ReadExt, ReadTxn, RedbMetaStore, Table, decode,
-};
+use cairn_core::{BucketName, S3Error, S3ErrorCode, S3Result};
+use cairn_meta::{BucketRecord, BucketState, MetaStore, ReadExt, ReadTxn, RedbMetaStore};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -164,6 +162,14 @@ impl CairnEngine {
         resolve_bucket(&self.read()?, name)
     }
 
+    /// A bucket by identity, active or trashed (time travel and PITR across a bucket delete
+    /// address the bucket by id, never by a name that may since have been reused).
+    pub fn bucket_by_id(&self, id: cairn_core::BucketId) -> S3Result<BucketRecord> {
+        self.read()?
+            .bucket(id)?
+            .ok_or_else(|| no_such_bucket(&id.to_string()))
+    }
+
     /// Readiness: not shut down, metadata readable and `tmp/` writable.
     pub fn ready(&self) -> bool {
         if self.is_shut_down() || self.read().is_err() {
@@ -189,46 +195,5 @@ pub(crate) fn resolve_bucket<R: ReadExt + ?Sized>(r: &R, name: &str) -> S3Result
     match r.bucket_by_name(name)? {
         Some(b) if b.state == BucketState::Active => Ok(b),
         _ => Err(no_such_bucket(name)),
-    }
-}
-
-/// The bucket that carried `name` at instant `at`: the active bucket if it already existed
-/// then, otherwise a since-trashed bucket that was live under that name at `at` (time travel
-/// and PITR reach across a bucket delete). Falls back to the active bucket.
-pub(crate) fn resolve_bucket_at<R: ReadExt + ?Sized>(
-    r: &R,
-    name: &str,
-    at: Option<Ts>,
-) -> S3Result<BucketRecord> {
-    let Some(at) = at else {
-        return resolve_bucket(r, name);
-    };
-    let active = resolve_bucket(r, name);
-    if let Ok(b) = &active
-        && b.created_at <= at
-    {
-        return active;
-    }
-    let mut found: Option<BucketRecord> = None;
-    r.scan(
-        Table::BucketMeta,
-        std::ops::Bound::Unbounded,
-        std::ops::Bound::Unbounded,
-        &mut |_, v| {
-            let b: BucketRecord = decode(v)?;
-            if let BucketState::Trashed { at: gone, .. } = b.state
-                && b.name == name
-                && b.created_at <= at
-                && at < gone
-                && found.as_ref().is_none_or(|f| f.created_at < b.created_at)
-            {
-                found = Some(b);
-            }
-            Ok(Flow::Continue)
-        },
-    )?;
-    match found {
-        Some(b) => Ok(b),
-        None => active,
     }
 }
