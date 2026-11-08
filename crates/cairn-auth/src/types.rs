@@ -7,7 +7,7 @@ use std::time::Duration;
 /// Account id used in every Cairn ARN (single-account server).
 pub const ACCOUNT_ID: &str = "000000000000";
 
-/// Stable principal identifier: "root", "user:<name>", "role:<name>/<session>", "anonymous".
+/// Stable principal identifier: `root`, `user:<name>`, `role:<name>/<session>`, `anonymous`.
 // TODO(agent-a): move to cairn-core
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct PrincipalId(pub String);
