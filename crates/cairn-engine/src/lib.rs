@@ -6,9 +6,12 @@
 
 mod bucket;
 mod commit;
+mod gc;
+mod list;
 mod multipart;
 mod object;
 mod recovery;
+mod trash;
 pub mod types;
 mod util;
 
@@ -16,10 +19,13 @@ use cairn_blob::{DataKey, FsBlobStore};
 use cairn_core::config::{LimitsConfig, RetentionConfig};
 use cairn_core::{BucketName, S3Error, S3ErrorCode, S3Result};
 use cairn_meta::{BucketRecord, BucketState, MetaStore, ReadExt, ReadTxn, RedbMetaStore};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub use cairn_meta;
+pub use list::MAX_LIST_KEYS;
+pub use recovery::{LATEST_SAMPLE, RecoveryReport};
 pub use types::*;
 
 /// Engine settings derived from `cairn_core::Config`.
@@ -39,7 +45,14 @@ struct Inner {
     meta: RedbMetaStore,
     blobs: FsBlobStore,
     cfg: EngineConfig,
+    data_dir: PathBuf,
+    unclean: bool,
+    tmp_removed: usize,
+    shut: AtomicBool,
 }
+
+/// Marker file present while an engine has the data directory open.
+const RUNNING_MARKER: &str = "RUNNING";
 
 /// The object store.
 #[derive(Clone)]
@@ -52,9 +65,20 @@ impl CairnEngine {
     pub fn open(data_dir: &Path, cfg: EngineConfig) -> S3Result<CairnEngine> {
         let meta = RedbMetaStore::open(&data_dir.join("meta").join("cairn.redb"))?;
         let blobs = FsBlobStore::open(data_dir, cfg.fsync)?;
-        blobs.clean_tmp()?;
+        let tmp_removed = blobs.clean_tmp()?;
+        let marker = data_dir.join("meta").join(RUNNING_MARKER);
+        let unclean = marker.exists();
+        std::fs::write(&marker, std::process::id().to_string())?;
         Ok(CairnEngine {
-            inner: Arc::new(Inner { meta, blobs, cfg }),
+            inner: Arc::new(Inner {
+                meta,
+                blobs,
+                cfg,
+                data_dir: data_dir.to_path_buf(),
+                unclean,
+                tmp_removed,
+                shut: AtomicBool::new(false),
+            }),
         })
     }
 
@@ -73,9 +97,24 @@ impl CairnEngine {
         &self.inner.cfg
     }
 
-    /// Stop the metadata writer.
+    /// Data directory root.
+    pub fn data_dir(&self) -> &Path {
+        &self.inner.data_dir
+    }
+
+    /// Stop the metadata writer after draining queued jobs and mark the shutdown clean.
+    /// Idempotent; the database file is closed once every engine handle is dropped.
     pub fn shutdown(&self) {
+        if self.inner.shut.swap(true, Ordering::SeqCst) {
+            return;
+        }
         self.inner.meta.shutdown();
+        let _ = std::fs::remove_file(self.inner.data_dir.join("meta").join(RUNNING_MARKER));
+    }
+
+    /// Whether [`CairnEngine::shutdown`] has run.
+    pub fn is_shut_down(&self) -> bool {
+        self.inner.shut.load(Ordering::SeqCst)
     }
 
     pub(crate) fn read(&self) -> S3Result<ReadTxn> {
@@ -87,9 +126,19 @@ impl CairnEngine {
         resolve_bucket(&self.read()?, name)
     }
 
-    /// Readiness: metadata readable and data dir writable.
+    /// Readiness: not shut down, metadata readable and `tmp/` writable.
     pub fn ready(&self) -> bool {
-        self.read().is_ok() && self.inner.blobs.clean_tmp().is_ok()
+        if self.is_shut_down() || self.read().is_err() {
+            return false;
+        }
+        let probe = self
+            .inner
+            .data_dir
+            .join("tmp")
+            .join(format!(".ready-{}", uuid::Uuid::new_v4()));
+        let ok = std::fs::write(&probe, b"ok").is_ok();
+        let _ = std::fs::remove_file(&probe);
+        ok
     }
 }
 
