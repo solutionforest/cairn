@@ -3,7 +3,10 @@
 
 #[test]
 fn example_config_matches_defaults() {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../deploy/cairn.example.toml");
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../deploy/cairn.example.toml"
+    );
     let src = std::fs::read_to_string(path).unwrap();
     let cfg = cairn_core::Config::from_toml(&src).unwrap();
     assert_eq!(cfg, cairn_core::Config::default());
