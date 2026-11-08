@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<NotificationConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+  <QueueConfiguration>
+    <Id>1</Id>
+    <Filter>
+      <S3Key>
+        <FilterRule>
+          <Name>prefix</Name>
+          <Value>images/</Value>
+        </FilterRule>
+        <FilterRule>
+          <Name>suffix</Name>
+          <Value>.jpg</Value>
+        </FilterRule>
+      </S3Key>
+    </Filter>
+    <Queue>arn:aws:sqs:us-west-2:444455556666:s3notificationqueue</Queue>
+    <Event>s3:ObjectCreated:Put</Event>
+  </QueueConfiguration>
+  <TopicConfiguration>
+    <Topic>arn:aws:sns:us-east-1:356671443308:s3notificationtopic2</Topic>
+    <Event>s3:ReducedRedundancyLostObject</Event>
+    <Event>s3:ObjectRemoved:*</Event>
+  </TopicConfiguration>
+  <CloudFunctionConfiguration>
+    <Id>ObjectCreatedEvents</Id>
+    <CloudFunction>arn:aws:lambda:us-west-2:35667example:function:CreateThumbnail</CloudFunction>
+    <Event>s3:ObjectCreated:*</Event>
+  </CloudFunctionConfiguration>
+</NotificationConfiguration>

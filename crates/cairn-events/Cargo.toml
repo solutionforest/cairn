@@ -10,14 +10,22 @@ description = "Cairn object storage: events"
 [dependencies]
 cairn-core.workspace = true
 cairn-meta.workspace = true
-cairn-engine.workspace = true
 tokio.workspace = true
 reqwest.workspace = true
+axum.workspace = true
+futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+quick-xml.workspace = true
 hmac.workspace = true
 sha2.workspace = true
 hex.workspace = true
+rand.workspace = true
+url.workspace = true
+zeroize.workspace = true
 tracing.workspace = true
 jiff.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
