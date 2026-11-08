@@ -111,7 +111,7 @@ MCP, **C** = events/replication-adjacent/tooling. Status dates are UTC.
 | 2a | Engine/S3 features: trash list/restore/purge, PITR restore + `x-cairn-as-of`, lifecycle worker (expiration, noncurrent, abort-mpu), GC worker, Object Lock (governance/compliance/legal hold), SSE-S3 / SSE-C (key-scoped blob ids, DESIGN §15 Q5) / named KMS keys, CORS, PublicAccessBlock, bucket quota (507), rate limiting (§8.3), `/metrics` `/healthz` `/readyz`, audit JSONL, graceful shutdown | A | todo | integration tests per feature; `s3-tests` tagged subset ≥ 80% |
 | 2b | Wire `cairn-auth` into s3s `S3Auth`/`S3Access` (bucket policy ∪ identity ∪ PAB); Put/Get/Delete BucketPolicy + GetBucketPolicyStatus; STS endpoint (`/?Action=AssumeRole|GetSessionToken`); `cairn-admin` REST API (`/_cairn/v1/...`) + `cairn admin` CLI (users/keys/groups/policies/roles/buckets/trash/pitr/quota/lock); metadata **migrations framework** (schema version in `kv`, pre-upgrade snapshot, `cairn migrate --dry-run`) | B | **B side done** 2026-11-08 (bridge 19 + STS 5 + SigV4 3 + admin 11 + migrate 4 tests); server wiring, S3 bucket-policy ops and aws-sdk integration tests pending on A (see decisions log "phase 2b wiring") | policy/STS/admin integration tests; migration test from a v1 fixture |
 | 3a | `cairn-events`: event types (S3 schema 2.1 + `cairn:`), durable outbox + cursor, delivery worker with backoff + DLQ, sinks: webhook (HMAC), **function sinks** (bearer / sigv4-lambda / cf-access, §10), SSE stream `/_cairn/v1/events`; `Put/GetBucketNotificationConfiguration` mapping incl. `LambdaFunctionConfigurations` | C | **done (library)** 2026-11-08: 30 tests incl. crash test + per-auth-mode fake HTTP sinks; wiring into engine/s3/server (A) and admin SSE mount (B) pending, see decisions log | outbox delivers exactly the committed set after crash (test); fake HTTP sink tests per auth mode |
-| 3b | Replication worker + Put/Get/DeleteBucketReplication, `x-cairn-version-id` on Cairn→Cairn; **blob tiering** `BlobStore` (hot local / cold remote S3, age+size rules, transparent read-through); `cairn backup/restore` (snapshot + incremental blobs, age-style encryption); `cairn fsck` / `cairn scrub` | A | todo | replication round-trip between two in-process servers; tiered GET of a cold blob; fsck detects an injected orphan and a corrupt blob |
+| 3b | Replication worker + Put/Get/DeleteBucketReplication, `x-cairn-version-id` on Cairn→Cairn; **blob tiering** `BlobStore` (hot local / cold remote S3, age+size rules, transparent read-through); `cairn backup/restore` (snapshot + incremental blobs, age-style encryption); `cairn fsck` / `cairn scrub` | D (was A) | **library done** 2026-11-08 (Agent D): `cairn_engine::{replication, backup, fsck, scrub}`, `cairn_blob::{tiered, remote_s3, space}`; 37 tests (+1 ignored) incl. engine→engine replication with version ids, S3Target + S3 cold tier over HTTP against `test_support::spawn`, backup full/incremental/encrypted restore, fsck fault injection, scrub with fake clock. Pending on A: CLI subcommands, server tasks, S3 replication ops + `x-cairn-version-id`, engine on `TieredBlobStore` (see decisions log "phase 3b wiring") | replication round-trip between two in-process servers; tiered GET of a cold blob; fsck detects an injected orphan and a corrupt blob |
 | 3c | `cairn-mcp` (stdio + streamable HTTP, tools in DESIGN §11.1, `cairn:McpTool` condition key); OIDC federation for STS (`AssumeRoleWithWebIdentity`); PostObject (browser form upload) | B (PostObject: A) | **B side done** 2026-11-08: `cairn-mcp` 14 tools (10 integration tests, rmcp client + HTTP), OIDC federation (8 tests, local JWKS); **PostObject still owed by A**; server mount + `cairn mcp --stdio` + `[[auth.oidc_providers]]` config pending on A (decisions log "phase 3c wiring") | MCP tools exercised with an rmcp client under a restricted policy; OIDC test with a local JWKS |
 | 3d | Tooling: `bench/` harness (warp or custom, reproducing §13 targets, results committed as markdown); `s3-tests` (ceph) runner script + tag list + CI job (nightly, allowed-failure list); config reference generator (`cairn config schema`) | C | in progress 2026-11-08: `bench/run.sh` (warp) + `RESULTS.md` template, `scripts/s3-tests/` runner + nightly workflow (gated by `S3_TESTS_ENABLED`) landed; no runs yet (needs `cairn serve`); `cairn config schema` not started (cairn-cli, A) | bench runs on the dev host; `s3-tests` subset ≥ 95% by end of phase 3 |
 | R | Release engineering: `cargo deny` + `cargo audit` in CI; release workflow (tags → static musl x86_64/aarch64, Docker image to GHCR, SBOM, checksums); CHANGELOG; **name check** on crates.io / Docker Hub / GitHub before first public tag; `SECURITY.md` with disclosure policy | C | in progress 2026-11-08: `cargo deny` green + `security.yml`, `release.yml`, SECURITY.md, CHANGELOG.md, name check run (rename recommended); remaining: first `v0.1.0-alpha` tag once `cairn serve` exists | `v0.1.0-alpha` tag produces downloadable binaries |
@@ -444,3 +444,95 @@ Entries are dated (UTC) and name the author. Newest last.
   state when the list is non-empty. `AssumeRoleWithWebIdentity` is unsigned, so STS routing must
   not require SigV4 before dispatch (`is_sts_request` already matches it). (4) PostObject is
   still A's (BUILD-PLAN 3c row).
+- **2026-11-08 (Agent D) — phase 3b storage layout: no new tables.** `cairn-meta`'s `Table` enum
+  is A's, so everything new lives in existing tables. `repl_cursor` (already in DESIGN §4.3, used
+  instead of the brief's `kv` key): `BucketId ‖ destination ARN` → `ReplCursor {since, watermark,
+  recent, delivered, failed, last_error, last_success}`. `kv`: `repl/target/<arn>` → target
+  (endpoint, region, bucket, access key, ChaCha20-Poly1305-sealed secret, AAD = ARN, key =
+  BLAKE3-derive of a caller key), `damaged/b/<BlobId>` and `damaged/v/<versions key>` →
+  `DamageRecord {blob, kind: Missing|Corrupt, detected_at, source}` (the "x-cairn-damaged flag":
+  `VersionRecord` is not changed, so no migration), `scrub/cursor` → `ScrubCursor`,
+  `scrub/at/<BlobId>` → `ts_bytes(last verified)`. The replication config document is the bucket's
+  `configs["replication"]` (AWS XML, so `bucket_history` keeps revisions).
+- **2026-11-08 (Agent D) — replication reads `versions`, not `events_queue`.** DESIGN §9 said the
+  worker consumes `events_queue`; the outbox only holds rows when a notification rule matches or
+  SSE capture is on, and engine hooks were not wired, so the worker instead scans the bucket's
+  `versions` rows each tick and selects `created_at > watermark − overlap (5 s)` minus the
+  `recent` set (version ids are time-ordered; the overlap absorbs wall-clock steps; Live versions
+  only). Cost is O(versions of replicated buckets) per tick (2 s); an engine-maintained change
+  index can replace the scan later without changing the cursor. Cursor advances only past
+  delivered / permanently failed versions and is checkpointed every 32, so delivery is
+  at-least-once with idempotent Cairn peers. Target ARNs are registered out-of-band
+  (`TargetRegistry`, like `mc admin bucket remote add`); Put requires source versioning Enabled
+  and seeds cursors at "now" unless `ExistingObjectReplication` is Enabled. Replicas keep version
+  id, `created_at`, metadata, tags and the part layout (same ETag); blob ids are equal on both
+  sides (BLAKE3 of plaintext), which `put_replica` checks. Not replicated: version deletes, Object
+  Lock state, `is_null` (replicas are regular versions).
+- **2026-11-08 (Agent D) — backup format.** Logical dump (`CAIRNMETA1`, rows `[name len][table
+  Debug name][u32 k][k][u32 v][v]`, trailer with row count) of every table from one `ReadTxn`, not
+  a redb file copy: `RedbMetaStore` does not expose the `Database`, and a logical dump survives
+  redb format changes. Restore replays it through `RedbMetaStore::write` in 4096-row jobs.
+  Encryption is passphrase-based (argon2id + ChaCha20-Poly1305 STREAM, per-file BLAKE3 subkey)
+  because no X25519 crate is in the workspace; an age-style X25519 recipient can be added as a
+  second `kdf` kind in `cairn-backup.json` without changing the file container. Plaintext blobs
+  are uploaded as-is (`sendfile`-friendly), `.enc` blobs and cold stubs as stored.
+- **2026-11-08 (Agent D) — tiering stubs and last-access clock.** A cold blob leaves
+  `blobs/ab/cd/<hex>.cold` (`cairn-cold 1 <size> <enc>`), so `exists`/`size`/fsck/GC walks never
+  touch the network; the existing orphan sweep ignores `.cold` names (they do not parse as blob
+  ids). Last access = file mtime (blobs are immutable), bumped on hot reads at most once per
+  `touch_interval`. `ColdStore` trait has `RemoteBlobStore` (S3) and `DirColdStore` (mounted dir,
+  test fake).
+- **2026-11-08 (Agent D) — `cairn-engine` dev-depends on `cairn-server`.** Only for
+  `tests/replication_http.rs` (S3Target and the S3 cold tier against `test_support::spawn`). Cargo
+  allows the dev-dependency cycle; integration tests link one `cairn-engine` rlib. Cost: `cargo
+  test -p cairn-engine` also builds the server. Remove the edge if it gets in A's way and move the
+  file to `crates/cairn-server/tests/`.
+- **2026-11-08 (Agent D) — phase 3b wiring for Agent A.** All functions exist and are tested;
+  each item is a call site, not new logic.
+  1. *Disk full (C8)* — already in progress in A's tree (`EngineExtras.space`): `SpaceGuard::new(
+     data_dir, cfg.storage.min_free)`, `guard.check(content_length.unwrap_or(0))?` before ingest
+     in put/upload_part/upload_part_copy/copy/complete, `space::is_enospc(&io_err)` →
+     `StorageFull`. `impl From<StorageFull> for S3Error` picks `S3ErrorCode::parse(
+     "InsufficientStorage")` and falls back to `QuotaExceeded` (also 507): **add
+     `InsufficientStorage = 507, "Insufficient storage space."` to `cairn-core` codes** and the
+     right code appears automatically. Add `min_free` (bytes, default
+     `cairn_blob::space::DEFAULT_RESERVE`) to `StorageConfig`.
+  2. *Damaged versions (C3)* — GET/HEAD after resolving `v`:
+     `if cairn_engine::fsck::version_damage(&read_txn, bucket.id, &v)?.is_some() { return
+     Err(cairn_engine::fsck::damaged_error(key)) }`.
+  3. *S3 replication ops (C6)* — `PutBucketReplication` → `engine.put_bucket_replication(bucket,
+     &xml_body)`; `GetBucketReplication` → `engine.get_bucket_replication(bucket)?` →
+     `cfg.to_xml()` or `ReplicationConfigurationNotFoundError`; `DeleteBucketReplication` →
+     `engine.delete_bucket_replication(bucket)`. Refuse `PutBucketVersioning Suspended` while
+     `get_bucket_replication` is `Some` (`InvalidBucketState`). HEAD/GET: header
+     `x-amz-replication-status` = `engine.replication_status(&bucket, &v)?.map(|s| s.as_str())`.
+     Requests carrying `x-cairn-version-id` (PUT, DELETE without versionId, and
+     CompleteMultipartUpload) from a principal allowed `cairn:ReplicateObject`: build the
+     `VersionRecord` (key, `version_id` = header parsed as `VersionId`, `created_at =
+     version_id.created_at()`, body from the request) and call `engine.put_replica(bucket, &rec,
+     Some(&source))` / `put_replica(bucket, &marker, None)`; for multipart, complete into a
+     temporary record and pass its parts. Then un-ignore
+     `crates/cairn-engine/tests/replication.rs::two_server_http_round_trip` (move it to
+     `crates/cairn-server/tests/` with two `spawn()`s).
+  4. *Replication worker (C6)* — at serve: `let targets = Arc::new(TargetRegistry::new(&engine,
+     blake3::derive_key("cairn replication targets", master_key)))`;
+     `tokio::spawn(ReplicationWorker::new(engine.clone(), targets.clone()).with_observer(metrics)
+     .run(shutdown))`. Admin/CLI: `targets.put(&TargetConfig{..})`, `targets.list()`,
+     `targets.remove(arn)`; status = the `DestinationStatus` values the observer receives (or
+     `replication::load_cursor`). On bucket purge, `delete_bucket_replication` semantics apply
+     (drop `repl_cursor` rows with the `BucketId` prefix).
+  5. *Scrub (C4)* — `tokio::spawn(Scrubber::new(engine.clone(), ScrubConfig{..}).run(idle,
+     shutdown))` when `[storage.scrub] enabled`; `cairn scrub --once` = `run_pass().await`.
+  6. *fsck / backup / restore CLI (C3, C5)* — `engine.fsck(FsckOptions{verify, orphan_min_age,
+     repair}).await -> FsckReport` (serde `Serialize`, `is_clean()`);
+     `backup::backup(&engine, &BackupLocation::Dir|S3(S3Endpoint), &BackupOptions{mode,
+     passphrase, kdf, include_keys}).await -> BackupReport`; `backup::restore(&src, &data_dir,
+     &RestoreOptions{manifest, passphrase}).await -> RestoreReport` (run before opening the
+     engine); `backup::list_backups(&src)`. Subcommand shapes are in OPERATIONS.md.
+  7. *Tiering* — make the engine's blob store `TieredBlobStore<RemoteBlobStore>` when
+     `[storage.tiering]` is on: `incref_checked` must use `TieredBlobStore::exists_sync` (stub
+     counts as present), and GC's `unlink_blob` must also remove `<hex>.cold` stubs and delete the
+     remote object (`tiered.delete(&id).await` after the GC write job, for ids whose stub
+     existed); spawn `tiered.tier_tick(SystemTime::now(), 10_000)` every `interval`. Reads already
+     go through `BlobStore::open`.
+
