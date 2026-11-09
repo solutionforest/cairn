@@ -1,0 +1,60 @@
+name: upgrade
+
+# Data written by every published Tidemark release must read back identically with this commit
+# (BUILD-PLAN 1.2, DESIGN §4.5). Releases before v0.1.0-alpha.3 are Cairn-named and not covered:
+# their data directories were deliberately left behind by the rename.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * 1"
+
+concurrency:
+  group: upgrade-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  upgrade:
+    name: every release -> this commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with: { shared-key: ci-linux }
+      - run: cargo build --locked -p tidemark-cli
+      - name: download every Tidemark release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p old
+          t=x86_64-unknown-linux-musl
+          for v in $(gh release list -R "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '.[].tagName'); do
+            asset="tidemark-$v-$t.tar.gz"
+            gh release view "$v" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -qx "$asset" || continue
+            gh release download "$v" -R "$GITHUB_REPOSITORY" -p "$asset" -p SHA256SUMS -D "old/$v"
+            (cd "old/$v" && grep " $asset\$" SHA256SUMS | sha256sum -c - && tar xzf "$asset")
+            echo "$v" >> old/versions
+          done
+          test -s old/versions || { echo "no Tidemark release found"; exit 1; }
+          cat old/versions
+      - name: upgrade test
+        run: |
+          t=x86_64-unknown-linux-musl
+          while read -r v; do
+            echo "::group::$v -> $(git rev-parse --short HEAD)"
+            scripts/upgrade-test.sh "old/$v/tidemark-$v-$t/tidemark" target/debug/tidemark "work/$v"
+            echo "::endgroup::"
+            echo "- $v -> \`$(git rev-parse --short HEAD)\`: identical" >> "$GITHUB_STEP_SUMMARY"
+          done < old/versions

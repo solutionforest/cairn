@@ -274,11 +274,37 @@ concurrent and happens *before* the metadata commit, so the critical section is 
 ├── blobs/ab/cd/abcdef…        immutable blobs, 2-level fan-out by hash prefix
 ├── tmp/                       in-flight uploads (same filesystem → atomic rename)
 ├── keys/master.key            32-byte master key (0600) unless provided via env/KMS
-└── audit/2026-11-08.jsonl     audit log (rotated)
+└── audit/audit.jsonl          audit log (rotated by size to .1 … .keep)
 ```
 
 Multiple data volumes (`[[storage.volume]] path=…`) are supported for *capacity* spreading only:
 blob placement = `blake3[0] % volumes`. Redundancy is the filesystem's job in v1.
+
+### 4.5 Frozen on-disk formats (from `v0.1.0-beta.1`)
+
+A data directory or backup set written by any release from `v0.1.0-alpha.3` on must open in
+every later release. The identifiers below are the format; changing any of them is a format
+change and needs a `tidemark_meta::migrate` step (meta) or a reader that accepts both the old and
+the new form (blobs, keys, backups), plus an entry here and in DECISIONS. Names keep their
+historical spelling: the blob and backup magics still say `CRN…` from the Cairn days, and stay.
+
+| Area | Frozen identifier | Where |
+|---|---|---|
+| Metadata file | `meta/tidemark.redb`; `RUNNING` marker; backup before migrating `tidemark.redb.pre-v<N>.bak` | `tidemark-meta` |
+| Metadata schema | `schema_version` = 1 in `kv` (`CURRENT_SCHEMA`) | `tidemark-meta/src/migrate.rs` |
+| Tables | `buckets` `bucket_meta` `bucket_history` `versions` `latest` `uploads` `uploads_by_key` `blobs` `blob_gc_idx` `trash_idx` `bucket_trash_idx` `lifecycle_idx` `principals` `access_keys` `policies` `sessions` `events_queue` `repl_cursor` `audit` `kv` | `tidemark-meta/src/tables.rs` |
+| Records | `[SCHEMA_VERSION = 1] ‖ postcard(record)`; postcard is not self-describing, so adding, removing, reordering or retyping any field (or enum variant other than appending one) needs a migration | `tidemark-meta/src/records.rs` |
+| Blobs | `blobs/ab/cd/<blake3 hex>` plain or `…<hex>.enc`; staging in `tmp/` | `tidemark-blob` |
+| Encrypted blob | header `CRNB` ‖ version 1 ‖ 3 reserved ‖ salt 32 ‖ size 8 (48 bytes); 64 KiB AES-256-GCM chunks, nonce `0u32 ‖ index`, AAD `blob id ‖ index` | `tidemark-blob/src/crypto.rs` |
+| Key derivation | BLAKE3 contexts `tidemark data key v1`, `tidemark blob chunk key v1`; `keys/master.key` (32 raw bytes or 64 hex) | `tidemark-blob/src/crypto.rs`, `tidemark-core` config |
+| Credential store | secrets sealed under the master key; key check value SHA-256(`tidemark-kcv` ‖ key)[..8]; access key ids `TDMK` + 16 | `tidemark-auth/src/secret.rs` |
+| Backup set | `tidemark-backup.json` `format: 1`; seal magic `CRNBK1`; dump magic `TIDEMARKMETA1\n`; contexts `tidemark-backup-key-check-v1`, `tidemark-backup-file-v1` | `tidemark-engine/src/backup.rs` |
+
+**Enforced by** `scripts/upgrade-test.sh`, run by `.github/workflows/upgrade.yml` on every push
+for every published release since `v0.1.0-alpha.3`: the old binary writes versions, delete
+markers, trash, a deleted bucket, multipart, metadata, tags, a policy and a user key into a plain
+and an encrypted store; the new build must pass `migrate --dry-run` and `fsck --verify full` and
+return a byte-identical snapshot, including time-travel reads.
 
 ---
 

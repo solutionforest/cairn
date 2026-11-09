@@ -49,6 +49,11 @@ fail over budget.
 
 ## Upgrades
 
+**Promise.** A data directory or backup written by `v0.1.0-alpha.3` or any later release opens
+in every later release; install the new binary and start it. Every push tests this against
+every published release (`scripts/upgrade-test.sh`, DESIGN §4.5). Directories from
+`0.1.0-alpha.1`/`alpha.2` (Cairn) are not covered; see the alpha.3 changelog entry.
+
 Tidemark keeps its metadata (buckets, versions, IAM, sessions, outbox) in one redb file,
 `<data_dir>/meta/tidemark.redb`. Blobs are content-addressed and never change format in place, so an
 upgrade is a metadata-schema question only.

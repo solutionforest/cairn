@@ -569,3 +569,13 @@ Dated (UTC) design and implementation decisions, newest last. Moved out of `BUIL
   auth code to maintain for something rclone already does well. CI lints with `--all-features`
   and runs the feature-gated tests, so the gated code keeps compiling. OPERATIONS.md lost its
   OIDC, replication and tiering sections, which documented shelved features.
+- **2026-11-09 — On-disk formats frozen; alpha.3 is the baseline (BUILD-PLAN 1.1, 1.2).**
+  DESIGN §4.5 lists every identifier that is the format (file names, table names, record
+  encoding, blob and backup magics, key-derivation contexts, credential-store check). From here a
+  change needs a migration or a dual reader. The blob magic `CRNB` and backup magic `CRNBK1`
+  still carry the old name: renaming them would break every alpha.3 store for a string nobody
+  sees, so they stay. Rejected: a committed golden data directory as the only check, because it
+  freezes one release's output while the real risk is "release N cannot read release N−1"; the
+  upgrade workflow instead downloads every published release, writes a mixed workload with it
+  and diffs a full snapshot against the new build. Proven to bite: changing `CRNB` to `TDMB`
+  in a debug build made the encrypted case fail at `fsck` ("bad encrypted blob header").
