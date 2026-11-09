@@ -1,5 +1,5 @@
 name: Feature request
-description: Something Cairn should do. Scope is narrow on purpose (docs/DESIGN.md §0).
+description: Something Tidemark should do. Scope is narrow on purpose (docs/DESIGN.md §0).
 labels: ["enhancement", "triage"]
 body:
   - type: textarea

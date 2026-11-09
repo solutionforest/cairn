@@ -1,11 +1,11 @@
 <?php
-// Cairn admin UI backend: serves index.html and signs admin API calls. PHP 8+, no extensions.
-//   CAIRN_ACCESS_KEY=... CAIRN_SECRET_KEY=... php -S 127.0.0.1:9080 server.php
+// Tidemark admin UI backend: serves index.html and signs admin API calls. PHP 8+, no extensions.
+//   TIDEMARK_ACCESS_KEY=... TIDEMARK_SECRET_KEY=... php -S 127.0.0.1:9080 server.php
 
-$endpoint = rtrim(getenv('CAIRN_ENDPOINT') ?: 'http://127.0.0.1:9000', '/');
-$accessKey = getenv('CAIRN_ACCESS_KEY') ?: (getenv('CAIRN_ACCESS_KEY_ID') ?: '');
-$secretKey = getenv('CAIRN_SECRET_KEY') ?: (getenv('CAIRN_SECRET_ACCESS_KEY') ?: '');
-$region = getenv('CAIRN_REGION') ?: 'us-east-1';
+$endpoint = rtrim(getenv('TIDEMARK_ENDPOINT') ?: 'http://127.0.0.1:9000', '/');
+$accessKey = getenv('TIDEMARK_ACCESS_KEY') ?: (getenv('TIDEMARK_ACCESS_KEY_ID') ?: '');
+$secretKey = getenv('TIDEMARK_SECRET_KEY') ?: (getenv('TIDEMARK_SECRET_ACCESS_KEY') ?: '');
+$region = getenv('TIDEMARK_REGION') ?: 'us-east-1';
 $host = $_SERVER['SERVER_NAME'] . ':' . $_SERVER['SERVER_PORT'];
 
 function out(int $status, string $body, string $type = 'application/json; charset=utf-8'): void
@@ -32,7 +32,7 @@ function q(string $s): string
 
 if (!in_array($_SERVER['REMOTE_ADDR'] ?? '', ['127.0.0.1', '::1'], true)) fail(403, 'Local access only');
 if (($_SERVER['HTTP_HOST'] ?? '') !== $host) fail(403, 'Forbidden host');
-if ($accessKey === '' || $secretKey === '') fail(500, 'Set CAIRN_ACCESS_KEY and CAIRN_SECRET_KEY.');
+if ($accessKey === '' || $secretKey === '') fail(500, 'Set TIDEMARK_ACCESS_KEY and TIDEMARK_SECRET_KEY.');
 
 $method = $_SERVER['REQUEST_METHOD'];
 $url = parse_url($_SERVER['REQUEST_URI']);
@@ -41,7 +41,7 @@ $reqPath = $url['path'] ?? '/';
 if ($method === 'GET' && ($reqPath === '/' || $reqPath === '/index.html')) {
     out(200, file_get_contents(__DIR__ . '/index.html'), 'text/html; charset=utf-8');
 }
-if (!str_starts_with($reqPath, '/api/') || ($_SERVER['HTTP_X_CAIRN_UI'] ?? '') !== '1') fail(404, 'Not found');
+if (!str_starts_with($reqPath, '/api/') || ($_SERVER['HTTP_X_TIDEMARK_UI'] ?? '') !== '1') fail(404, 'Not found');
 if (isset($_SERVER['HTTP_ORIGIN']) && $_SERVER['HTTP_ORIGIN'] !== "http://$host") fail(403, 'Forbidden origin');
 
 $path = substr($reqPath, 5);
@@ -64,7 +64,7 @@ if ($path === 'trash/restore') {
 
 $base = parse_url($endpoint);
 $hostHeader = $base['host'] . (isset($base['port']) ? ':' . $base['port'] : '');
-$fullPath = rtrim($base['path'] ?? '', '/') . '/_cairn/v1/' . implode('/', array_map(fn($p) => q(rawurldecode($p)), explode('/', $path)));
+$fullPath = rtrim($base['path'] ?? '', '/') . '/_tidemark/v1/' . implode('/', array_map(fn($p) => q(rawurldecode($p)), explode('/', $path)));
 $qs = implode('&', array_map(fn($k, $v) => q($k) . '=' . q($v), array_keys($query), $query));
 
 $now = gmdate('Ymd\THis\Z');
@@ -94,6 +94,6 @@ $ctx = stream_context_create(['http' => [
     'timeout' => 15,
 ]]);
 $resp = @file_get_contents($target, false, $ctx);
-if ($resp === false) fail(502, "Cannot reach Cairn at $endpoint");
+if ($resp === false) fail(502, "Cannot reach Tidemark at $endpoint");
 preg_match('#^HTTP/\S+ (\d{3})#', $http_response_header[0] ?? '', $m);
 out((int) ($m[1] ?? 502), $resp !== '' ? $resp : '{}');

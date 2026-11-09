@@ -1,19 +1,19 @@
-# Contributing to Cairn
+# Contributing to Tidemark
 
-Thanks for looking. Cairn is small on purpose; read [`docs/DESIGN.md`](docs/DESIGN.md) §0 before
+Thanks for looking. Tidemark is small on purpose; read [`docs/DESIGN.md`](docs/DESIGN.md) §0 before
 proposing a feature. If it does not serve one of the four claims there, or a table-stakes row in
 [`docs/PRODUCTION-READINESS.md`](docs/PRODUCTION-READINESS.md), it will be declined kindly.
 VaultS3, RustFS, SeaweedFS and Garage are all good; breadth lives there.
 
 ## Issues, not pull requests
 
-For now Cairn takes contributions as **issues only**. Opening a pull request is limited to
+For now Tidemark takes contributions as **issues only**. Opening a pull request is limited to
 repository collaborators, and any from outside the maintainer team are closed automatically
 (`.github/workflows/pr-policy.yml`) with a pointer to the issue tracker.
 
-[Open an issue](https://github.com/solutionforest/cairn/issues/new/choose) and pick a template:
+[Open an issue](https://github.com/solutionforest/tidemark/issues/new/choose) and pick a template:
 
-- **Bug report**: version, how you run Cairn, client and exact command, expected vs actual,
+- **Bug report**: version, how you run Tidemark, client and exact command, expected vs actual,
   log lines (redact keys and secrets). A minimal reproduction gets fixed fastest.
 - **S3 compatibility**: client, operation, the AWS behaviour you expected. Check
   [`docs/COMPAT.md`](docs/COMPAT.md) first; known deviations are listed there.
@@ -66,8 +66,8 @@ dependencies (rustls, no C build deps), `#![forbid(unsafe_code)]`, clippy clean 
 `docs/COMPAT.md` row. CI runs fmt, clippy, tests, docs, `cargo deny` and `cargo audit`.
 
 ```
-cargo check -p cairn-engine        # iterate per crate
-cargo test -p cairn-server         # integration tests boot the server in-process
+cargo check -p tidemark-engine        # iterate per crate
+cargo test -p tidemark-server         # integration tests boot the server in-process
 cargo test --workspace             # before proposing a patch
 ```
 
@@ -81,4 +81,4 @@ cargo test --workspace             # before proposing a patch
   The release workflow stops before building if either is missing
   (`scripts/changelog-section.sh X.Y.Z` runs the same check locally) and uses that section as
   the GitHub Release notes.
-- New `x-cairn-*` headers or `cairn:*` actions go in [`docs/EXTENSIONS.md`](docs/EXTENSIONS.md).
+- New `x-tidemark-*` headers or `tidemark:*` actions go in [`docs/EXTENSIONS.md`](docs/EXTENSIONS.md).

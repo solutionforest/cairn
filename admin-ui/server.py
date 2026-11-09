@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Cairn admin UI backend: serves index.html and signs admin API calls. Python 3.8+, stdlib only.
+"""Tidemark admin UI backend: serves index.html and signs admin API calls. Python 3.8+, stdlib only.
 
-    CAIRN_ACCESS_KEY=... CAIRN_SECRET_KEY=... python3 server.py
+    TIDEMARK_ACCESS_KEY=... TIDEMARK_SECRET_KEY=... python3 server.py
 """
 import datetime
 import hashlib
@@ -16,13 +16,13 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-ENDPOINT = os.environ.get("CAIRN_ENDPOINT", "http://127.0.0.1:9000").rstrip("/")
-ACCESS_KEY = os.environ.get("CAIRN_ACCESS_KEY") or os.environ.get("CAIRN_ACCESS_KEY_ID", "")
-SECRET_KEY = os.environ.get("CAIRN_SECRET_KEY") or os.environ.get("CAIRN_SECRET_ACCESS_KEY", "")
-REGION = os.environ.get("CAIRN_REGION", "us-east-1")
-PORT = int(os.environ.get("CAIRN_UI_PORT", "9080"))
+ENDPOINT = os.environ.get("TIDEMARK_ENDPOINT", "http://127.0.0.1:9000").rstrip("/")
+ACCESS_KEY = os.environ.get("TIDEMARK_ACCESS_KEY") or os.environ.get("TIDEMARK_ACCESS_KEY_ID", "")
+SECRET_KEY = os.environ.get("TIDEMARK_SECRET_KEY") or os.environ.get("TIDEMARK_SECRET_ACCESS_KEY", "")
+REGION = os.environ.get("TIDEMARK_REGION", "us-east-1")
+PORT = int(os.environ.get("TIDEMARK_UI_PORT", "9080"))
 HOST = f"127.0.0.1:{PORT}"
-BIND = os.environ.get("CAIRN_UI_BIND", "127.0.0.1")
+BIND = os.environ.get("TIDEMARK_UI_BIND", "127.0.0.1")
 PAGE = (Path(__file__).resolve().parent / "index.html").read_bytes()
 
 READ = re.compile(r"^(info|whoami|buckets|users|access-keys|trash)$")
@@ -64,9 +64,9 @@ def sign(method, path, query, body):
 
 
 def call(method, path, query, body):
-    """Call /_cairn/v1/<path>; returns (status, json bytes)."""
+    """Call /_tidemark/v1/<path>; returns (status, json bytes)."""
     base = urllib.parse.urlsplit(ENDPOINT).path.rstrip("/")
-    full = base + "/_cairn/v1/" + "/".join(quote(urllib.parse.unquote(p)) for p in path.split("/"))
+    full = base + "/_tidemark/v1/" + "/".join(quote(urllib.parse.unquote(p)) for p in path.split("/"))
     qs = "&".join(f"{quote(k)}={quote(v)}" for k, v in sorted(query))
     req = urllib.request.Request(
         urllib.parse.urlsplit(ENDPOINT)._replace(path=full, query=qs).geturl(),
@@ -81,7 +81,7 @@ def call(method, path, query, body):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "cairn-admin-ui"
+    server_version = "tidemark-admin-ui"
 
     def send(self, status, body, ctype="application/json; charset=utf-8"):
         self.send_response(status)
@@ -104,7 +104,7 @@ class Handler(BaseHTTPRequestHandler):
         url = urllib.parse.urlsplit(self.path)
         if method == "GET" and url.path in ("/", "/index.html"):
             return self.send(200, PAGE, "text/html; charset=utf-8")
-        if not url.path.startswith("/api/") or self.headers.get("X-Cairn-UI") != "1":
+        if not url.path.startswith("/api/") or self.headers.get("X-Tidemark-UI") != "1":
             return self.error(404, "Not found")
         origin = self.headers.get("Origin")
         if origin and origin != f"http://{HOST}":
@@ -124,7 +124,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             status, data = call(method, path, query, body)
         except OSError:
-            return self.error(502, f"Cannot reach Cairn at {ENDPOINT}")
+            return self.error(502, f"Cannot reach Tidemark at {ENDPOINT}")
         self.send(status, data or b"{}")
 
     def do_GET(self):
@@ -139,6 +139,6 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     if not ACCESS_KEY or not SECRET_KEY:
-        sys.exit("Set CAIRN_ACCESS_KEY and CAIRN_SECRET_KEY.")
-    print(f"Cairn admin: http://{HOST}  (Cairn at {ENDPOINT})")
+        sys.exit("Set TIDEMARK_ACCESS_KEY and TIDEMARK_SECRET_KEY.")
+    print(f"Tidemark admin: http://{HOST}  (Tidemark at {ENDPOINT})")
     ThreadingHTTPServer((BIND, PORT), Handler).serve_forever()

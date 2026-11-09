@@ -10,7 +10,7 @@ see [README.md](README.md) for the method. Never edit an old section; add a new 
 - Disk: `<model / type>`, filesystem: `<ext4/xfs/zfs/btrfs + options>`
 - Kernel / OS: `<uname -sr>`, `<distro>`
 - Network: `<loopback | 10 GbE to client host>`
-- Cairn: `<version>`, build: `release`, config deltas from defaults: `<none>`
+- Tidemark: `<version>`, build: `release`, config deltas from defaults: `<none>`
 - warp: `v1.8.2`, client on same host: `<yes/no>`
 
 **Results**

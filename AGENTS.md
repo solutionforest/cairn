@@ -1,9 +1,9 @@
-# Cairn — agent guide
+# Tidemark — agent guide
 
 Read `docs/DESIGN.md` §0 (v0.1 scope: what is in, what is shelved), `docs/BUILD-PLAN.md` (lanes and
 remaining work) and `docs/PRODUCTION-READINESS.md` (definition of done) before touching code.
 Dated reasons for decisions go in `docs/DECISIONS.md`. Do not build shelved features.
-Cairn competes with VaultS3 on four claims (DESIGN §0), not on feature count: if a task does not
+Tidemark competes with VaultS3 on four claims (DESIGN §0), not on feature count: if a task does not
 serve a claim or a readiness row, stop and ask. Commits are DCO-signed (`git commit -s`).
 
 ## Hard constraints
@@ -17,18 +17,18 @@ serve a claim or a readiness row, stop and ask. Commits are DCO-signed (`git com
 - No network access from tests. Tests use temp dirs (`tempfile`) and `127.0.0.1:0`.
 
 ## Conventions
-- Library crates: `thiserror` error enums that convert into `cairn_core::S3Error` where relevant.
+- Library crates: `thiserror` error enums that convert into `tidemark_core::S3Error` where relevant.
   Binary: `anyhow`.
 - Public types documented with a one-line `///`; no comment noise inside functions.
 - Metadata records carry a leading schema-version byte; add a migration when you change one.
-- Every S3 operation implemented gets: an integration test in `crates/cairn-server/tests/` using `aws-sdk-s3`, and a
+- Every S3 operation implemented gets: an integration test in `crates/tidemark-server/tests/` using `aws-sdk-s3`, and a
   row in `docs/COMPAT.md`.
-- Custom headers are `x-cairn-*`, custom IAM actions are `cairn:*`, documented in
+- Custom headers are `x-tidemark-*`, custom IAM actions are `tidemark:*`, documented in
   `docs/EXTENSIONS.md`.
 - Commit at green milestones with a message that names the phase (e.g. `phase 1a: redb meta store
   with head_at PITR query`). Do not push; the orchestrator pushes to `origin`.
 - Respect crate ownership in BUILD-PLAN "Working agreements" when several agents run at once.
 
 ## Layout
-`crates/cairn-{core,meta,blob,auth,engine,s3,admin,events,mcp,server,cli}` — see DESIGN §3 for
+`crates/tidemark-{core,meta,blob,auth,engine,s3,admin,events,mcp,server,cli}` — see DESIGN §3 for
 responsibilities and the dependency direction `core ← meta/blob/auth ← engine ← s3/admin/events/mcp ← server ← cli`.

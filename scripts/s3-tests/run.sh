@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run a tagged subset of ceph/s3-tests against a running Cairn and gate on expected-pass.txt:
+# Run a tagged subset of ceph/s3-tests against a running Tidemark and gate on expected-pass.txt:
 # exit 1 if any listed test does not pass; unlisted new passes are reported, never fatal.
 #
 # Usage: run.sh                    gate on expected-pass.txt (every push)
@@ -29,7 +29,7 @@ repo_root="$(cd "$here/../.." && pwd)"
 # ceph/ceph repository; switch S3_TESTS_REPO/COMMIT when we follow it there.
 PINNED_COMMIT=5b3987116eca0b4b8fa57d6b10f3db57bab196b6
 
-# Features Cairn does not implement (or that are RGW-specific) are deselected; see README.md.
+# Features Tidemark does not implement (or that are RGW-specific) are deselected; see README.md.
 DEFAULT_MARKERS="not fails_on_aws and not fails_with_subdomain \
 and not appendobject and not bucket_logging and not bucket_logging_cleanup \
 and not fails_without_logging_rollover and not cloud_transition and not cloud_restore \
@@ -78,7 +78,7 @@ secure=$([ "$proto" = https ] && echo True || echo False)
 
 mkdir -p "$work"
 src="$work/src"
-if [ "$(cat "$src/.cairn-commit" 2>/dev/null || true)" != "$commit" ]; then
+if [ "$(cat "$src/.tidemark-commit" 2>/dev/null || true)" != "$commit" ]; then
   rm -rf "$src"; mkdir -p "$src"
   if [ "$repo" = https://github.com/ceph/s3-tests.git ]; then
     curl -fsSL --retry 3 "https://codeload.github.com/ceph/s3-tests/tar.gz/$commit" \
@@ -88,7 +88,7 @@ if [ "$(cat "$src/.cairn-commit" 2>/dev/null || true)" != "$commit" ]; then
     git -C "$src" fetch -q --depth 1 "$repo" "$commit"
     git -C "$src" checkout -q --detach FETCH_HEAD
   fi
-  echo "$commit" > "$src/.cairn-commit"
+  echo "$commit" > "$src/.tidemark-commit"
 fi
 
 conf="$work/s3tests.conf"
@@ -101,49 +101,49 @@ is_secure = $secure
 ssl_verify = False
 
 [fixtures]
-bucket prefix = cairn-s3t-{random}-
+bucket prefix = tidemark-s3t-{random}-
 
 [s3 main]
-# Cairn reports the principal id as both Owner ID and DisplayName.
+# Tidemark reports the principal id as both Owner ID and DisplayName.
 display_name = root
 user_id = root
-email = main@cairn.invalid
+email = main@tidemark.invalid
 api_name = default
 access_key = $S3_MAIN_ACCESS_KEY
 secret_key = $S3_MAIN_SECRET_KEY
 
 [s3 alt]
-display_name = cairn alt
+display_name = tidemark alt
 user_id = alt
-email = alt@cairn.invalid
+email = alt@tidemark.invalid
 access_key = $alt_ak
 secret_key = $alt_sk
 
 [s3 tenant]
-display_name = cairn tenant
+display_name = tidemark tenant
 user_id = tenant
-email = tenant@cairn.invalid
-tenant = cairn
+email = tenant@tidemark.invalid
+tenant = tidemark
 access_key = $ten_ak
 secret_key = $ten_sk
 
 # The suite reads these at import time; IAM/STS tests are deselected by DEFAULT_MARKERS.
 [iam]
-display_name = cairn iam
+display_name = tidemark iam
 user_id = root
-email = main@cairn.invalid
+email = main@tidemark.invalid
 access_key = $S3_MAIN_ACCESS_KEY
 secret_key = $S3_MAIN_SECRET_KEY
 
 [iam root]
 user_id = root
-email = main@cairn.invalid
+email = main@tidemark.invalid
 access_key = $S3_MAIN_ACCESS_KEY
 secret_key = $S3_MAIN_SECRET_KEY
 
 [iam alt root]
 user_id = alt
-email = alt@cairn.invalid
+email = alt@tidemark.invalid
 access_key = $alt_ak
 secret_key = $alt_sk
 CONF
@@ -157,11 +157,11 @@ rm -f "$junit"
 kargs=()
 [ -n "$deselect" ] && kargs=(-k "$deselect")
 # Tests that need ACL grants to someone other than the bucket owner: S3 refuses them on its
-# default BucketOwnerEnforced buckets, and Cairn has no other ownership mode (acl-grants.txt).
-# Exact names via cairn_deselect.py: pytest's --deselect matches by prefix.
+# default BucketOwnerEnforced buckets, and Tidemark has no other ownership mode (acl-grants.txt).
+# Exact names via tidemark_deselect.py: pytest's --deselect matches by prefix.
 deselect_file=
 [ "$mode" != full ] && deselect_file="$here/acl-grants.txt"
-kargs+=(-p cairn_deselect)
+kargs+=(-p tidemark_deselect)
 # shellcheck disable=SC2086 # $paths and $S3_TESTS_EXTRA are intentionally word-split
 pytest_args=(-p no:cacheprovider -o junit_family=xunit2 --junitxml="$junit" -m "$markers" "${kargs[@]}" ${S3_TESTS_EXTRA:-} $paths)
 venv="$work/venv"
@@ -171,7 +171,7 @@ if [ ! -x "$venv/bin/pytest" ]; then
     || { rm -rf "$venv"; echo "virtualenv setup failed (Debian: apt install python3-venv)" >&2; exit 2; }
 fi
 echo "running s3-tests@${commit:0:12} ($mode)"
-(cd "$src" && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}" CAIRN_DESELECT_FILE="$deselect_file" \
+(cd "$src" && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}" TIDEMARK_DESELECT_FILE="$deselect_file" \
   S3TEST_CONF="$conf" S3_USE_SIGV4=true "$venv/bin/pytest" "${pytest_args[@]}") || true
 
 [ -s "$junit" ] || { echo "no junit report produced (collection error?)" >&2; exit 2; }

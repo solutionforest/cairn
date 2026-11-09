@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Check whether a project name is free on crates.io, Docker Hub and GitHub.
-# Usage: scripts/name-check.sh [name ...]      (default: cairn and the fallback candidates)
+# Usage: scripts/name-check.sh [name ...]      (default: tidemark and the fallback candidates)
 # Needs curl and python3; uses `gh api` for GitHub when available (higher rate limit).
 # Trademarks are not checked automatically: search https://tmsearch.uspto.gov and
 # https://euipo.europa.eu/eSearch (class 9/42) by hand before a public tag.
 set -euo pipefail
 
 names=("$@")
-[ ${#names[@]} -gt 0 ] || names=(cairn cairn-s3 cairnstore cairn-server cairn-cli cairn-core)
-ua="cairn-name-check/1 (https://github.com/solutionforest/cairn)"
+[ ${#names[@]} -gt 0 ] || names=(tidemark tidemark-s3 tidemarkstore tidemark-server tidemark-cli tidemark-core)
+ua="tidemark-name-check/1 (https://github.com/solutionforest/tidemark)"
 
 http_json() { curl -fsS --max-time 20 -A "$ua" "$1" 2>/dev/null || true; }
 py() { python3 -I -c "$1"; }

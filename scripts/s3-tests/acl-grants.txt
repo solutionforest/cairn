@@ -1,7 +1,7 @@
 # ceph/s3-tests cases that need an ACL grant to someone other than the bucket owner (a canned
 # public/authenticated ACL, an explicit grantee, or an ownership mode other than
 # BucketOwnerEnforced). S3 refuses these on its default buckets since April 2023
-# (AccessControlListNotSupported), and Cairn has only that mode (DECISIONS 2026-11-08, ACLs), so
+# (AccessControlListNotSupported), and Tidemark has only that mode (DECISIONS 2026-11-08, ACLs), so
 # the gate deselects them the way it deselects CORS. The weekly full sweep (S3_TESTS_FULL=1)
 # still runs them. One `module::test` per line; the rest of the line is the reason.
 #

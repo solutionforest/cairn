@@ -1,0 +1,33 @@
+[package]
+name = "tidemark-admin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Tidemark object storage: admin"
+
+# tidemark-engine is intentionally not a dependency in phase 2b: the admin API talks to storage
+# through the `AdminEngine` trait defined here, which tidemark-engine implements when wired.
+[dependencies]
+tidemark-auth.workspace = true
+axum.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+http.workspace = true
+jiff.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+reqwest.workspace = true
+url.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tower.workspace = true
+tracing-subscriber.workspace = true
+http-body-util.workspace = true

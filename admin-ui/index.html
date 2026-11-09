@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cairn admin</title>
+<title>Tidemark admin</title>
 <style>
 :root{--bg:#f6f7f4;--card:#fff;--ink:#1d2421;--muted:#6b756f;--line:#e3e7e1;--accent:#2f6b52;--accent-soft:#e6f0ea;--warn:#a5482b;--warn-soft:#f8e9e3;--radius:10px}
 @media (prefers-color-scheme:dark){:root{--bg:#121614;--card:#1a201d;--ink:#e7ece8;--muted:#8f9a93;--line:#2a322e;--accent:#6fbf98;--accent-soft:#1f3229;--warn:#e58c6c;--warn-soft:#3a2420}}
@@ -53,7 +53,7 @@ code{font:.85em ui-monospace,SFMono-Regular,Menlo,monospace}
 <body>
 <div class="app">
   <aside aria-label="Sections">
-    <div class="brand">Cairn <span>admin</span></div>
+    <div class="brand">Tidemark <span>admin</span></div>
     <button data-view="overview" aria-current="true">Overview</button>
     <button data-view="buckets">Buckets</button>
     <button data-view="users">Users</button>
@@ -82,7 +82,7 @@ const pill = (on, yes, no, off = 'off') => `<span class="pill${on ? '' : ' ' + o
 async function api(path, body) {
   const r = await fetch('api/' + path, {
     method: body ? 'POST' : 'GET',
-    headers: { 'X-Cairn-UI': '1', ...(body ? { 'Content-Type': 'application/json' } : {}) },
+    headers: { 'X-Tidemark-UI': '1', ...(body ? { 'Content-Type': 'application/json' } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await r.json().catch(() => ({}));
@@ -120,7 +120,7 @@ const views = {
       const d = await api('users');
       return table(['Name', 'Status', 'Groups', 'Created', ''], d.items.map((u) =>
         `<tr><td><b>${esc(u.name)}</b></td><td>${pill(!u.disabled, 'Active', 'Disabled')}</td><td>${esc((u.groups || []).join(', ') || '—')}</td><td>${when(u.created_at)}</td>
-        <td><button class="btn${u.disabled ? '' : ' warn'}" data-act="users/${encodeURIComponent(u.name)}/${u.disabled ? 'enable' : 'disable'}">${u.disabled ? 'Enable' : 'Disable'}</button></td></tr>`), 'No users yet. Create them with <code>cairn admin user add</code>.');
+        <td><button class="btn${u.disabled ? '' : ' warn'}" data-act="users/${encodeURIComponent(u.name)}/${u.disabled ? 'enable' : 'disable'}">${u.disabled ? 'Enable' : 'Disable'}</button></td></tr>`), 'No users yet. Create them with <code>tidemark admin user add</code>.');
     },
   },
   keys: {

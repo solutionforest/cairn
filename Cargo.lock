@@ -669,313 +669,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cairn-admin"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "axum",
- "cairn-auth",
- "clap",
- "http 1.5.0",
- "http-body-util",
- "jiff",
- "reqwest",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
- "tower",
- "tracing",
- "tracing-subscriber",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "cairn-auth"
-version = "0.1.0"
-dependencies = [
- "aes-gcm",
- "async-trait",
- "axum",
- "base64 0.22.1",
- "cairn-meta",
- "globset",
- "hex",
- "hmac 0.12.1",
- "http 1.5.0",
- "http-body-util",
- "ipnet",
- "jiff",
- "jsonwebtoken",
- "p256",
- "postcard",
- "rand 0.9.5",
- "reqwest",
- "rsa",
- "s3s",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "subtle",
- "tempfile",
- "thiserror",
- "tokio",
- "tower",
- "tracing",
- "url",
- "zeroize",
-]
-
-[[package]]
-name = "cairn-blob"
-version = "0.1.0"
-dependencies = [
- "aes-gcm",
- "aws-credential-types",
- "aws-sdk-s3",
- "aws-smithy-http-client",
- "blake3",
- "bytes",
- "cairn-core",
- "chacha20poly1305",
- "crc32c",
- "crc32fast",
- "crc64fast-nvme",
- "futures",
- "hex",
- "md-5 0.10.6",
- "proptest",
- "rand 0.9.5",
- "rustix",
- "sha1 0.10.7",
- "sha2 0.10.9",
- "tempfile",
- "thiserror",
- "tokio",
- "tokio-util",
- "tracing",
- "uuid",
- "zeroize",
-]
-
-[[package]]
-name = "cairn-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "aws-credential-types",
- "aws-sdk-s3",
- "aws-smithy-http-client",
- "cairn-admin",
- "cairn-auth",
- "cairn-blob",
- "cairn-core",
- "cairn-mcp",
- "cairn-server",
- "clap",
- "jiff",
- "rand 0.9.5",
- "reqwest",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "toml",
- "tracing",
- "tracing-subscriber",
- "zeroize",
-]
-
-[[package]]
-name = "cairn-core"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "hex",
- "http 1.5.0",
- "jiff",
- "rand 0.9.5",
- "serde",
- "serde_json",
- "smallvec",
- "thiserror",
- "toml",
- "uuid",
-]
-
-[[package]]
-name = "cairn-engine"
-version = "0.1.0"
-dependencies = [
- "argon2",
- "async-trait",
- "base64 0.22.1",
- "blake3",
- "bytes",
- "cairn-blob",
- "cairn-core",
- "cairn-events",
- "cairn-meta",
- "cairn-server",
- "chacha20poly1305",
- "crc64fast-nvme",
- "futures",
- "hex",
- "jiff",
- "md-5 0.10.6",
- "postcard",
- "quick-xml",
- "rand 0.9.5",
- "serde",
- "serde_json",
- "smallvec",
- "tempfile",
- "thiserror",
- "tokio",
- "tracing",
- "uuid",
- "zeroize",
-]
-
-[[package]]
-name = "cairn-events"
-version = "0.1.0"
-dependencies = [
- "axum",
- "cairn-core",
- "cairn-meta",
- "futures",
- "hex",
- "hmac 0.12.1",
- "jiff",
- "quick-xml",
- "rand 0.9.5",
- "reqwest",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "thiserror",
- "tokio",
- "toml",
- "tracing",
- "url",
- "zeroize",
-]
-
-[[package]]
-name = "cairn-mcp"
-version = "0.1.0"
-dependencies = [
- "axum",
- "base64 0.22.1",
- "bytes",
- "cairn-auth",
- "cairn-core",
- "cairn-engine",
- "cairn-meta",
- "futures",
- "http 1.5.0",
- "http-body-util",
- "rmcp",
- "schemars",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
- "tokio",
- "tower",
- "tracing",
-]
-
-[[package]]
-name = "cairn-meta"
-version = "0.1.0"
-dependencies = [
- "cairn-core",
- "jiff",
- "postcard",
- "proptest",
- "redb",
- "serde",
- "tempfile",
- "thiserror",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "cairn-s3"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "base64 0.22.1",
- "bytes",
- "cairn-auth",
- "cairn-core",
- "cairn-engine",
- "futures",
- "hex",
- "http 1.5.0",
- "jiff",
- "s3s",
- "subtle",
- "thiserror",
- "tokio",
- "tracing",
- "url",
-]
-
-[[package]]
-name = "cairn-server"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "aws-credential-types",
- "aws-sdk-s3",
- "aws-smithy-http-client",
- "axum",
- "base64 0.22.1",
- "blake3",
- "bytes",
- "cairn-admin",
- "cairn-auth",
- "cairn-blob",
- "cairn-core",
- "cairn-engine",
- "cairn-events",
- "cairn-mcp",
- "cairn-meta",
- "cairn-s3",
- "futures",
- "http 1.5.0",
- "http-body-util",
- "hyper",
- "hyper-util",
- "jiff",
- "md-5 0.10.6",
- "prometheus",
- "rand 0.9.5",
- "reqwest",
- "rustls",
- "rustls-pemfile",
- "s3s",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-rustls",
- "toml",
- "tower",
- "tower-http",
- "tracing",
- "uuid",
-]
-
-[[package]]
 name = "cc"
 version = "1.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3780,6 +3473,313 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ad99c4c6d32803332c548b1af0540b357b3f5fc0be8f6c6bfe8b2e6ae784070"
 dependencies = [
  "cfg-if",
+]
+
+[[package]]
+name = "tidemark-admin"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "clap",
+ "http 1.5.0",
+ "http-body-util",
+ "jiff",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tidemark-auth",
+ "tokio",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "tidemark-auth"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "async-trait",
+ "axum",
+ "base64 0.22.1",
+ "globset",
+ "hex",
+ "hmac 0.12.1",
+ "http 1.5.0",
+ "http-body-util",
+ "ipnet",
+ "jiff",
+ "jsonwebtoken",
+ "p256",
+ "postcard",
+ "rand 0.9.5",
+ "reqwest",
+ "rsa",
+ "s3s",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "subtle",
+ "tempfile",
+ "thiserror",
+ "tidemark-meta",
+ "tokio",
+ "tower",
+ "tracing",
+ "url",
+ "zeroize",
+]
+
+[[package]]
+name = "tidemark-blob"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "aws-credential-types",
+ "aws-sdk-s3",
+ "aws-smithy-http-client",
+ "blake3",
+ "bytes",
+ "chacha20poly1305",
+ "crc32c",
+ "crc32fast",
+ "crc64fast-nvme",
+ "futures",
+ "hex",
+ "md-5 0.10.6",
+ "proptest",
+ "rand 0.9.5",
+ "rustix",
+ "sha1 0.10.7",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror",
+ "tidemark-core",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
+name = "tidemark-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "aws-credential-types",
+ "aws-sdk-s3",
+ "aws-smithy-http-client",
+ "clap",
+ "jiff",
+ "rand 0.9.5",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tidemark-admin",
+ "tidemark-auth",
+ "tidemark-blob",
+ "tidemark-core",
+ "tidemark-mcp",
+ "tidemark-server",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+ "zeroize",
+]
+
+[[package]]
+name = "tidemark-core"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "hex",
+ "http 1.5.0",
+ "jiff",
+ "rand 0.9.5",
+ "serde",
+ "serde_json",
+ "smallvec",
+ "thiserror",
+ "toml",
+ "uuid",
+]
+
+[[package]]
+name = "tidemark-engine"
+version = "0.1.0"
+dependencies = [
+ "argon2",
+ "async-trait",
+ "base64 0.22.1",
+ "blake3",
+ "bytes",
+ "chacha20poly1305",
+ "crc64fast-nvme",
+ "futures",
+ "hex",
+ "jiff",
+ "md-5 0.10.6",
+ "postcard",
+ "quick-xml",
+ "rand 0.9.5",
+ "serde",
+ "serde_json",
+ "smallvec",
+ "tempfile",
+ "thiserror",
+ "tidemark-blob",
+ "tidemark-core",
+ "tidemark-events",
+ "tidemark-meta",
+ "tidemark-server",
+ "tokio",
+ "tracing",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
+name = "tidemark-events"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "futures",
+ "hex",
+ "hmac 0.12.1",
+ "jiff",
+ "quick-xml",
+ "rand 0.9.5",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror",
+ "tidemark-core",
+ "tidemark-meta",
+ "tokio",
+ "toml",
+ "tracing",
+ "url",
+ "zeroize",
+]
+
+[[package]]
+name = "tidemark-mcp"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "bytes",
+ "futures",
+ "http 1.5.0",
+ "http-body-util",
+ "rmcp",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tidemark-auth",
+ "tidemark-core",
+ "tidemark-engine",
+ "tidemark-meta",
+ "tokio",
+ "tower",
+ "tracing",
+]
+
+[[package]]
+name = "tidemark-meta"
+version = "0.1.0"
+dependencies = [
+ "jiff",
+ "postcard",
+ "proptest",
+ "redb",
+ "serde",
+ "tempfile",
+ "thiserror",
+ "tidemark-core",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "tidemark-s3"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "bytes",
+ "futures",
+ "hex",
+ "http 1.5.0",
+ "jiff",
+ "s3s",
+ "subtle",
+ "thiserror",
+ "tidemark-auth",
+ "tidemark-core",
+ "tidemark-engine",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
+name = "tidemark-server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "aws-credential-types",
+ "aws-sdk-s3",
+ "aws-smithy-http-client",
+ "axum",
+ "base64 0.22.1",
+ "blake3",
+ "bytes",
+ "futures",
+ "http 1.5.0",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "jiff",
+ "md-5 0.10.6",
+ "prometheus",
+ "rand 0.9.5",
+ "reqwest",
+ "rustls",
+ "rustls-pemfile",
+ "s3s",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tidemark-admin",
+ "tidemark-auth",
+ "tidemark-blob",
+ "tidemark-core",
+ "tidemark-engine",
+ "tidemark-events",
+ "tidemark-mcp",
+ "tidemark-meta",
+ "tidemark-s3",
+ "tokio",
+ "tokio-rustls",
+ "toml",
+ "tower",
+ "tower-http",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

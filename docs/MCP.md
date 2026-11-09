@@ -1,17 +1,17 @@
-# Cairn MCP server
+# Tidemark MCP server
 
-Cairn ships a [Model Context Protocol](https://modelcontextprotocol.io) server (`cairn-mcp`,
+Tidemark ships a [Model Context Protocol](https://modelcontextprotocol.io) server (`tidemark-mcp`,
 built on `rmcp`) so AI agents can browse, read, write and recover objects. It is not a separate
-permission system: **every tool call is authorised by Cairn IAM exactly like the equivalent S3
+permission system: **every tool call is authorised by Tidemark IAM exactly like the equivalent S3
 request** (same action, same resource ARN, bucket policy and PublicAccessBlock included), with one
-extra condition key, `cairn:McpTool`, holding the tool name.
+extra condition key, `tidemark:McpTool`, holding the tool name.
 
 Two transports:
 
 | Transport | Endpoint | Credentials |
 |-----------|----------|-------------|
-| stdio | `cairn mcp --stdio` (spawned by the client) | env `CAIRN_ACCESS_KEY_ID`, `CAIRN_SECRET_ACCESS_KEY`, optional `CAIRN_SESSION_TOKEN` |
-| Streamable HTTP | `https://<host>/_cairn/mcp` (when `[mcp] enabled = true`) | every request: `Authorization: Bearer <access-key-id>:<secret>[:<session-token>]`, or AWS SigV4 |
+| stdio | `tidemark mcp --stdio` (spawned by the client) | env `TIDEMARK_ACCESS_KEY_ID`, `TIDEMARK_SECRET_ACCESS_KEY`, optional `TIDEMARK_SESSION_TOKEN` |
+| Streamable HTTP | `https://<host>/_tidemark/mcp` (when `[mcp] enabled = true`) | every request: `Authorization: Bearer <access-key-id>:<secret>[:<session-token>]`, or AWS SigV4 |
 
 Give the agent its **own** user or role with a narrow policy; never hand it the root key.
 
@@ -37,7 +37,7 @@ answered `401`. Accepted forms:
   checked server-side, ±15 min skew) — the same verifier as the STS and admin endpoints. Use it
   when the secret must not travel in the request.
 
-Failures answer `401` with `WWW-Authenticate: Bearer realm="cairn-mcp"` and never say which part
+Failures answer `401` with `WWW-Authenticate: Bearer realm="tidemark-mcp"` and never say which part
 was wrong. Serve MCP over TLS: bearer credentials are sent in clear text otherwise. The `Host`
 header check that rmcp applies against DNS rebinding is off by default because credentials are
 required on every request; set `McpConfig::allowed_hosts` to enable it.
@@ -47,17 +47,17 @@ required on every request; set `McpConfig::allowed_hosts` to enable it.
 **Claude Code (stdio)**
 
 ```sh
-claude mcp add cairn \
-  --env CAIRN_ACCESS_KEY_ID=CAIRN... \
-  --env CAIRN_SECRET_ACCESS_KEY=... \
-  -- cairn mcp --stdio --config /etc/cairn/cairn.toml
+claude mcp add tidemark \
+  --env TIDEMARK_ACCESS_KEY_ID=TIDEMARK... \
+  --env TIDEMARK_SECRET_ACCESS_KEY=... \
+  -- tidemark mcp --stdio --config /etc/tidemark/tidemark.toml
 ```
 
 **Claude Code (HTTP)**
 
 ```sh
-claude mcp add --transport http cairn https://cairn.example.com/_cairn/mcp \
-  --header "Authorization: Bearer CAIRN...:SECRET"
+claude mcp add --transport http tidemark https://tidemark.example.com/_tidemark/mcp \
+  --header "Authorization: Bearer TDMK...:SECRET"
 ```
 
 **Claude Desktop** (`claude_desktop_config.json`)
@@ -65,20 +65,20 @@ claude mcp add --transport http cairn https://cairn.example.com/_cairn/mcp \
 ```json
 {
   "mcpServers": {
-    "cairn": {
-      "command": "cairn",
-      "args": ["mcp", "--stdio", "--config", "/etc/cairn/cairn.toml"],
+    "tidemark": {
+      "command": "tidemark",
+      "args": ["mcp", "--stdio", "--config", "/etc/tidemark/tidemark.toml"],
       "env": {
-        "CAIRN_ACCESS_KEY_ID": "CAIRN...",
-        "CAIRN_SECRET_ACCESS_KEY": "..."
+        "TIDEMARK_ACCESS_KEY_ID": "TIDEMARK...",
+        "TIDEMARK_SECRET_ACCESS_KEY": "..."
       }
     }
   }
 }
 ```
 
-For a remote server, point any client that speaks Streamable HTTP at `/_cairn/mcp` with the
-`Authorization` header above (or bridge with `npx mcp-remote https://…/_cairn/mcp --header
+For a remote server, point any client that speaks Streamable HTTP at `/_tidemark/mcp` with the
+`Authorization` header above (or bridge with `npx mcp-remote https://…/_tidemark/mcp --header
 "Authorization: Bearer …"`).
 
 **Any MCP client.** stdio: newline-delimited JSON-RPC on stdin/stdout. HTTP: MCP Streamable HTTP
@@ -87,7 +87,7 @@ keep the `Mcp-Session-Id` returned by `initialize`.
 
 **Short-lived credentials for agents.** Prefer STS: assume a dedicated role (or federate a CI
 identity with `AssumeRoleWithWebIdentity`, see OPERATIONS "OIDC federation") and pass the three
-values (`CAIRN_SESSION_TOKEN` for stdio, the third bearer field for HTTP).
+values (`TIDEMARK_SESSION_TOKEN` for stdio, the third bearer field for HTTP).
 
 ## Tools
 
@@ -98,22 +98,22 @@ caller cannot probe which buckets or keys exist.
 
 | Tool | Arguments | IAM action → resource | Notes |
 |------|-----------|-----------------------|-------|
-| `list_buckets` | — | `s3:ListAllMyBuckets` → `arn:aws:s3:::*` | Returns only buckets on which `list_objects` (`s3:ListBucket`, `cairn:McpTool = list_objects`) would be allowed. |
-| `list_objects` | `bucket, prefix?, delimiter?, start_after?, max_keys? (≤1000, default 100), as_of?` | `s3:ListBucket` → bucket (+ `cairn:TimeTravel` → bucket with `as_of`) | `s3:prefix`, `s3:delimiter`, `s3:max-keys`, `cairn:AsOf` in context. Paginate with `next_start_after`. |
-| `get_object` | `bucket, key, version_id?, as_of?, range? (first-last, first-, -N), mode? (auto/text/base64)` | `s3:GetObject` (`s3:GetObjectVersion` with `version_id`) → object; `as_of` without `version_id` also needs `cairn:TimeTravel` → object | Body capped (default 1 MiB): larger objects return the first bytes with `truncated: true`; an explicit range larger than the cap is refused. |
+| `list_buckets` | — | `s3:ListAllMyBuckets` → `arn:aws:s3:::*` | Returns only buckets on which `list_objects` (`s3:ListBucket`, `tidemark:McpTool = list_objects`) would be allowed. |
+| `list_objects` | `bucket, prefix?, delimiter?, start_after?, max_keys? (≤1000, default 100), as_of?` | `s3:ListBucket` → bucket (+ `tidemark:TimeTravel` → bucket with `as_of`) | `s3:prefix`, `s3:delimiter`, `s3:max-keys`, `tidemark:AsOf` in context. Paginate with `next_start_after`. |
+| `get_object` | `bucket, key, version_id?, as_of?, range? (first-last, first-, -N), mode? (auto/text/base64)` | `s3:GetObject` (`s3:GetObjectVersion` with `version_id`) → object; `as_of` without `version_id` also needs `tidemark:TimeTravel` → object | Body capped (default 1 MiB): larger objects return the first bytes with `truncated: true`; an explicit range larger than the cap is refused. |
 | `head_object` | `bucket, key, version_id?, as_of?` | as `get_object` | Metadata, user metadata, tag count; no body. |
 | `put_object` | `bucket, key, content \| content_base64, content_type?, metadata?, tags?` | `s3:PutObject` → object | `s3:RequestObjectTag/<k>`, `s3:RequestObjectTagKeys`. Body ≤ 4 MiB (decoded). |
 | `delete_object` | `bucket, key, version_id?` | `s3:DeleteObject` / `s3:DeleteObjectVersion` → object | Soft delete: recoverable with `trash_restore`. |
 | `copy_object` | `source_bucket, source_key, source_version_id?, bucket, key` | `s3:PutObject` → destination and `s3:GetObject(Version)` → source | Metadata and tags copied; no data copy. |
 | `search` | `bucket, query?, prefix?, content_type?, min_size?, max_size?, modified_after?, modified_before?, limit? (≤500)` | `s3:ListBucket` → bucket | Metadata scan of current objects (≤10 000 keys per call; `complete: false` when the budget ran out). |
-| `trash_list` | `bucket, prefix?, limit? (≤1000)` | `cairn:ListTrash` → bucket | Soft-deleted and superseded versions with `expires_at`. |
-| `trash_restore` | `bucket, key, version_id?` | `cairn:Restore` → object | Writes a new live version sharing the old blobs; history is not rewritten. |
-| `pitr_head_at` | `bucket, key, at` | `s3:GetObject` + `cairn:TimeTravel` → object, `cairn:AsOf = at` | The version that was current at `at`. |
-| `pitr_diff` | `bucket, at, prefix?` | `cairn:PitrDiff` → bucket | `recreate` / `revert` / `remove` per key. |
-| `pitr_restore` | `bucket, at, prefix?, dry_run? (default true), confirm` | `cairn:Pitr` → bucket | Applying needs `dry_run: false` **and** `confirm: true`; ≤1000 changes per call. Every change is a normal new version or delete marker, so the restore is itself reversible. |
+| `trash_list` | `bucket, prefix?, limit? (≤1000)` | `tidemark:ListTrash` → bucket | Soft-deleted and superseded versions with `expires_at`. |
+| `trash_restore` | `bucket, key, version_id?` | `tidemark:Restore` → object | Writes a new live version sharing the old blobs; history is not rewritten. |
+| `pitr_head_at` | `bucket, key, at` | `s3:GetObject` + `tidemark:TimeTravel` → object, `tidemark:AsOf = at` | The version that was current at `at`. |
+| `pitr_diff` | `bucket, at, prefix?` | `tidemark:PitrDiff` → bucket | `recreate` / `revert` / `remove` per key. |
+| `pitr_restore` | `bucket, at, prefix?, dry_run? (default true), confirm` | `tidemark:Pitr` → bucket | Applying needs `dry_run: false` **and** `confirm: true`; ≤1000 changes per call. Every change is a normal new version or delete marker, so the restore is itself reversible. |
 | `bucket_info` | `bucket` | `s3:ListBucket` → bucket | Versioning, object lock, retention; `tags` only if `s3:GetBucketTagging` is also allowed. |
 
-Every call also sets `cairn:McpTool`, `aws:SecureTransport`, `aws:SourceIp` (HTTP, when the
+Every call also sets `tidemark:McpTool`, `aws:SecureTransport`, `aws:SourceIp` (HTTP, when the
 server knows it) plus the usual principal keys (`aws:username`, `aws:PrincipalArn`,
 `aws:PrincipalTag/*`, …). Timestamps (`as_of`, `at`, `modified_*`) are RFC 3339.
 
@@ -138,40 +138,40 @@ via S3:
      "Resource": ["arn:aws:s3:::docs", "arn:aws:s3:::docs/*"]},
     {"Effect": "Allow", "Action": ["s3:PutObject", "s3:DeleteObject"],
      "Resource": "arn:aws:s3:::docs/inbox/*"},
-    {"Effect": "Allow", "Action": ["cairn:ListTrash", "cairn:PitrDiff"],
+    {"Effect": "Allow", "Action": ["tidemark:ListTrash", "tidemark:PitrDiff"],
      "Resource": "arn:aws:s3:::docs"},
-    {"Effect": "Allow", "Action": "cairn:TimeTravel",
+    {"Effect": "Allow", "Action": "tidemark:TimeTravel",
      "Resource": ["arn:aws:s3:::docs", "arn:aws:s3:::docs/*"],
-     "Condition": {"DateGreaterThanEquals": {"cairn:AsOf": "2026-01-01T00:00:00Z"}}},
-    {"Effect": "Allow", "Action": "cairn:Restore", "Resource": "arn:aws:s3:::docs/inbox/*"},
+     "Condition": {"DateGreaterThanEquals": {"tidemark:AsOf": "2026-01-01T00:00:00Z"}}},
+    {"Effect": "Allow", "Action": "tidemark:Restore", "Resource": "arn:aws:s3:::docs/inbox/*"},
     {"Effect": "Deny", "Action": "s3:GetObject", "Resource": "arn:aws:s3:::docs/private/*"},
     {"Effect": "Deny", "Action": "*", "Resource": "*",
-     "Condition": {"StringEquals": {"cairn:McpTool": ["pitr_restore", "delete_object"]}}}
+     "Condition": {"StringEquals": {"tidemark:McpTool": ["pitr_restore", "delete_object"]}}}
   ]
 }
 ```
 
 ```sh
-cairn admin user add docs-agent
-cairn admin user policy put docs-agent mcp docs-agent.json
-cairn admin key create docs-agent       # prints the secret once
+tidemark admin user add docs-agent
+tidemark admin user policy put docs-agent mcp docs-agent.json
+tidemark admin key create docs-agent       # prints the secret once
 ```
 
-Tool allow-lists work the same way: `"Condition": {"StringEquals": {"cairn:McpTool":
+Tool allow-lists work the same way: `"Condition": {"StringEquals": {"tidemark:McpTool":
 ["list_objects", "head_object"]}}` on an Allow lets the key read metadata through MCP but not
 bodies (`get_object` is denied), and does not grant anything to non-MCP requests, which never
-carry `cairn:McpTool` (use `StringEqualsIfExists` / `Null` to express "S3 or these tools").
+carry `tidemark:McpTool` (use `StringEqualsIfExists` / `Null` to express "S3 or these tools").
 
 ## Embedding (Rust)
 
 ```rust
-let state = cairn_mcp::McpState::new(engine.clone(), store.clone(), bucket_policies.clone());
-// HTTP: merge into the server router (serves /_cairn/mcp)
-let app = app.merge(cairn_mcp::http_router(state.clone()));
-// stdio (cairn mcp --stdio)
-cairn_mcp::serve_stdio(state).await?;
+let state = tidemark_mcp::McpState::new(engine.clone(), store.clone(), bucket_policies.clone());
+// HTTP: merge into the server router (serves /_tidemark/mcp)
+let app = app.merge(tidemark_mcp::http_router(state.clone()));
+// stdio (tidemark mcp --stdio)
+tidemark_mcp::serve_stdio(state).await?;
 ```
 
-Limits (`cairn_mcp::McpConfig`): `max_get_bytes` (1 MiB), `max_put_bytes` (4 MiB),
+Limits (`tidemark_mcp::McpConfig`): `max_get_bytes` (1 MiB), `max_put_bytes` (4 MiB),
 `max_search_scan` (10 000), `max_pitr_changes` (1 000), `max_http_body` (8 MiB),
 `allowed_hosts` (empty = no Host check).

@@ -1,99 +1,99 @@
-# Cairn — S3 extensions
+# Tidemark — S3 extensions
 
-Every extension is opt-in and namespaced: request/response headers are `x-cairn-*`, IAM actions
-are `cairn:*`. Standard S3 clients never see a difference unless they send these headers.
+Every extension is opt-in and namespaced: request/response headers are `x-tidemark-*`, IAM actions
+are `tidemark:*`. Standard S3 clients never see a difference unless they send these headers.
 
 ## Request headers
 
 | Header | Operations | Value | Behaviour | Policy action |
 |---|---|---|---|---|
-| `x-cairn-as-of` | GetObject, HeadObject, ListObjects, ListObjectsV2 | RFC 3339 timestamp (`2026-11-08T10:00:00Z`) or unix nanoseconds (`1794132000000000000`) | Time travel: read the key / list the bucket as it was at that instant, including versions that have since been overwritten or deleted but are still inside the bucket's retention window. Malformed values → `400 InvalidArgument`. Ignored when `versionId` is given. | `cairn:TimeTravel` (phase 2b) |
-| `x-cairn-include-trash` | ListObjectVersions | `true` | Also list Superseded (overwritten in unversioned buckets) and SoftDeleted versions, which are otherwise invisible to every S3 operation. | `cairn:ListTrash` (phase 2b) |
+| `x-tidemark-as-of` | GetObject, HeadObject, ListObjects, ListObjectsV2 | RFC 3339 timestamp (`2026-11-08T10:00:00Z`) or unix nanoseconds (`1794132000000000000`) | Time travel: read the key / list the bucket as it was at that instant, including versions that have since been overwritten or deleted but are still inside the bucket's retention window. Malformed values → `400 InvalidArgument`. Ignored when `versionId` is given. | `tidemark:TimeTravel` (phase 2b) |
+| `x-tidemark-include-trash` | ListObjectVersions | `true` | Also list Superseded (overwritten in unversioned buckets) and SoftDeleted versions, which are otherwise invisible to every S3 operation. | `tidemark:ListTrash` (phase 2b) |
 
 ## Response headers
 
 | Header | Operations | Value |
 |---|---|---|
-| `x-cairn-blob-hash` | GetObject, HeadObject | `blake3:<64 hex>` — content hash of the object's bytes. Only for objects stored as a single blob (simple PUT/COPY); multipart objects omit it. |
+| `x-tidemark-blob-hash` | GetObject, HeadObject | `blake3:<64 hex>` — content hash of the object's bytes. Only for objects stored as a single blob (simple PUT/COPY); multipart objects omit it. |
 
 ## Planned (not yet served)
 
 | Name | Kind | Phase |
 |---|---|---|
-| `?x-cairn-restore=<version-id>` (POST) | Restore a trashed version as a new head | 2a |
-| `x-cairn-version-id` | Preserve version ids on Cairn→Cairn replication | 3b |
+| `?x-tidemark-restore=<version-id>` (POST) | Restore a trashed version as a new head | 2a |
+| `x-tidemark-version-id` | Preserve version ids on Tidemark→Tidemark replication | 3b |
 
-## IAM actions (`cairn:*`)
+## IAM actions (`tidemark:*`)
 
-Canonical list, mirrored from `crates/cairn-auth/src/actions.rs` (Agent B owns evaluation; this
+Canonical list, mirrored from `crates/tidemark-auth/src/actions.rs` (Agent B owns evaluation; this
 table must change with it). In phase 1c only the root credential exists, so none of these are
 enforced yet beyond "root may do anything".
 
 | Action | Guards |
 |---|---|
-| `cairn:AddUserToGroup` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:AttachGroupPolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:AttachRolePolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:AttachUserPolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:Backup` | backup/restore |
-| `cairn:CreateAccessKey` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:CreateGroup` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:CreatePolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:CreateRole` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:CreateServiceAccount` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:CreateUser` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:DeleteAccessKey` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:DeleteGroup` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:DeleteGroupPolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:DeletePolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:DeleteRole` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:DeleteRolePolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:DeleteUser` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:DeleteUserPolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:DetachGroupPolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:DetachRolePolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:DetachUserPolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:Fsck` | metadata/blob consistency check |
-| `cairn:Gc` | trigger GC |
-| `cairn:GetGroup` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:GetPolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:GetRetention` | read retention windows |
-| `cairn:GetRole` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:GetServerInfo` | server info |
-| `cairn:GetStorageStats` | storage statistics |
-| `cairn:GetUser` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:ListAccessKeys` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:ListGroups` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:ListPolicies` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:ListRoles` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:ListSessions` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:ListTrash` | `x-cairn-include-trash`, admin trash listing |
-| `cairn:ListUsers` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:ManageEvents` | event sinks |
-| `cairn:ManageKms` | named SSE keys |
-| `cairn:ManageQuota` | bucket quotas |
-| `cairn:ManageReplication` | replication rules |
-| `cairn:Pitr` | point-in-time restore of a bucket/prefix |
-| `cairn:PitrDiff` | PITR dry-run diff |
-| `cairn:Purge` | irreversible trash purge |
-| `cairn:PutGroupPolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:PutRolePolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:PutUserPolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:ReadAuditLog` | audit log |
-| `cairn:RemoveUserFromGroup` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:Restore` | restore a trashed version |
-| `cairn:RestoreBucket` | restore a trashed bucket |
-| `cairn:RevokeSession` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:RotateRootCredentials` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:Scrub` | blob re-hash |
-| `cairn:Search` | AI search (phase 4) |
-| `cairn:SetRetention` | set per-bucket retention windows |
-| `cairn:SubscribeEvents` | event stream |
-| `cairn:TimeTravel` | `x-cairn-as-of` reads |
-| `cairn:UpdateAccessKey` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:UpdateAssumeRolePolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:UpdatePolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
-| `cairn:UpdateUser` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:AddUserToGroup` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:AttachGroupPolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:AttachRolePolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:AttachUserPolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:Backup` | backup/restore |
+| `tidemark:CreateAccessKey` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:CreateGroup` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:CreatePolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:CreateRole` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:CreateServiceAccount` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:CreateUser` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:DeleteAccessKey` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:DeleteGroup` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:DeleteGroupPolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:DeletePolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:DeleteRole` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:DeleteRolePolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:DeleteUser` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:DeleteUserPolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:DetachGroupPolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:DetachRolePolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:DetachUserPolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:Fsck` | metadata/blob consistency check |
+| `tidemark:Gc` | trigger GC |
+| `tidemark:GetGroup` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:GetPolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:GetRetention` | read retention windows |
+| `tidemark:GetRole` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:GetServerInfo` | server info |
+| `tidemark:GetStorageStats` | storage statistics |
+| `tidemark:GetUser` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:ListAccessKeys` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:ListGroups` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:ListPolicies` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:ListRoles` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:ListSessions` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:ListTrash` | `x-tidemark-include-trash`, admin trash listing |
+| `tidemark:ListUsers` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:ManageEvents` | event sinks |
+| `tidemark:ManageKms` | named SSE keys |
+| `tidemark:ManageQuota` | bucket quotas |
+| `tidemark:ManageReplication` | replication rules |
+| `tidemark:Pitr` | point-in-time restore of a bucket/prefix |
+| `tidemark:PitrDiff` | PITR dry-run diff |
+| `tidemark:Purge` | irreversible trash purge |
+| `tidemark:PutGroupPolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:PutRolePolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:PutUserPolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:ReadAuditLog` | audit log |
+| `tidemark:RemoveUserFromGroup` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:Restore` | restore a trashed version |
+| `tidemark:RestoreBucket` | restore a trashed bucket |
+| `tidemark:RevokeSession` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:RotateRootCredentials` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:Scrub` | blob re-hash |
+| `tidemark:Search` | AI search (phase 4) |
+| `tidemark:SetRetention` | set per-bucket retention windows |
+| `tidemark:SubscribeEvents` | event stream |
+| `tidemark:TimeTravel` | `x-tidemark-as-of` reads |
+| `tidemark:UpdateAccessKey` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:UpdateAssumeRolePolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:UpdatePolicy` | IAM administration (users, keys, groups, roles, policies, sessions) |
+| `tidemark:UpdateUser` | IAM administration (users, keys, groups, roles, policies, sessions) |
 
 ## Health endpoints
 
@@ -103,20 +103,20 @@ named `healthz` or `readyz` remains reachable with signed requests.
 
 ## Condition keys and MCP (Agent B, phase 3c)
 
-Cairn-specific IAM condition keys, usable in identity, bucket and session policies:
+Tidemark-specific IAM condition keys, usable in identity, bucket and session policies:
 
 | Key | Set on | Value |
 |---|---|---|
-| `cairn:McpTool` | every call made through the MCP server (`/_cairn/mcp`, `cairn mcp --stdio`) | the tool name (`list_buckets`, `list_objects`, `get_object`, `head_object`, `put_object`, `delete_object`, `copy_object`, `search`, `trash_list`, `trash_restore`, `pitr_head_at`, `pitr_diff`, `pitr_restore`, `bucket_info`). Absent on plain S3 / admin requests, so `"StringEquals": {"cairn:McpTool": [...]}` on an Allow grants only via MCP, and on a Deny blocks only those tools. |
-| `cairn:AsOf` | S3 requests with `x-cairn-as-of`; MCP `as_of` / `at` arguments | the requested instant (RFC 3339), for `Date*` conditions. |
+| `tidemark:McpTool` | every call made through the MCP server (`/_tidemark/mcp`, `tidemark mcp --stdio`) | the tool name (`list_buckets`, `list_objects`, `get_object`, `head_object`, `put_object`, `delete_object`, `copy_object`, `search`, `trash_list`, `trash_restore`, `pitr_head_at`, `pitr_diff`, `pitr_restore`, `bucket_info`). Absent on plain S3 / admin requests, so `"StringEquals": {"tidemark:McpTool": [...]}` on an Allow grants only via MCP, and on a Deny blocks only those tools. |
+| `tidemark:AsOf` | S3 requests with `x-tidemark-as-of`; MCP `as_of` / `at` arguments | the requested instant (RFC 3339), for `Date*` conditions. |
 
-`x-cairn-as-of` reads (and MCP `as_of`, `pitr_head_at`) need the normal read action **and**
-`cairn:TimeTravel` on the same resource (object ARN for GetObject/HeadObject, bucket ARN for
+`x-tidemark-as-of` reads (and MCP `as_of`, `pitr_head_at`) need the normal read action **and**
+`tidemark:TimeTravel` on the same resource (object ARN for GetObject/HeadObject, bucket ARN for
 ListObjects/ListObjectsV2); not checked when a `versionId` is given. Enforced by
-`cairn_auth::CairnS3Access` from phase 3c.
+`tidemark_auth::TidemarkS3Access` from phase 3c.
 
 MCP tools map onto the same actions as their S3 equivalents (`s3:GetObject`, `s3:PutObject`,
-`s3:ListBucket`, …) plus `cairn:ListTrash`, `cairn:Restore`, `cairn:PitrDiff`, `cairn:Pitr` for
+`s3:ListBucket`, …) plus `tidemark:ListTrash`, `tidemark:Restore`, `tidemark:PitrDiff`, `tidemark:Pitr` for
 the recovery tools; see `docs/MCP.md` for the full table.
 
 Standard AWS keys added in phase 3c: `aws:PrincipalTag/<tag>` (session tags of web-identity

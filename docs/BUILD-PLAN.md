@@ -1,4 +1,4 @@
-# Cairn — Build plan (v0.1)
+# Tidemark — Build plan (v0.1)
 
 Scope lives in `docs/DESIGN.md` (§0 says what is in, what is out, and the four claims). Done means
 every row in `docs/PRODUCTION-READINESS.md` is checked. Decisions and their reasons are in
@@ -6,7 +6,7 @@ every row in `docs/PRODUCTION-READINESS.md` is checked. Decisions and their reas
 
 ## The one sentence
 
-Cairn v0.1 is **a single-binary S3 server you cannot lose data on**: one box, one data directory,
+Tidemark v0.1 is **a single-binary S3 server you cannot lose data on**: one box, one data directory,
 every delete reversible with nothing configured, every bucket readable as of any time in its
 retention window, blobs deduplicated, and an MCP server that obeys the same policies as S3.
 Nothing else ships in v0.1.
@@ -49,9 +49,9 @@ failed in public come before polish.
 
 | # | Lane | Work | Closes |
 |---|------|------|--------|
-| 1 | **Wire** (server/cli) | Mount `CairnS3Auth`/`CairnS3Access`, STS router, admin router with a real `AdminEngine`, MCP HTTP router + `cairn mcp --stdio`; `cairn init` seals root creds in the credential store; `migrate()` at start + `cairn migrate --dry-run`; CLI: `admin`, `fsck`, `scrub`, `backup`, `restore`, `trash`, `pitr` | B1 B2 B3 B4 C3 C4 C5 C7 D6 D7 |
-| 2 | **Prove the claims** (engine/server tests) | **Claim 1** zero-config undo: fresh bucket, versioning never touched, overwrite + delete object + delete bucket, restore all, bytes identical (A6). **Claim 2** `x-cairn-as-of` and `cairn pitr restore` to an instant with no prior snapshot, including across a bucket delete (A5). **Claim 3** dedup: N identical uploads → one blob file; copy, trash restore and PITR restore add zero blob bytes (A7). **Claim 4** a principal denied `s3:GetObject` is denied the same object through MCP `get_object`; `cairn:TimeTravel` gates `as_of` tools (D7 test half). Then: retention GC, kill-9 fault injection during put / multipart complete / delete, disk-full 507 with GET/DELETE/GC still working, SSE-S3 with key from file/env, lifecycle + abort-mpu with a fake clock | A5 A6 A7 C1 C2 C6 B5 D4 |
-| 3 | **Ship** (scripts/docs/CI) | ceph `s3-tests` on every push gating on `expected-pass.txt`, weekly full sweep (A4); `scripts/e2e-clients.sh` run (aws/rclone/mc) recorded in COMPAT.md (A3); `scripts/footprint.sh` (idle RSS, 10 GiB RSS, binary size) with numbers in README (E1 E2); `/metrics` minimal set; JSON logs + audit JSONL; `cairn config check`; README rewrite around the four claims and the §0 competitor table; `CONTRIBUTING.md` with DCO (F5); quickstart verified on a clean VM; rename decision; first `v0.1.0-alpha` tag | A3 A4 D1 D2 D3 D5 E1 E2 F1–F5 |
+| 1 | **Wire** (server/cli) | Mount `TidemarkS3Auth`/`TidemarkS3Access`, STS router, admin router with a real `AdminEngine`, MCP HTTP router + `tidemark mcp --stdio`; `tidemark init` seals root creds in the credential store; `migrate()` at start + `tidemark migrate --dry-run`; CLI: `admin`, `fsck`, `scrub`, `backup`, `restore`, `trash`, `pitr` | B1 B2 B3 B4 C3 C4 C5 C7 D6 D7 |
+| 2 | **Prove the claims** (engine/server tests) | **Claim 1** zero-config undo: fresh bucket, versioning never touched, overwrite + delete object + delete bucket, restore all, bytes identical (A6). **Claim 2** `x-tidemark-as-of` and `tidemark pitr restore` to an instant with no prior snapshot, including across a bucket delete (A5). **Claim 3** dedup: N identical uploads → one blob file; copy, trash restore and PITR restore add zero blob bytes (A7). **Claim 4** a principal denied `s3:GetObject` is denied the same object through MCP `get_object`; `tidemark:TimeTravel` gates `as_of` tools (D7 test half). Then: retention GC, kill-9 fault injection during put / multipart complete / delete, disk-full 507 with GET/DELETE/GC still working, SSE-S3 with key from file/env, lifecycle + abort-mpu with a fake clock | A5 A6 A7 C1 C2 C6 B5 D4 |
+| 3 | **Ship** (scripts/docs/CI) | ceph `s3-tests` on every push gating on `expected-pass.txt`, weekly full sweep (A4); `scripts/e2e-clients.sh` run (aws/rclone/mc) recorded in COMPAT.md (A3); `scripts/footprint.sh` (idle RSS, 10 GiB RSS, binary size) with numbers in README (E1 E2); `/metrics` minimal set; JSON logs + audit JSONL; `tidemark config check`; README rewrite around the four claims and the §0 competitor table; `CONTRIBUTING.md` with DCO (F5); quickstart verified on a clean VM; rename decision; first `v0.1.0-alpha` tag | A3 A4 D1 D2 D3 D5 E1 E2 F1–F5 |
 
 Lane 1 is the critical path; 2 and 3 can start now against the existing engine/server.
 
@@ -66,8 +66,8 @@ An optional local admin UI lives in `admin-ui/`: one HTML/JS page plus a single-
 backend that holds the keys and signs admin API calls. Nothing is added to the server binary.
 
 ## Working agreements
-- Lane 1 owns `cairn-server`, `cairn-cli`; lane 2 owns `cairn-engine`, `cairn-blob`, tests under
-  `crates/cairn-server/tests/`; lane 3 owns `scripts/`, `.github/`, `deploy/`, `docs/`, `bench/`,
+- Lane 1 owns `tidemark-server`, `tidemark-cli`; lane 2 owns `tidemark-engine`, `tidemark-blob`, tests under
+  `crates/tidemark-server/tests/`; lane 3 owns `scripts/`, `.github/`, `deploy/`, `docs/`, `bench/`,
   `README.md`, `CONTRIBUTING.md`. Touching another lane's files: additive only, say so in the
   commit message.
 - `docs/COMPAT.md` and `docs/EXTENSIONS.md` are updated in the same commit as the behaviour.

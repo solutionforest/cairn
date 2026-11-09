@@ -1,6 +1,6 @@
 # Release pipeline: push a `v*` tag -> static musl binaries (x86_64, aarch64) with embedded
 # dependency metadata (cargo-auditable), per-binary CycloneDX SBOMs, SHA256SUMS, a GitHub Release
-# whose notes come from CHANGELOG.md, and a multi-arch image on ghcr.io/solutionforest/cairn.
+# whose notes come from CHANGELOG.md, and a multi-arch image on ghcr.io/solutionforest/tidemark.
 # The first job fails the run unless CHANGELOG.md has a dated section and link for the tag.
 #
 # Decisions (see docs/BUILD-PLAN.md decisions log, 2026-11-08 Agent C):
@@ -96,7 +96,7 @@ jobs:
       - name: Check tag matches the workspace version
         run: |
           version="$(cargo metadata --no-deps --format-version 1 \
-            | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="cairn-cli"))')"
+            | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="tidemark-cli"))')"
           case "$TAG" in
             "v$version"|"v$version"-*|"v$version"+*) echo "tag $TAG ~ version $version" ;;
             *) echo "::error::tag $TAG does not match workspace version $version"; exit 1 ;;
@@ -105,11 +105,11 @@ jobs:
       - name: Build (static musl, auditable)
         env:
           CARGO_PROFILE_RELEASE_LTO: ${{ matrix.lto }}
-        run: cargo auditable zigbuild --release --locked -p cairn-cli --target ${{ matrix.target }}
+        run: cargo auditable zigbuild --release --locked -p tidemark-cli --target ${{ matrix.target }}
 
       - name: Verify static linking and embedded audit data
         run: |
-          bin=target/${{ matrix.target }}/release/cairn
+          bin=target/${{ matrix.target }}/release/tidemark
           file "$bin"
           file "$bin" | grep -Eq 'statically linked|static-pie linked'
           cargo audit bin "$bin"
@@ -117,18 +117,18 @@ jobs:
       - name: Package
         id: pkg
         run: |
-          name="cairn-${TAG}-${{ matrix.target }}"
+          name="tidemark-${TAG}-${{ matrix.target }}"
           mkdir -p "dist/$name" "image/${{ matrix.docker_arch }}"
-          cp target/${{ matrix.target }}/release/cairn "dist/$name/"
-          cp target/${{ matrix.target }}/release/cairn "image/${{ matrix.docker_arch }}/cairn"
-          cp LICENSE README.md CHANGELOG.md SECURITY.md deploy/cairn.example.toml deploy/cairn.service "dist/$name/"
+          cp target/${{ matrix.target }}/release/tidemark "dist/$name/"
+          cp target/${{ matrix.target }}/release/tidemark "image/${{ matrix.docker_arch }}/tidemark"
+          cp LICENSE README.md CHANGELOG.md SECURITY.md deploy/tidemark.example.toml deploy/tidemark.service "dist/$name/"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
           echo "name=$name" >> "$GITHUB_OUTPUT"
 
       - name: SBOM (CycloneDX, from the shipped binary's embedded dependency list)
         uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
-          file: target/${{ matrix.target }}/release/cairn
+          file: target/${{ matrix.target }}/release/tidemark
           format: cyclonedx-json
           output-file: dist/${{ steps.pkg.outputs.name }}.cdx.json
           upload-artifact: false
@@ -177,7 +177,7 @@ jobs:
         run: |
           flags=()
           case "$TAG" in *-*) flags+=(--prerelease) ;; esac
-          gh release create "$TAG" --verify-tag --title "Cairn $TAG" --notes-file notes.md "${flags[@]}" \
+          gh release create "$TAG" --verify-tag --title "Tidemark $TAG" --notes-file notes.md "${flags[@]}" \
             dist/*.tar.gz dist/*.cdx.json dist/SHA256SUMS
 
   image:
@@ -197,7 +197,7 @@ jobs:
           pattern: image-*
           path: dist/image
           merge-multiple: true
-      - run: chmod 0755 dist/image/*/cairn && ls -l dist/image/*
+      - run: chmod 0755 dist/image/*/tidemark && ls -l dist/image/*
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
@@ -207,7 +207,7 @@ jobs:
       - id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
-          images: ghcr.io/solutionforest/cairn
+          images: ghcr.io/solutionforest/tidemark
           tags: |
             type=semver,pattern={{version}},value=${{ env.TAG }}
             type=semver,pattern={{major}}.{{minor}},value=${{ env.TAG }}

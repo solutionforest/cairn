@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
-    url: https://github.com/solutionforest/cairn/security/advisories/new
+    url: https://github.com/solutionforest/tidemark/security/advisories/new
     about: Report privately. Never open a public issue for a security problem (see SECURITY.md).
   - name: Is it a known S3 deviation?
-    url: https://github.com/solutionforest/cairn/blob/master/docs/COMPAT.md
+    url: https://github.com/solutionforest/tidemark/blob/master/docs/COMPAT.md
     about: Per-operation S3 support and documented deviations.

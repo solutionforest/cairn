@@ -1,0 +1,56 @@
+[package]
+name = "tidemark-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Tidemark object storage: server"
+
+[dependencies]
+tidemark-core.workspace = true
+tidemark-engine.workspace = true
+tidemark-blob.workspace = true
+tidemark-s3.workspace = true
+tidemark-meta.workspace = true
+tidemark-auth.workspace = true
+tidemark-admin.workspace = true
+tidemark-events.workspace = true
+tidemark-mcp.workspace = true
+prometheus.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+blake3.workspace = true
+jiff.workspace = true
+futures.workspace = true
+async-trait.workspace = true
+s3s.workspace = true
+tokio.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+axum.workspace = true
+tower = { workspace = true, features = ["util"] }
+tower-http.workspace = true
+http.workspace = true
+http-body-util.workspace = true
+bytes.workspace = true
+rustls.workspace = true
+tokio-rustls.workspace = true
+rustls-pemfile.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+uuid.workspace = true
+rand.workspace = true
+
+[dev-dependencies]
+aws-sdk-s3.workspace = true
+aws-smithy-http-client.workspace = true
+aws-credential-types.workspace = true
+tempfile.workspace = true
+reqwest.workspace = true
+serde_json.workspace = true
+futures.workspace = true
+md-5.workspace = true
+base64.workspace = true

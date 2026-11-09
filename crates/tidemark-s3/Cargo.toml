@@ -1,0 +1,27 @@
+[package]
+name = "tidemark-s3"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Tidemark object storage: s3"
+
+[dependencies]
+tidemark-core.workspace = true
+tidemark-engine.workspace = true
+tidemark-auth.workspace = true
+s3s.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+bytes.workspace = true
+futures.workspace = true
+http.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+jiff.workspace = true
+hex.workspace = true
+base64.workspace = true
+url.workspace = true
+subtle.workspace = true

@@ -50,7 +50,7 @@ jobs:
         with: { shared-key: ci-linux }
       - run: cargo test --workspace --locked --no-fail-fast
 
-  # rustdoc warnings as errors. Non-blocking until cairn-auth's doc warnings are fixed (Agent B);
+  # rustdoc warnings as errors. Non-blocking until tidemark-auth's doc warnings are fixed (Agent B);
   # drop `continue-on-error` then to close PRODUCTION-READINESS F1.
   docs:
     name: docs (rustdoc -D warnings, non-blocking)

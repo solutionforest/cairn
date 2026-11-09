@@ -1,11 +1,11 @@
 # Security policy
 
-Cairn stores other people's data and credentials, so we treat security reports as the highest
+Tidemark stores other people's data and credentials, so we treat security reports as the highest
 priority work in the project.
 
 ## Supported versions
 
-Cairn is pre-1.0. Only the latest release line receives security fixes.
+Tidemark is pre-1.0. Only the latest release line receives security fixes.
 
 | Version | Supported |
 |---------|-----------|
@@ -22,7 +22,7 @@ From 1.0 onward the latest minor release and the previous minor release will be 
 Report privately through either channel:
 
 1. **GitHub private vulnerability reporting** (preferred): on
-   <https://github.com/solutionforest/cairn/security/advisories/new>, click "Report a
+   <https://github.com/solutionforest/tidemark/security/advisories/new>, click "Report a
    vulnerability". This creates a draft advisory only maintainers can see.
 2. **Email** `security@solutionforest.net`. Encrypt with our PGP key if you need to (ask in a
    first, content-free email and we will send it).
@@ -48,8 +48,8 @@ reporters in the advisory unless you ask us not to.
 
 ## Scope
 
-In scope: the `cairn` binary and all crates in this repository, the container images published
-to `ghcr.io/solutionforest/cairn`, the release artefacts on GitHub Releases, and the example
+In scope: the `tidemark` binary and all crates in this repository, the container images published
+to `ghcr.io/solutionforest/tidemark`, the release artefacts on GitHub Releases, and the example
 deployment files under `deploy/`.
 
 Particularly interesting: authentication bypass (SigV4, presigned URLs, STS sessions), policy
@@ -60,7 +60,7 @@ with a small request.
 
 Out of scope: issues requiring a compromised host or root on the server, findings in
 dependencies that are already public RustSec advisories (we track those with `cargo deny` and
-`cargo audit` in CI; tell us if one is exploitable through Cairn), missing hardening headers on
+`cargo audit` in CI; tell us if one is exploitable through Tidemark), missing hardening headers on
 endpoints that do not serve browsers, and volumetric DoS.
 
 ## Safe harbour
@@ -74,7 +74,7 @@ reasonable time to fix before disclosure.
 - Memory-safe Rust with `#![forbid(unsafe_code)]` in every crate; TLS via rustls only (no
   OpenSSL); pure-Rust dependency tree checked by `cargo deny` and `cargo audit` on every push and
   weekly.
-- Release binaries embed their dependency list (`cargo auditable`) so `cargo audit bin cairn`
+- Release binaries embed their dependency list (`cargo auditable`) so `cargo audit bin tidemark`
   works on a deployed binary; each release ships a CycloneDX SBOM and SHA256SUMS.
 - Secrets (root keys, HMAC keys, sink tokens) are zeroized on drop and redacted from logs and
   `Debug` output.

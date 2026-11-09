@@ -1,0 +1,23 @@
+[package]
+name = "tidemark-meta"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Tidemark object storage: meta"
+
+[dependencies]
+tidemark-core.workspace = true
+redb.workspace = true
+postcard.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+jiff.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+proptest.workspace = true

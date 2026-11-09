@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Cairn are documented here. The format follows
+All notable changes to Tidemark (named Cairn up to 0.1.0-alpha.2) are documented here. The format follows
 [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (pre-1.0: minor versions may break
 compatibility; breaking changes are called out under **Changed** or **Removed**).
@@ -10,6 +10,22 @@ and copies that section into the GitHub Release notes, so write entries for oper
 developers.
 
 ## [Unreleased]
+
+## [0.1.0-alpha.3] - 2026-11-09
+
+The project is renamed from Cairn to **Tidemark**. Only names changed; S3 behaviour is the same.
+
+### Changed
+- **Breaking:** every name moved from `cairn` to `tidemark`: the binary and release assets
+  (`tidemark-<version>-<target>.tar.gz`), the image `ghcr.io/solutionforest/tidemark`, the
+  repository `github.com/solutionforest/tidemark` (old links redirect), environment variables
+  (`TIDEMARK_*`), custom headers (`x-tidemark-*`), IAM actions (`tidemark:*`), admin paths
+  (`/_tidemark/...`), Prometheus metrics (`tidemark_*`), the config file (`tidemark.toml`) and
+  the systemd unit (`tidemark.service`).
+- New access key ids start with `TDMK` (20 characters, the same shape as AWS `AKIA…` keys).
+- **Breaking:** data directories and backups made by 0.1.0-alpha.1 or alpha.2 do not open in this
+  release (the metadata file and key-check labels were renamed). Copy objects out with any S3
+  client, run `tidemark init` on a new directory, and copy them back.
 
 ## [0.1.0-alpha.2] - 2026-11-09
 
@@ -67,6 +83,7 @@ Replication, tiering, event notifications, OIDC, Object Lock, SSE-C / SSE-KMS, C
 PostObject, quotas and rate limiting are not supported; `docs/COMPAT.md` lists how each
 related request is answered.
 
-[Unreleased]: https://github.com/solutionforest/cairn/compare/v0.1.0-alpha.2...master
-[0.1.0-alpha.2]: https://github.com/solutionforest/cairn/releases/tag/v0.1.0-alpha.2
-[0.1.0-alpha.1]: https://github.com/solutionforest/cairn/releases/tag/v0.1.0-alpha.1
+[Unreleased]: https://github.com/solutionforest/tidemark/compare/v0.1.0-alpha.3...master
+[0.1.0-alpha.3]: https://github.com/solutionforest/tidemark/releases/tag/v0.1.0-alpha.3
+[0.1.0-alpha.2]: https://github.com/solutionforest/tidemark/releases/tag/v0.1.0-alpha.2
+[0.1.0-alpha.1]: https://github.com/solutionforest/tidemark/releases/tag/v0.1.0-alpha.1

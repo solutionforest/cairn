@@ -1,13 +1,13 @@
 name: S3 compatibility
-description: An S3 client or SDK behaves differently against Cairn than against AWS S3.
+description: An S3 client or SDK behaves differently against Tidemark than against AWS S3.
 labels: ["s3-compat", "triage"]
 body:
   - type: markdown
     attributes:
-      value: Check [docs/COMPAT.md](https://github.com/solutionforest/cairn/blob/master/docs/COMPAT.md) first; documented deviations are listed there.
+      value: Check [docs/COMPAT.md](https://github.com/solutionforest/tidemark/blob/master/docs/COMPAT.md) first; documented deviations are listed there.
   - type: input
     id: version
-    attributes: { label: Cairn version, placeholder: 0.1.0-alpha.2 }
+    attributes: { label: Tidemark version, placeholder: 0.1.0-alpha.3 }
     validations: { required: true }
   - type: input
     id: client
@@ -20,6 +20,6 @@ body:
   - type: textarea
     id: details
     attributes:
-      label: Request, Cairn's response, and what AWS returns
+      label: Request, Tidemark's response, and what AWS returns
       description: A link to the AWS docs for the expected behaviour helps. Redact secrets.
     validations: { required: true }

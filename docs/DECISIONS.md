@@ -547,3 +547,11 @@ Dated (UTC) design and implementation decisions, newest last. Moved out of `BUIL
   the tag's version has a dated `## [X.Y.Z] - YYYY-MM-DD` section with a body and a link line,
   and `release.yml` runs it as a first `changelog` job that `build` needs, so a missing entry
   fails in seconds instead of after the 90-minute build. Both published pre-releases pass.
+- **2026-11-09 — Renamed from Cairn to Tidemark (closes F4).** The maintainer chose Tidemark: a
+  tidemark records how high the water reached, which fits a store whose point is history and
+  point-in-time reads. No GitHub repository or crates.io crate of ours conflicts (an unrelated
+  directory-diff CLI owns the `tidemark` crate; we do not publish crates). Everything was
+  renamed in one release, `0.1.0-alpha.3`, including the metadata file name and the key-check
+  domain labels, because only two pre-releases exist and carrying `cairn` strings in the formats
+  forever costs more than one re-init for alpha users. Entries above this one keep the old name
+  as written at the time.

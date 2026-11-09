@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Cairn benchmark harness: drives MinIO's `warp` against a running Cairn and records the host
+# Tidemark benchmark harness: drives MinIO's `warp` against a running Tidemark and records the host
 # description next to the results. Method and targets: bench/README.md, DESIGN §13.
 #
 # Required env: BENCH_ENDPOINT (host:port, no scheme), BENCH_ACCESS_KEY, BENCH_SECRET_KEY
 # Optional env: BENCH_TLS=1, BENCH_REGION (us-east-1), BENCH_DURATION (60s),
 #               BENCH_CONCURRENCY (32), BENCH_LARGE_SIZE (1GiB), BENCH_LARGE_CONCURRENCY (4),
-#               BENCH_LIST_OBJECTS (100000), BENCH_DATA_DIR (Cairn data dir, for the fs line),
+#               BENCH_LIST_OBJECTS (100000), BENCH_DATA_DIR (Tidemark data dir, for the fs line),
 #               BENCH_SCENARIOS ("put-small get-small mixed-small put-large get-large list"),
 #               WARP (path to warp; default: `warp` on PATH, else the minio/warp container)
 set -euo pipefail
@@ -42,7 +42,7 @@ cd "$out"
   echo "# Host"
   echo
   echo "- date (UTC): $stamp"
-  echo "- cairn: $(cairn --version 2>/dev/null || echo unknown) @ $(git -C "$here" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+  echo "- tidemark: $(tidemark --version 2>/dev/null || echo unknown) @ $(git -C "$here" rev-parse --short HEAD 2>/dev/null || echo unknown)"
   echo "- warp: $("${warp[@]}" --version 2>/dev/null | head -1 || echo "$WARP_VERSION")"
   echo "- cpu: $(lscpu 2>/dev/null | sed -n 's/^Model name: *//p' | head -1) ($(nproc) vCPU)"
   echo "- memory: $(free -h 2>/dev/null | awk '/^Mem:/ {print $2}')"

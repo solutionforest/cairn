@@ -1,0 +1,33 @@
+[package]
+name = "tidemark-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Tidemark object storage: mcp"
+
+[dependencies]
+tidemark-core.workspace = true
+tidemark-meta.workspace = true
+tidemark-engine.workspace = true
+tidemark-auth.workspace = true
+rmcp.workspace = true
+schemars.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+base64.workspace = true
+bytes.workspace = true
+futures.workspace = true
+axum.workspace = true
+http.workspace = true
+http-body-util.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+rmcp = { workspace = true, features = ["client"] }
+tempfile.workspace = true
+tower.workspace = true

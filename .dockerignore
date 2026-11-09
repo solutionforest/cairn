@@ -4,4 +4,4 @@ target/
 **/*.redb
 data/
 .env
-cairn-data/
+tidemark-data/

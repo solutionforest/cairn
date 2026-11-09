@@ -1,7 +1,7 @@
-# Single-node Cairn with Docker Compose.
+# Single-node Tidemark with Docker Compose.
 #
 #   1. Create .env with your root credential (once):
-#        printf 'CAIRN_ROOT_ACCESS_KEY=%s\nCAIRN_ROOT_SECRET=%s\n' \
+#        printf 'TIDEMARK_ROOT_ACCESS_KEY=%s\nTIDEMARK_ROOT_SECRET=%s\n' \
 #          "$(openssl rand -hex 10)" "$(openssl rand -base64 30)" > .env && chmod 600 .env
 #   2. docker compose up -d                  # S3 on http://127.0.0.1:9000
 #      docker compose --profile ui up -d     # plus the admin UI on http://127.0.0.1:9080
@@ -10,33 +10,33 @@
 # this checkout instead (slow: a full Rust build).
 #
 # The root credential is sealed into the credential store on the first start (empty volume);
-# later starts ignore it. Data lives in the named volume `cairn-data`: `docker compose down -v`
-# deletes it. Back up with `cairn backup` or a snapshot of the volume while the stack is stopped.
+# later starts ignore it. Data lives in the named volume `tidemark-data`: `docker compose down -v`
+# deletes it. Back up with `tidemark backup` or a snapshot of the volume while the stack is stopped.
 # Both ports are published on 127.0.0.1 only; put TLS and a firewall in front before opening them.
-name: cairn
+name: tidemark
 
 services:
-  cairn:
-    image: ghcr.io/solutionforest/cairn:${CAIRN_VERSION:-0.1.0-alpha.2}
+  tidemark:
+    image: ghcr.io/solutionforest/tidemark:${TIDEMARK_VERSION:-0.1.0-alpha.3}
     build:
       context: .
       dockerfile: deploy/Dockerfile
     restart: unless-stopped
     command: ["serve"]
     ports:
-      - "127.0.0.1:${CAIRN_PORT:-9000}:9000"
+      - "127.0.0.1:${TIDEMARK_PORT:-9000}:9000"
     environment:
-      CAIRN_DATA_DIR: /data
-      CAIRN_SERVER_LISTEN: 0.0.0.0:9000
-      CAIRN_SERVER_REGION: us-east-1
-      CAIRN_LOG_JSON: "true"
-      CAIRN_ROOT_ACCESS_KEY: ${CAIRN_ROOT_ACCESS_KEY:?create .env first, see the top of compose.yaml}
-      CAIRN_ROOT_SECRET: ${CAIRN_ROOT_SECRET:?create .env first, see the top of compose.yaml}
+      TIDEMARK_DATA_DIR: /data
+      TIDEMARK_SERVER_LISTEN: 0.0.0.0:9000
+      TIDEMARK_SERVER_REGION: us-east-1
+      TIDEMARK_LOG_JSON: "true"
+      TIDEMARK_ROOT_ACCESS_KEY: ${TIDEMARK_ROOT_ACCESS_KEY:?create .env first, see the top of compose.yaml}
+      TIDEMARK_ROOT_SECRET: ${TIDEMARK_ROOT_SECRET:?create .env first, see the top of compose.yaml}
     volumes:
-      - cairn-data:/data
-      # Optional config file (every key: deploy/cairn.example.toml); then also set
-      # command: ["serve", "--config", "/etc/cairn/cairn.toml"]
-      # - ./cairn.toml:/etc/cairn/cairn.toml:ro
+      - tidemark-data:/data
+      # Optional config file (every key: deploy/tidemark.example.toml); then also set
+      # command: ["serve", "--config", "/etc/tidemark/tidemark.toml"]
+      # - ./tidemark.toml:/etc/tidemark/tidemark.toml:ro
     read_only: true
     user: "65532:65532"
     cap_drop: [ALL]
@@ -57,16 +57,16 @@ services:
     profiles: [ui]
     image: python:3.13-alpine
     restart: unless-stopped
-    depends_on: [cairn]
+    depends_on: [tidemark]
     command: ["python3", "/app/server.py"]
     ports:
-      - "127.0.0.1:${CAIRN_UI_PORT:-9080}:${CAIRN_UI_PORT:-9080}"
+      - "127.0.0.1:${TIDEMARK_UI_PORT:-9080}:${TIDEMARK_UI_PORT:-9080}"
     environment:
-      CAIRN_ENDPOINT: http://cairn:9000
-      CAIRN_ACCESS_KEY: ${CAIRN_ROOT_ACCESS_KEY:?create .env first, see the top of compose.yaml}
-      CAIRN_SECRET_KEY: ${CAIRN_ROOT_SECRET:?create .env first, see the top of compose.yaml}
-      CAIRN_UI_PORT: ${CAIRN_UI_PORT:-9080}
-      CAIRN_UI_BIND: 0.0.0.0
+      TIDEMARK_ENDPOINT: http://tidemark:9000
+      TIDEMARK_ACCESS_KEY: ${TIDEMARK_ROOT_ACCESS_KEY:?create .env first, see the top of compose.yaml}
+      TIDEMARK_SECRET_KEY: ${TIDEMARK_ROOT_SECRET:?create .env first, see the top of compose.yaml}
+      TIDEMARK_UI_PORT: ${TIDEMARK_UI_PORT:-9080}
+      TIDEMARK_UI_BIND: 0.0.0.0
       PYTHONDONTWRITEBYTECODE: "1"
     volumes:
       - ./admin-ui:/app:ro
@@ -77,4 +77,4 @@ services:
       - no-new-privileges:true
 
 volumes:
-  cairn-data:
+  tidemark-data:

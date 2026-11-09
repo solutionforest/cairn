@@ -1,0 +1,16 @@
+<NotificationConfiguration>
+  <LambdaFunctionConfiguration>
+    <Id>thumbs</Id>
+    <LambdaFunctionArn>arn:aws:lambda:eu-west-1:123456789012:function:thumb</LambdaFunctionArn>
+    <Event>s3:ObjectCreated:*</Event>
+    <Event>tidemark:TrashRestored</Event>
+    <Filter><S3Key><FilterRule><Name>Suffix</Name><Value>.png</Value></FilterRule></S3Key></Filter>
+  </LambdaFunctionConfiguration>
+  <QueueConfiguration>
+    <Id>hook &amp; co</Id>
+    <Queue>arn:tidemark:sink::webhook-1</Queue>
+    <Event>s3:ObjectRemoved:Delete</Event>
+    <Filter><S3Key><FilterRule><Name>prefix</Name><Value><![CDATA[a<b]]>/</Value></FilterRule></S3Key></Filter>
+  </QueueConfiguration>
+  <EventBridgeConfiguration/>
+</NotificationConfiguration>

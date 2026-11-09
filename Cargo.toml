@@ -6,22 +6,22 @@ members = ["crates/*"]
 version = "0.1.0"
 edition = "2024"
 license = "AGPL-3.0-only"
-repository = "https://github.com/solutionforest/cairn"
+repository = "https://github.com/solutionforest/tidemark"
 rust-version = "1.88"
-# Cairn ships as a static binary and a container image, not as crates (DECISIONS 2026-11-09).
+# Tidemark ships as a static binary and a container image, not as crates (DECISIONS 2026-11-09).
 publish = false
 
 [workspace.dependencies]
-cairn-core = { path = "crates/cairn-core", version = "0.1.0" }
-cairn-meta = { path = "crates/cairn-meta", version = "0.1.0" }
-cairn-blob = { path = "crates/cairn-blob", version = "0.1.0" }
-cairn-auth = { path = "crates/cairn-auth", version = "0.1.0" }
-cairn-engine = { path = "crates/cairn-engine", version = "0.1.0" }
-cairn-s3 = { path = "crates/cairn-s3", version = "0.1.0" }
-cairn-admin = { path = "crates/cairn-admin", version = "0.1.0" }
-cairn-events = { path = "crates/cairn-events", version = "0.1.0" }
-cairn-mcp = { path = "crates/cairn-mcp", version = "0.1.0" }
-cairn-server = { path = "crates/cairn-server", version = "0.1.0" }
+tidemark-core = { path = "crates/tidemark-core", version = "0.1.0" }
+tidemark-meta = { path = "crates/tidemark-meta", version = "0.1.0" }
+tidemark-blob = { path = "crates/tidemark-blob", version = "0.1.0" }
+tidemark-auth = { path = "crates/tidemark-auth", version = "0.1.0" }
+tidemark-engine = { path = "crates/tidemark-engine", version = "0.1.0" }
+tidemark-s3 = { path = "crates/tidemark-s3", version = "0.1.0" }
+tidemark-admin = { path = "crates/tidemark-admin", version = "0.1.0" }
+tidemark-events = { path = "crates/tidemark-events", version = "0.1.0" }
+tidemark-mcp = { path = "crates/tidemark-mcp", version = "0.1.0" }
+tidemark-server = { path = "crates/tidemark-server", version = "0.1.0" }
 
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io"] }

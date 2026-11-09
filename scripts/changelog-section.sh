@@ -11,7 +11,7 @@ file="${2:-CHANGELOG.md}"
 fail() {
   echo "changelog-section: $*" >&2
   echo "Add a '## [$version] - YYYY-MM-DD' section (move the Unreleased entries into it)" >&2
-  echo "and a '[$version]: https://github.com/solutionforest/cairn/releases/tag/v$version' link." >&2
+  echo "and a '[$version]: https://github.com/solutionforest/tidemark/releases/tag/v$version' link." >&2
   exit 1
 }
 

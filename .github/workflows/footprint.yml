@@ -37,7 +37,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: footprint-musl-${{ runner.arch }}
-      - run: cargo build --release --locked -p cairn-cli --target "$MUSL_TARGET"
+      - run: cargo build --release --locked -p tidemark-cli --target "$MUSL_TARGET"
       - name: measure
         env:
           FOOTPRINT_SKIP_TRANSFER: "1"
@@ -45,4 +45,4 @@ jobs:
           FOOTPRINT_MAX_IDLE_MIB: "25"
         run: |
           set -o pipefail
-          scripts/footprint.sh "target/$MUSL_TARGET/release/cairn" | tee -a "$GITHUB_STEP_SUMMARY"
+          scripts/footprint.sh "target/$MUSL_TARGET/release/tidemark" | tee -a "$GITHUB_STEP_SUMMARY"

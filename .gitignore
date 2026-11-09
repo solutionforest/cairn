@@ -3,6 +3,6 @@
 /tmp-data
 .DS_Store
 __pycache__/
-/cairn-data
-/cairn
+/tidemark-data
+/tidemark
 /.env

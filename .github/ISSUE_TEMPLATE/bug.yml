@@ -1,5 +1,5 @@
 name: Bug report
-description: Cairn crashed, lost or corrupted data, or did something its docs say it should not.
+description: Tidemark crashed, lost or corrupted data, or did something its docs say it should not.
 labels: ["bug", "triage"]
 body:
   - type: markdown
@@ -10,9 +10,9 @@ body:
   - type: input
     id: version
     attributes:
-      label: Cairn version
-      description: Output of `cairn --version`, or the image tag.
-      placeholder: cairn 0.1.0-alpha.2
+      label: Tidemark version
+      description: Output of `tidemark --version`, or the image tag.
+      placeholder: tidemark 0.1.0-alpha.3
     validations: { required: true }
   - type: dropdown
     id: install

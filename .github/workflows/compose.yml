@@ -27,15 +27,15 @@ jobs:
     permissions:
       contents: read
     env:
-      CAIRN_PORT: "19000"
-      CAIRN_UI_PORT: "19080"
-      COMPOSE_PROJECT_NAME: cairn-ci-${{ github.run_id }}
+      TIDEMARK_PORT: "19000"
+      TIDEMARK_UI_PORT: "19080"
+      COMPOSE_PROJECT_NAME: tidemark-ci-${{ github.run_id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Published image exists (anonymous, as a README reader pulls it)
         id: image
         run: |
-          image="$(CAIRN_ROOT_ACCESS_KEY=x CAIRN_ROOT_SECRET=x docker compose config --images | grep solutionforest/cairn)"
+          image="$(TIDEMARK_ROOT_ACCESS_KEY=x TIDEMARK_ROOT_SECRET=x docker compose config --images | grep solutionforest/tidemark)"
           if docker manifest inspect "$image" >/dev/null 2>&1; then
             echo "ok=1" >> "$GITHUB_OUTPUT"
           elif [ "$GITHUB_EVENT_NAME" = push ]; then
@@ -46,7 +46,7 @@ jobs:
       - name: .env as in the README
         if: steps.image.outputs.ok
         run: |
-          printf 'CAIRN_ROOT_ACCESS_KEY=%s\nCAIRN_ROOT_SECRET=%s\n' \
+          printf 'TIDEMARK_ROOT_ACCESS_KEY=%s\nTIDEMARK_ROOT_SECRET=%s\n' \
             "$(openssl rand -hex 10)" "$(openssl rand -base64 30)" > .env && chmod 600 .env
       - name: up
         if: steps.image.outputs.ok
@@ -54,32 +54,32 @@ jobs:
           docker compose version
           docker compose --profile ui pull
           docker compose --profile ui up -d --no-build
-          for i in $(seq 60); do curl -sf "http://127.0.0.1:$CAIRN_PORT/readyz" && break; sleep 1; done
-          curl -sf "http://127.0.0.1:$CAIRN_PORT/readyz"
+          for i in $(seq 60); do curl -sf "http://127.0.0.1:$TIDEMARK_PORT/readyz" && break; sleep 1; done
+          curl -sf "http://127.0.0.1:$TIDEMARK_PORT/readyz"
       - name: S3 and admin UI
         if: steps.image.outputs.ok
         run: |
           set -a; . ./.env; set +a
-          s3() { curl -sf --aws-sigv4 "aws:amz:us-east-1:s3" -u "$CAIRN_ROOT_ACCESS_KEY:$CAIRN_ROOT_SECRET" \
+          s3() { curl -sf --aws-sigv4 "aws:amz:us-east-1:s3" -u "$TIDEMARK_ROOT_ACCESS_KEY:$TIDEMARK_ROOT_SECRET" \
             -H "x-amz-content-sha256: UNSIGNED-PAYLOAD" "$@"; }
-          ep="http://127.0.0.1:$CAIRN_PORT"
+          ep="http://127.0.0.1:$TIDEMARK_PORT"
           s3 -X PUT "$ep/compose-smoke"
           echo hello > hello.txt && s3 -T hello.txt "$ep/compose-smoke/hello.txt"
           test "$(s3 "$ep/compose-smoke/hello.txt")" = hello
           s3 -X DELETE "$ep/compose-smoke/hello.txt"
-          ui="http://127.0.0.1:$CAIRN_UI_PORT"
+          ui="http://127.0.0.1:$TIDEMARK_UI_PORT"
           for i in $(seq 30); do curl -sf -o /dev/null "$ui/" && break; sleep 1; done
-          curl -sf -H 'X-Cairn-UI: 1' "$ui/api/buckets" | grep -q '"compose-smoke"'
-          curl -sf -H 'X-Cairn-UI: 1' "$ui/api/trash?bucket=compose-smoke" | grep -q '"hello.txt"'
-          code=$(curl -s -o /dev/null -w '%{http_code}' -H 'X-Cairn-UI: 1' -H "Host: evil:$CAIRN_UI_PORT" "$ui/api/info")
+          curl -sf -H 'X-Tidemark-UI: 1' "$ui/api/buckets" | grep -q '"compose-smoke"'
+          curl -sf -H 'X-Tidemark-UI: 1' "$ui/api/trash?bucket=compose-smoke" | grep -q '"hello.txt"'
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H 'X-Tidemark-UI: 1' -H "Host: evil:$TIDEMARK_UI_PORT" "$ui/api/info")
           test "$code" = 403
       - name: restart keeps data
         if: steps.image.outputs.ok
         run: |
           docker compose --profile ui restart
-          for i in $(seq 60); do curl -sf "http://127.0.0.1:$CAIRN_PORT/readyz" && break; sleep 1; done
-          for i in $(seq 30); do curl -sf -o /dev/null "http://127.0.0.1:$CAIRN_UI_PORT/" && break; sleep 1; done
-          curl -sf -H 'X-Cairn-UI: 1' "http://127.0.0.1:$CAIRN_UI_PORT/api/buckets" | grep -q '"compose-smoke"'
+          for i in $(seq 60); do curl -sf "http://127.0.0.1:$TIDEMARK_PORT/readyz" && break; sleep 1; done
+          for i in $(seq 30); do curl -sf -o /dev/null "http://127.0.0.1:$TIDEMARK_UI_PORT/" && break; sleep 1; done
+          curl -sf -H 'X-Tidemark-UI: 1' "http://127.0.0.1:$TIDEMARK_UI_PORT/api/buckets" | grep -q '"compose-smoke"'
       - name: logs
         if: failure() && steps.image.outputs.ok
         run: docker compose --profile ui logs --no-color

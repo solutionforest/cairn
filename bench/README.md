@@ -1,7 +1,7 @@
 # Benchmarks
 
 `bench/run.sh` drives [MinIO warp](https://github.com/minio/warp) (pinned `v1.8.2`) against a
-running Cairn and writes raw output plus a host description to `bench/results/<UTC stamp>/`
+running Tidemark and writes raw output plus a host description to `bench/results/<UTC stamp>/`
 (git-ignored). Curated numbers go into [`RESULTS.md`](RESULTS.md), one section per run.
 
 warp was chosen over a custom Rust harness: it is the de-facto S3 load generator, it reports
@@ -10,14 +10,14 @@ published MinIO results, and it keeps the 1-vCPU dev host from compiling another
 
 ## Method
 
-1. Release build on the host under test: `cargo build --release -p cairn-cli`.
-2. Fresh data dir on the filesystem you want to measure; `cairn init` then
-   `cairn serve` with default config (`fsync = true`). Record any config change in RESULTS.md.
+1. Release build on the host under test: `cargo build --release -p tidemark-cli`.
+2. Fresh data dir on the filesystem you want to measure; `tidemark init` then
+   `tidemark serve` with default config (`fsync = true`). Record any config change in RESULTS.md.
 3. Run the client on the same host for single-node numbers (`BENCH_ENDPOINT=127.0.0.1:9000`);
    for network numbers run it from a second host and record the link speed.
 4. `BENCH_ENDPOINT=127.0.0.1:9000 BENCH_ACCESS_KEY=... BENCH_SECRET_KEY=... \
-   BENCH_DATA_DIR=/srv/cairn bench/run.sh`
-5. Repeat 3 times; report the median run. Note idle RSS (`ps -o rss= -p $(pidof cairn)`) before
+   BENCH_DATA_DIR=/srv/tidemark bench/run.sh`
+5. Repeat 3 times; report the median run. Note idle RSS (`ps -o rss= -p $(pidof tidemark)`) before
    and peak RSS during the large-object scenarios (E3).
 
 ## Scenarios (DESIGN §13 targets, reference host: 4 cores, NVMe)

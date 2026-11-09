@@ -1,8 +1,8 @@
-# Cairn — S3 compatibility
+# Tidemark — S3 compatibility
 
-Status of every S3 operation. Proving tests live in `crates/cairn-server/tests/` (aws-sdk-s3
+Status of every S3 operation. Proving tests live in `crates/tidemark-server/tests/` (aws-sdk-s3
 against an in-process server). Engine-level behaviour is additionally covered by
-`crates/cairn-engine/tests/engine.rs`.
+`crates/tidemark-engine/tests/engine.rs`.
 
 Legend: ✅ implemented and tested · 🟡 partial (see notes) · ❌ returns `501 NotImplemented`.
 
@@ -31,16 +31,16 @@ Legend: ✅ implemented and tested · 🟡 partial (see notes) · ❌ returns `5
 | Operation | Status | Test | Notes / deviations |
 |---|---|---|---|
 | PutObject | ✅ | `objects.rs`, `range_conditional.rs` | Content-Type/Cache-Control/Content-Disposition/Content-Encoding/Content-Language/Expires, `x-amz-meta-*` (names lowercased, 2 KiB limit), `x-amz-tagging`, `x-amz-website-redirect-location`, storage class (stored and echoed; one physical class). `Content-MD5` and `x-amz-checksum-*` verified (header or aws-chunked trailer); a malformed checksum value → `BadDigest`, a Content-MD5 that is not 16 bytes → `InvalidDigest`. The `aws-chunked` token is stripped from the stored `Content-Encoding`. `If-None-Match: *` and `If-Match` supported. SSE-C, SSE-KMS, Object Lock headers and `x-amz-write-offset-bytes` → `NotImplemented`; `x-amz-server-side-encryption: AES256` accepted only when `storage.encrypt_at_rest` is on. |
-| GetObject | ✅ | `objects.rs`, `range_conditional.rs`, `multipart.rs` | `Range` (first-last, open-ended, suffix; single range), `partNumber`, `response-*` overrides, `If-Match`/`If-None-Match`/`If-Modified-Since`/`If-Unmodified-Since` (RFC 7232 precedence), `versionId` incl. `null`, `x-amz-checksum-mode: ENABLED` (checksum only on full-object reads; a `partNumber` read always reports that part's checksum), `x-cairn-as-of`. Default Content-Type `binary/octet-stream`. |
+| GetObject | ✅ | `objects.rs`, `range_conditional.rs`, `multipart.rs` | `Range` (first-last, open-ended, suffix; single range), `partNumber`, `response-*` overrides, `If-Match`/`If-None-Match`/`If-Modified-Since`/`If-Unmodified-Since` (RFC 7232 precedence), `versionId` incl. `null`, `x-amz-checksum-mode: ENABLED` (checksum only on full-object reads; a `partNumber` read always reports that part's checksum), `x-tidemark-as-of`. Default Content-Type `binary/octet-stream`. |
 | HeadObject | ✅ | `objects.rs`, `range_conditional.rs` | Same as GetObject without body. |
 | DeleteObject | ✅ | `objects.rs`, `versioning.rs` | Versioned → delete marker; unversioned → soft delete; `versionId` → that version leaves every S3 view (kept in the trash for the retention window). |
 | DeleteObjects | ✅ | `objects.rs` | ≤ 1000 keys; `Quiet`; per-key errors (e.g. malformed version id) reported in `<Error>`. |
 | CopyObject | ✅ | `objects.rs`, `range_conditional.rs` | `x-amz-metadata-directive`, `x-amz-tagging-directive`, `x-amz-copy-source-if-*` (all failures 412), destination `If-Match`/`If-None-Match`, source `versionId`, cross-bucket, in-place metadata update. Server-side: the new version shares the source blobs (no data copy). Access-point copy sources → `NotImplemented`. |
 | ListObjects (v1) | ✅ | `listing.rs` | `prefix`, `delimiter`, `marker`, `max-keys` (≤ 1000), `encoding-type=url` (encodes `Key`, `Marker`, `NextMarker`, `Delimiter`, `CommonPrefixes`; `Prefix` is echoed verbatim, as SDKs expect for V1). `NextMarker` returned whenever truncated. |
-| ListObjectsV2 | ✅ | `listing.rs`, `pitr.rs` | Opaque continuation tokens, `start-after`, `fetch-owner`, `encoding-type=url`, `x-cairn-as-of`. |
-| ListObjectVersions | ✅ | `versioning.rs`, `pitr.rs` | Newest first per key; `key-marker` + `version-id-marker`; `x-cairn-include-trash`. Versions and delete markers are serialised as two lists (as the S3 schema allows). |
+| ListObjectsV2 | ✅ | `listing.rs`, `pitr.rs` | Opaque continuation tokens, `start-after`, `fetch-owner`, `encoding-type=url`, `x-tidemark-as-of`. |
+| ListObjectVersions | ✅ | `versioning.rs`, `pitr.rs` | Newest first per key; `key-marker` + `version-id-marker`; `x-tidemark-include-trash`. Versions and delete markers are serialised as two lists (as the S3 schema allows). |
 | Get/Put/DeleteObjectTagging | ✅ | `objects.rs` | ≤ 10 tags; tagging is metadata, so it updates the version in place. |
-| GetObjectAttributes | ✅ | `acl_attributes.rs` | `ETag` (unquoted), `ObjectSize`, `StorageClass`, `Checksum` (with `ChecksumType`), `ObjectParts` for multipart objects with per-part size and checksum, `max-parts` / `part-number-marker` paging; `versionId`, `x-cairn-as-of`. |
+| GetObjectAttributes | ✅ | `acl_attributes.rs` | `ETag` (unquoted), `ObjectSize`, `StorageClass`, `Checksum` (with `ChecksumType`), `ObjectParts` for multipart objects with per-part size and checksum, `max-parts` / `part-number-marker` paging; `versionId`, `x-tidemark-as-of`. |
 | Get/PutObjectAcl | ✅ | `acl_attributes.rs` | Same model as Get/PutBucketAcl: the bucket owner owns every object. |
 | Get/PutObjectRetention, Get/PutObjectLegalHold, RestoreObject, SelectObjectContent, PostObject, WriteGetObjectResponse | ❌ | — | Shelved for v0.1 or out of scope (DESIGN §0, §6). |
 
@@ -69,10 +69,10 @@ Legend: ✅ implemented and tested · 🟡 partial (see notes) · ❌ returns `5
 
 ## Manual client runs
 
-Real clients against a throwaway `cairn serve` (PRODUCTION-READINESS A3). Re-run with
-`scripts/e2e-clients.sh [path/to/cairn]` and paste its output here.
+Real clients against a throwaway `tidemark serve` (PRODUCTION-READINESS A3). Re-run with
+`scripts/e2e-clients.sh [path/to/tidemark]` and paste its output here.
 
-Run 2026-11-08T17:45Z by `scripts/e2e-clients.sh`, cairn 0.1.0 debug build of `target/debug/cairn` built 17:17Z (tree at about 523a207), SigV4 auth on with the root credential printed by `cairn init`, 1 vCPU gVisor host. Clients:
+Run 2026-11-08T17:45Z by `scripts/e2e-clients.sh`, tidemark 0.1.0 debug build of `target/debug/tidemark` built 17:17Z (tree at about 523a207), SigV4 auth on with the root credential printed by `tidemark init`, 1 vCPU gVisor host. Clients:
 - aws-cli/1.46.3 Python/3.12.1 Linux/4.19.0-gvisor botocore/1.43.62
 - rclone v1.76.0
 - mc RELEASE.2025-08-13T08-35-41Z
