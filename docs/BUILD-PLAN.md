@@ -1,4 +1,4 @@
-# Tidemark — Build plan (v0.1)
+# Tidemark — Build plan (v0.1: alpha → beta → stable)
 
 Scope lives in `docs/DESIGN.md` (§0 says what is in, what is out, and the four claims). Done means
 every row in `docs/PRODUCTION-READINESS.md` is checked. Decisions and their reasons are in
@@ -30,30 +30,62 @@ serve a claim, a table-stakes row, or the release itself is out.
 `rmcp` 3 for MCP · edition 2024 · `#![forbid(unsafe_code)]` · AGPL-3.0-only · DCO, no CLA.
 Crate API contracts are documented in each crate's `lib.rs` rustdoc.
 
-## What is built (2026-11-08)
+## Where we are (2026-11-09)
 
-| Crate | State | Lines |
-|---|---|---|
-| core, meta, blob | done; PITR `head_at`, GC index, AEAD blobs | 7k |
-| auth | done; 143-case policy evaluator, credential store, STS, SigV4, s3s bridge | 12k |
-| engine | done for v0.1 ops; recovery, GC, trash, PITR diff, fsck, scrub, backup | 11k |
-| s3, server, cli | 29 S3 ops, healthz/readyz, graceful shutdown, `init`/`serve`; auth not wired | 8k |
-| admin, mcp | libraries done; not mounted in the server | 6k |
-| events | library done; **shelved** (not wired, not in v0.1) | 3.5k |
+Every row in `docs/PRODUCTION-READINESS.md` is checked. `v0.1.0-alpha.2` is public; the rename
+to Tidemark is committed but **`v0.1.0-alpha.3` is not tagged**, and the README quickstart and
+`scripts/start.sh` already download it, so the quickstart 404s today. Numbers: 292 workspace tests,
+322/370 ceph s3-tests (87.0%), binary 17.3 MiB x86_64, idle 10.4 MiB, all CI green on
+GitHub-hosted runners.
 
 ## Remaining work
 
-Three lanes, disjoint files. Each lane commits at every green step and pushes nothing; the
-orchestrator pushes. Lane 2 is ordered claim-first: the tests that would embarrass us if they
-failed in public come before polish.
+Ordered. Each step lands only when the one before it is green; nothing from a later block starts
+early unless it is blocked on nothing and someone has spare time.
 
-| # | Lane | Work | Closes |
-|---|------|------|--------|
-| 1 | **Wire** (server/cli) | Mount `TidemarkS3Auth`/`TidemarkS3Access`, STS router, admin router with a real `AdminEngine`, MCP HTTP router + `tidemark mcp --stdio`; `tidemark init` seals root creds in the credential store; `migrate()` at start + `tidemark migrate --dry-run`; CLI: `admin`, `fsck`, `scrub`, `backup`, `restore`, `trash`, `pitr` | B1 B2 B3 B4 C3 C4 C5 C7 D6 D7 |
-| 2 | **Prove the claims** (engine/server tests) | **Claim 1** zero-config undo: fresh bucket, versioning never touched, overwrite + delete object + delete bucket, restore all, bytes identical (A6). **Claim 2** `x-tidemark-as-of` and `tidemark pitr restore` to an instant with no prior snapshot, including across a bucket delete (A5). **Claim 3** dedup: N identical uploads → one blob file; copy, trash restore and PITR restore add zero blob bytes (A7). **Claim 4** a principal denied `s3:GetObject` is denied the same object through MCP `get_object`; `tidemark:TimeTravel` gates `as_of` tools (D7 test half). Then: retention GC, kill-9 fault injection during put / multipart complete / delete, disk-full 507 with GET/DELETE/GC still working, SSE-S3 with key from file/env, lifecycle + abort-mpu with a fake clock | A5 A6 A7 C1 C2 C6 B5 D4 |
-| 3 | **Ship** (scripts/docs/CI) | ceph `s3-tests` on every push gating on `expected-pass.txt`, weekly full sweep (A4); `scripts/e2e-clients.sh` run (aws/rclone/mc) recorded in COMPAT.md (A3); `scripts/footprint.sh` (idle RSS, 10 GiB RSS, binary size) with numbers in README (E1 E2); `/metrics` minimal set; JSON logs + audit JSONL; `tidemark config check`; README rewrite around the four claims and the §0 competitor table; `CONTRIBUTING.md` with DCO (F5); quickstart verified on a clean VM; rename decision; first `v0.1.0-alpha` tag | A3 A4 D1 D2 D3 D5 E1 E2 F1–F5 |
+### Block 0 — unbreak the quickstart (today)
 
-Lane 1 is the critical path; 2 and 3 can start now against the existing engine/server.
+| # | Work | Proof |
+|---|------|-------|
+| 0.1 | Tag `v0.1.0-alpha.3` on `master`; the CHANGELOG section is already dated. | release run green: two binaries, SBOMs, SHA256SUMS, GHCR image |
+| 0.2 | Make the new GHCR package `solutionforest/tidemark` public (package visibility does not follow the repo; the CLI token lacks `packages` scope, so this is a one-time UI step). Leave `cairn` as is; its last tag is alpha.2 and the old README pins it. | `docker pull ghcr.io/solutionforest/tidemark:v0.1.0-alpha.3` anonymously |
+| 0.3 | Re-run the README quickstart and `scripts/start.sh` from an empty directory against the published tarball; run `compose` once. | the three commands in README "Start" succeed; `compose` workflow run green |
+| 0.4 | This file. BUILD-PLAN described lanes that finished a day ago. | this section |
+
+### Block 1 — alpha → beta: the data directory becomes a promise
+
+Beta means: a data directory written by release N opens in release N+1, always. Today alpha.3
+breaks alpha.2 directories and the CHANGELOG says so. From `beta.1` on that is forbidden.
+
+| # | Work | Proof |
+|---|------|-------|
+| 1.1 | Freeze the on-disk formats: `meta` schema version, `postcard` record schema bytes, blob layout, credential-store labels, backup format. Write them down in DESIGN §4 as "frozen at beta.1; changes go through `migrate`". | DESIGN §4 table; DECISIONS entry |
+| 1.2 | Upgrade test in CI: download the previous release binary, `init` + write a mixed workload (versions, multipart, tags, policy, trash, encrypted store), stop; open with the current build, `migrate --dry-run` then `serve`; every byte and every version id identical, `fsck` clean. Runs on every push once beta.1 exists. | `.github/workflows/upgrade.yml`; `scripts/upgrade-test.sh` |
+| 1.3 | Soak: 24 h under `rclone` + `warp` mixed load with a kill -9 every 10 min and a disk-full window; `fsck --verify` clean at the end, RSS flat. One scheduled workflow (weekly) on a GitHub-hosted runner, shorter (2 h) with the same shape. | `.github/workflows/soak.yml`; numbers in OPERATIONS.md |
+| 1.4 | Drop `aws-sdk-s3` from `tidemark-blob` and `tidemark-server` (only tiering used it; tiering is shelved). Keep it as a dev-dependency for tests. Expect a smaller binary and fewer `cargo audit` ignores. | `deny.toml` / `.cargo/audit.toml` ignore list shrinks; footprint job prints the new size |
+| 1.5 | Fuzz targets promised in DESIGN §14 but never written: SigV4 header/query parsing reaching our code, policy JSON, lifecycle/tagging XML, key → blob path. Nightly 10-minute run. | `fuzz/` with 4 targets; `.github/workflows/fuzz.yml` |
+| 1.6 | Security self-review of the auth boundary before anyone else looks: presign edge cases, policy evaluator condition keys, admin API, STS, admin-ui backends. Findings become tests or DECISIONS entries. | `docs/SECURITY-REVIEW-<date>.md` with each finding and its test |
+| 1.7 | Performance numbers. DESIGN §13 states targets nobody has measured. Run `warp` on one fixed machine, publish the real numbers in OPERATIONS.md, and either keep or lower the §13 targets to match. No bench harness beyond one script. | `scripts/bench.sh`; OPERATIONS.md "Throughput" |
+
+Exit: `v0.1.0-beta.1` tagged with the upgrade test green from alpha.3 → beta.1.
+
+### Block 2 — beta → v0.1.0
+
+| # | Work | Proof |
+|---|------|-------|
+| 2.1 | Two beta releases at least two weeks apart with the upgrade test passing between them and no data-affecting bug open. | release history |
+| 2.2 | Operations kit: Prometheus alert rules (disk, trash growth, scrub damage, gc stalls), one Grafana dashboard JSON, a backup-to-remote cron example using `tidemark backup` + `rclone`. Small files under `deploy/`. | `deploy/prometheus/`, `deploy/grafana/`, OPERATIONS.md links |
+| 2.3 | s3-tests: decide the `[s3 alt]` question for good. A second account means multi-account IAM, which v0.1 does not have; write the decision down and stop re-triaging those ~28 tests. Anything else that fails is a bug or a documented AWS-vs-Ceph difference. | DECISIONS entry; `expected-pass.txt` |
+| 2.4 | Issue flow: respond to every issue within a week; each bug fixed carries a regression test; each `s3-compat` issue adds its test name to `expected-pass.txt` when fixed. | issue templates (exist); labels (exist) |
+| 2.5 | Announce once: release notes for v0.1.0, one post (r/selfhosted or HN), README comparison table re-verified on that day. | CHANGELOG `[0.1.0]` |
+
+### Not planned
+
+The shelved list below stays shelved. Likely requests, in the order we expect them: OIDC login,
+Object Lock / WORM, bucket quotas, CORS for browser uploads, replication to a second box. Each
+needs an issue with real demand and a DECISIONS entry saying which §0 claim it serves or why a
+table-stakes row now requires it. A dashboard with object browsing is not planned; the admin UI
+stays status/buckets/users/keys/restore and S3 clients do the browsing.
 
 ## Shelved (code may exist; not wired, not tested in CI, not documented as features)
 Replication · blob tiering · events outbox, webhooks, function sinks, SSE stream · OIDC federation ·
