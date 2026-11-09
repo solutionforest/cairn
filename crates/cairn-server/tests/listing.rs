@@ -162,3 +162,23 @@ async fn ten_thousand_keys_paging_prefix_delimiter() {
     assert_eq!(r.contents()[0].key(), Some("sp%20ace%2B%26"));
     env.stop().await;
 }
+
+/// ListObjects V1 with `encoding-type=url` encodes keys, markers and common prefixes but
+/// echoes `Prefix` verbatim (V2 encodes it); SDKs decode accordingly.
+#[tokio::test]
+async fn v1_url_encoding_echoes_prefix_verbatim() {
+    let env = Env::new().await;
+    let s3 = &env.s3;
+    env.bucket("enc").await;
+    env.put("enc", "a b/x", "1").await;
+    let r = s3
+        .list_objects()
+        .bucket("enc")
+        .prefix("a b/")
+        .encoding_type(aws_sdk_s3::types::EncodingType::Url)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.prefix(), Some("a b/"));
+    assert_eq!(r.contents()[0].key(), Some("a%20b/x"));
+}

@@ -271,3 +271,51 @@ async fn lifecycle_expiration_header_and_generated_ids() {
         "generated id reported"
     );
 }
+
+/// A rule sent with the legacy top-level `<Prefix>` comes back in that shape (not as a
+/// `<Filter>`), so read-modify-write clients see what they sent.
+#[tokio::test]
+#[allow(deprecated)]
+async fn lifecycle_legacy_prefix_round_trips_in_the_same_shape() {
+    let env = Env::new().await;
+    let s3 = &env.s3;
+    env.bucket("legacy").await;
+    let legacy = LifecycleRule::builder()
+        .id("old")
+        .prefix("logs/")
+        .expiration(LifecycleExpiration::builder().days(31).build())
+        .status(ExpirationStatus::Enabled)
+        .build()
+        .unwrap();
+    let modern = LifecycleRule::builder()
+        .id("new")
+        .filter(LifecycleRuleFilter::builder().prefix("tmp/").build())
+        .expiration(LifecycleExpiration::builder().days(7).build())
+        .status(ExpirationStatus::Enabled)
+        .build()
+        .unwrap();
+    s3.put_bucket_lifecycle_configuration()
+        .bucket("legacy")
+        .lifecycle_configuration(
+            BucketLifecycleConfiguration::builder()
+                .rules(legacy)
+                .rules(modern)
+                .build()
+                .unwrap(),
+        )
+        .send()
+        .await
+        .unwrap();
+    let lc = s3
+        .get_bucket_lifecycle_configuration()
+        .bucket("legacy")
+        .send()
+        .await
+        .unwrap();
+    let old = &lc.rules()[0];
+    assert_eq!(old.prefix(), Some("logs/"));
+    assert!(old.filter().is_none());
+    let new = &lc.rules()[1];
+    assert_eq!(new.prefix(), None);
+    assert_eq!(new.filter().and_then(|f| f.prefix()), Some("tmp/"));
+}

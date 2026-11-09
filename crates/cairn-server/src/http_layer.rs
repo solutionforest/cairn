@@ -236,6 +236,7 @@ async fn handle(
     let resp = match api {
         Api::Admin | Api::Mcp => call_router(st.cairn.clone(), req).await,
         Api::Sts => call_router(st.sts.clone(), req).await,
+        Api::S3 if req.method() == Method::OPTIONS => s3_preflight(req.headers(), &path, &rid),
         Api::S3 => {
             req.extensions_mut().insert(slot.clone());
             match st.s3.call(req.map(s3s::Body::from)).await {
@@ -316,6 +317,38 @@ async fn handle(
         }
     }
     resp
+}
+
+/// S3 CORS preflight. Bucket CORS is shelved for v0.1, so no origin is ever allowed; answer the
+/// way S3 does for a bucket without a CORS configuration: 400 when the request is not a
+/// well-formed preflight, otherwise 403.
+fn s3_preflight(h: &http::HeaderMap, path: &str, rid: &str) -> Response<BoxBody> {
+    let (status, code, msg) = if !h.contains_key(http::header::ORIGIN) {
+        (
+            StatusCode::BAD_REQUEST,
+            "BadRequest",
+            "Insufficient information. Origin request header needed.",
+        )
+    } else if !h.contains_key(http::header::ACCESS_CONTROL_REQUEST_METHOD) {
+        (
+            StatusCode::BAD_REQUEST,
+            "BadRequest",
+            "Insufficient information. Access-Control-Request-Method header needed.",
+        )
+    } else {
+        (
+            StatusCode::FORBIDDEN,
+            "AccessForbidden",
+            "CORSResponse: CORS is not enabled for this bucket.",
+        )
+    };
+    let mut r = Response::new(full(error_xml(code, msg, path, rid)));
+    *r.status_mut() = status;
+    r.headers_mut().insert(
+        http::header::CONTENT_TYPE,
+        HeaderValue::from_static("application/xml"),
+    );
+    r
 }
 
 fn xml_escape(s: &str) -> String {

@@ -57,6 +57,9 @@ pub struct LifecycleRule {
     pub newer_noncurrent_versions: Option<u32>,
     /// Abort multipart uploads this many days after initiation.
     pub abort_incomplete_multipart_days: Option<u32>,
+    /// The rule used the legacy top-level `<Prefix>` rather than `<Filter>`; GET echoes the
+    /// same shape back, as S3 does.
+    pub legacy_prefix: bool,
 }
 
 /// A bucket's lifecycle configuration.

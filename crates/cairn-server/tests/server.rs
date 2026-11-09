@@ -121,3 +121,40 @@ async fn shutdown_triggered_before_run_still_stops_and_failed_bind_releases_the_
         "a failed bind kept the metadata store locked: {again:#}"
     );
 }
+
+/// Bucket CORS is shelved, so S3 preflights are answered as S3 does for a bucket without a
+/// CORS configuration: 400 without Origin / Access-Control-Request-Method, else 403.
+#[tokio::test]
+async fn s3_preflight_without_cors_configuration() {
+    let env = Env::new().await;
+    env.bucket("preflight").await;
+    let c = reqwest::Client::new();
+    let url = env.url("/preflight/key");
+    let r = c
+        .request(reqwest::Method::OPTIONS, &url)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 400);
+    let r = c
+        .request(reqwest::Method::OPTIONS, &url)
+        .header("origin", "https://example.com")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 400);
+    let r = c
+        .request(reqwest::Method::OPTIONS, &url)
+        .header("origin", "https://example.com")
+        .header("access-control-request-method", "GET")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 403);
+    assert!(
+        r.text()
+            .await
+            .unwrap()
+            .contains("<Code>AccessForbidden</Code>")
+    );
+}

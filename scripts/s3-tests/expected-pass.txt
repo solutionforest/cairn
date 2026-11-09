@@ -95,6 +95,7 @@ test_s3::test_bucket_list_prefix_delimiter_prefix_not_exist
 test_s3::test_bucket_list_prefix_empty
 test_s3::test_bucket_list_prefix_none
 test_s3::test_bucket_list_prefix_not_exist
+test_s3::test_bucket_list_prefix_unreadable
 test_s3::test_bucket_list_return_data
 test_s3::test_bucket_list_return_data_versioning
 test_s3::test_bucket_list_special_prefix
@@ -179,6 +180,8 @@ test_s3::test_lifecycle_expiration_header_and_tags_head
 test_s3::test_lifecycle_expiration_header_head
 test_s3::test_lifecycle_expiration_header_put
 test_s3::test_lifecycle_expiration_header_tags_head
+test_s3::test_lifecycle_get
+test_s3::test_lifecycle_get_no_id
 test_s3::test_lifecycle_id_too_long
 test_s3::test_lifecycle_invalid_status
 test_s3::test_lifecycle_same_id
@@ -258,6 +261,8 @@ test_s3::test_object_raw_authenticated_bucket_gone
 test_s3::test_object_raw_authenticated_object_acl
 test_s3::test_object_raw_authenticated_object_gone
 test_s3::test_object_raw_get_object_acl
+test_s3::test_object_raw_get_x_amz_expires_not_expired
+test_s3::test_object_raw_get_x_amz_expires_not_expired_tenant
 test_s3::test_object_raw_get_x_amz_expires_out_range_zero
 test_s3::test_object_raw_response_headers
 test_s3::test_object_read_not_exist

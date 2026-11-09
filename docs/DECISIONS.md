@@ -486,3 +486,19 @@ Dated (UTC) design and implementation decisions, newest last. Moved out of `BUIL
   matches node ids by prefix, so listing `test_100_continue` also dropped
   `test_100_continue_error_retry` and five other passing tests. `scripts/s3-tests/cairn_deselect.py`
   (a pytest plugin) deselects only exact `module::name` matches.
+
+- **2026-11-09 — The remaining s3-tests failures are triaged; 100% is not a target.** Fixed
+  where Ceph and AWS agree: lifecycle rules echo the shape they were sent in (legacy `Prefix`
+  vs `Filter`; adds `LifecycleRule::legacy_prefix` to the stored record, safe only because no
+  release has shipped), V1 ListObjects echoes `Prefix` verbatim under `encoding-type=url`, and
+  S3 `OPTIONS` preflights answer 400/403 like a bucket without CORS instead of falling through
+  to auth. Left failing on purpose, because Cairn matches AWS and the suite expects Ceph RGW:
+  negative or > 7-day `X-Amz-Expires` (400 `AuthorizationQueryParametersError`, suite wants
+  403), `partNumber` past the last part (416, suite wants 400), PUT with chunked
+  `Transfer-Encoding` and no `Content-Length` (411), RFC 2047-encoded non-ASCII metadata on
+  GET, `GetBucketPolicyStatus` with no policy (`NoSuchBucketPolicy`), no `x-amz-delete-marker`
+  on a non-versioned 404, duplicate part numbers in CompleteMultipartUpload, and torrents
+  (501). Left failing because they need something v0.1 does not have: a second account for
+  `[s3 alt]` (~28 tests), a lifecycle debug clock, and SigV4 signed with `Date` instead of
+  `X-Amz-Date` (s3s rejects the unsigned `x-amz-date` a shim would add, which is the right
+  security behaviour).

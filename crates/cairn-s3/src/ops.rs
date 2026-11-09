@@ -760,7 +760,9 @@ impl CairnS3 {
         let enc = |s: Option<String>| if url { s.map(|s| url_encode(&s)) } else { s };
         ok(ListObjectsOutput {
             name: Some(i.bucket),
-            prefix: Some(enc(i.prefix).unwrap_or_default()),
+            // V1 echoes Prefix verbatim even with encoding-type=url (SDKs only URL-decode
+            // Delimiter/Marker/NextMarker/Key/CommonPrefixes for V1, unlike V2).
+            prefix: Some(i.prefix.unwrap_or_default()),
             marker: Some(enc(i.marker).unwrap_or_default()),
             max_keys: Some(max as i32),
             is_truncated: Some(r.truncated),

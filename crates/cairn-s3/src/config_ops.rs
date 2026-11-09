@@ -135,6 +135,7 @@ fn rule_in(r: LifecycleRule_) -> CResult<LifecycleRule> {
                 .and_then(|a| a.days_after_initiation),
             "DaysAfterInitiation",
         )?,
+        legacy_prefix: r.filter.is_none() && r.prefix.is_some(),
     })
 }
 
@@ -182,7 +183,7 @@ fn rule_out(r: &LifecycleRule) -> LifecycleRule_ {
         } else {
             ExpirationStatus::DISABLED
         }),
-        filter: Some(filter),
+        filter: (!r.legacy_prefix).then_some(filter),
         expiration,
         noncurrent_version_expiration: r.noncurrent_days.map(|d| NoncurrentVersionExpiration {
             noncurrent_days: Some(d as i32),
@@ -194,7 +195,7 @@ fn rule_out(r: &LifecycleRule) -> LifecycleRule_ {
             }
         }),
         noncurrent_version_transitions: None,
-        prefix: None,
+        prefix: r.legacy_prefix.then(|| f.prefix.clone()),
         transitions: None,
     }
 }
