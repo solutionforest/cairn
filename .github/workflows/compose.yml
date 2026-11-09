@@ -35,7 +35,7 @@ jobs:
       - name: Published image exists (anonymous, as a README reader pulls it)
         id: image
         run: |
-          image="$(docker compose config --images | grep solutionforest/cairn)"
+          image="$(CAIRN_ROOT_ACCESS_KEY=x CAIRN_ROOT_SECRET=x docker compose config --images | grep solutionforest/cairn)"
           if docker manifest inspect "$image" >/dev/null 2>&1; then
             echo "ok=1" >> "$GITHUB_OUTPUT"
           elif [ "$GITHUB_EVENT_NAME" = push ]; then
