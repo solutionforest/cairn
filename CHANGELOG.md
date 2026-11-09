@@ -10,7 +10,14 @@ Release notes, so write entries for operators, not for developers.
 
 ## [Unreleased]
 
+## [0.1.0-alpha.2] - 2026-11-09
+
+First public pre-release. Same server as 0.1.0-alpha.1; this release adds easier ways to start it.
+Binaries and the image are built on GitHub-hosted runners and download without a GitHub account.
+
 ### Added
+- Public multi-arch image `ghcr.io/solutionforest/cairn` (`linux/amd64`, `linux/arm64`) and a
+  root `compose.yaml`: `docker compose up -d`, with `--profile ui` for the admin UI.
 - `scripts/start.sh`: one command downloads and verifies the release binary, creates a data
   directory with fresh credentials, and starts the server (and with `--ui`, the admin UI).
 - Optional local admin UI (`admin-ui/`): status, buckets, users, keys, and one-click restore from
@@ -59,5 +66,6 @@ Replication, tiering, event notifications, OIDC, Object Lock, SSE-C / SSE-KMS, C
 PostObject, quotas and rate limiting are not supported; `docs/COMPAT.md` lists how each
 related request is answered.
 
-[Unreleased]: https://github.com/solutionforest/cairn/compare/v0.1.0-alpha.1...master
+[Unreleased]: https://github.com/solutionforest/cairn/compare/v0.1.0-alpha.2...master
+[0.1.0-alpha.2]: https://github.com/solutionforest/cairn/releases/tag/v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/solutionforest/cairn/releases/tag/v0.1.0-alpha.1

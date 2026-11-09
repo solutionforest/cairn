@@ -16,7 +16,7 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$here/.." && pwd)"
 repo=solutionforest/cairn
-version=v0.1.0-alpha.1
+version=v0.1.0-alpha.2
 data=./cairn-data
 port=9000
 ui_port=9080
@@ -49,14 +49,10 @@ find_binary() {
   name="cairn-$version-$target"
   dir="$(mktemp -d)"
   say "Downloading $name" >&2
-  if command -v gh >/dev/null && gh auth status >/dev/null 2>&1; then
-    gh release download "$version" -R "$repo" -D "$dir" -p "$name.tar.gz" -p SHA256SUMS >&2
-  else
-    local base="https://github.com/$repo/releases/download/$version"
-    curl -fsSL -o "$dir/$name.tar.gz" "$base/$name.tar.gz" \
-      && curl -fsSL -o "$dir/SHA256SUMS" "$base/SHA256SUMS" \
-      || die "download failed; while the repository is private, sign in with 'gh auth login' first"
-  fi
+  local base="https://github.com/$repo/releases/download/$version"
+  curl -fsSL -o "$dir/$name.tar.gz" "$base/$name.tar.gz" \
+    && curl -fsSL -o "$dir/SHA256SUMS" "$base/SHA256SUMS" \
+    || die "download failed from $base"
   (cd "$dir" && grep " $name.tar.gz\$" SHA256SUMS | sha256sum -c - >/dev/null) || die "checksum mismatch for $name.tar.gz"
   tar xzf "$dir/$name.tar.gz" -C "$dir"
   install -m 0755 "$dir/$name/cairn" ./cairn

@@ -29,15 +29,14 @@ clustering, OIDC, search or FUSE in one AGPL binary, [VaultS3](https://github.co
 already does that well. If you need a distributed cluster, use [RustFS](https://github.com/rustfs/rustfs)
 or [Garage](https://garagehq.deuxfleurs.fr/).
 
-> **Status: alpha (`v0.1.0-alpha.1`).** Expect bugs and S3 compatibility gaps; do not rely on
+> **Status: alpha (`v0.1.0-alpha.2`).** Expect bugs and S3 compatibility gaps; do not rely on
 > Cairn as your only copy of important data. Back up and test restoration. On-disk formats may
 > change before 0.1.0; see [`docs/OPERATIONS.md`](docs/OPERATIONS.md) before upgrading.
-> The repository and release are currently private and require access to download.
 
 ## Start in one command
 
 ```sh
-gh repo clone solutionforest/cairn && cd cairn    # private for now; later: git clone
+git clone https://github.com/solutionforest/cairn && cd cairn
 scripts/start.sh --ui
 ```
 
@@ -143,13 +142,14 @@ sequenceDiagram
 ### Linux binary
 
 Download the archive for your CPU from the
-[release page](https://github.com/solutionforest/cairn/releases/tag/v0.1.0-alpha.1) (signed in,
-while private), or with the GitHub CLI:
+[release page](https://github.com/solutionforest/cairn/releases/tag/v0.1.0-alpha.2), or:
 
 ```sh
-v=v0.1.0-alpha.1
-t=$(uname -m)-unknown-linux-musl
-gh release download "$v" --repo solutionforest/cairn --pattern "cairn-$v-$t.tar.gz"
+v=v0.1.0-alpha.2
+t=$(uname -m)-unknown-linux-musl          # x86_64 or aarch64
+base=https://github.com/solutionforest/cairn/releases/download/$v
+curl -fLO "$base/cairn-$v-$t.tar.gz" -fLO "$base/SHA256SUMS"
+grep " cairn-$v-$t.tar.gz\$" SHA256SUMS | sha256sum -c -
 tar xzf "cairn-$v-$t.tar.gz"
 ./cairn-$v-$t/cairn init --data-dir ./cairn-data
 ./cairn-$v-$t/cairn serve --config ./cairn-data/cairn.toml
@@ -161,10 +161,9 @@ it runs on any Linux without extra libraries.
 ### Docker Compose
 
 ```sh
-gh repo clone solutionforest/cairn && cd cairn    # private for now; later: git clone
+git clone https://github.com/solutionforest/cairn && cd cairn
 printf 'CAIRN_ROOT_ACCESS_KEY=%s\nCAIRN_ROOT_SECRET=%s\n' \
   "$(openssl rand -hex 10)" "$(openssl rand -base64 30)" > .env && chmod 600 .env
-docker login ghcr.io                  # private image for now: a GitHub token with read:packages
 docker compose up -d                  # S3 on http://127.0.0.1:9000
 docker compose --profile ui up -d     # optional: plus the admin UI on http://127.0.0.1:9080
 ```
@@ -173,8 +172,8 @@ docker compose --profile ui up -d     # optional: plus the admin UI on http://12
 capabilities, and keeps data in the `cairn-data` volume. `.env` holds your root credentials
 (`source .env` gives you `CAIRN_ROOT_*`; aws-cli and rclone want them as `AWS_ACCESS_KEY_ID` and
 `AWS_SECRET_ACCESS_KEY`). Cairn reads them only on the first start, when it seals them into its
-credential store. Without access to the image, `docker compose up -d --build` builds it from the
-checkout instead (a full Rust build, several minutes). Both ports listen on `127.0.0.1` only; set
+credential store. The image is public on GHCR (`linux/amd64` and `linux/arm64`, no login);
+`docker compose up -d --build` builds it from the checkout instead (a full Rust build, several minutes). Both ports listen on `127.0.0.1` only; set
 `CAIRN_PORT` or `CAIRN_UI_PORT` in `.env` to move them. Open the admin UI as `127.0.0.1`, not
 `localhost`: it refuses other host names. `docker compose down` stops the stack and keeps the data;
 `docker compose down -v` deletes it.
@@ -184,7 +183,7 @@ Without compose:
 ```sh
 docker run -d --name cairn --restart unless-stopped \
   -p 127.0.0.1:9000:9000 -v cairn-data:/data --env-file .env \
-  ghcr.io/solutionforest/cairn:0.1.0-alpha.1
+  ghcr.io/solutionforest/cairn:0.1.0-alpha.2
 ```
 
 ### Run it as a service
@@ -272,8 +271,22 @@ Please report vulnerabilities privately; see [`SECURITY.md`](SECURITY.md) (GitHu
 advisories or `security@solutionforest.net`, 90-day coordinated disclosure). Release binaries
 embed their dependency list for `cargo audit bin`, and ship with a CycloneDX SBOM and SHA256SUMS.
 
-## Contributing and design
+## Contributing: issues, not pull requests
 
-Start with [`CONTRIBUTING.md`](CONTRIBUTING.md) (DCO, scope), [`docs/DESIGN.md`](docs/DESIGN.md)
-(architecture, rationale, and §0 for what is in and out) and [`AGENTS.md`](AGENTS.md) (build
-constraints and conventions). Changes are recorded in [`CHANGELOG.md`](CHANGELOG.md).
+Cairn takes contributions as **issues**. We do not accept pull requests for now; ones opened by
+people outside the maintainer team are closed automatically with a pointer here. Open an
+[issue](https://github.com/solutionforest/cairn/issues/new/choose) instead:
+
+- **Bug**: version (`cairn --version`), how you run it, the client and the exact command or
+  request, what you expected, what happened, and the log lines around it (redact keys).
+- **S3 incompatibility**: the client, the operation, and the AWS behaviour you expected. Check
+  [`docs/COMPAT.md`](docs/COMPAT.md) first; documented deviations are listed there.
+- **Feature request**: the problem you have, not only the solution. Scope is narrow on purpose
+  ([`docs/DESIGN.md`](docs/DESIGN.md) §0), so some requests will be declined with a reason.
+
+The maintainers' AI agent triages each issue, reproduces it, writes the fix with a regression
+test, and a maintainer reviews it before it lands. The issue is linked from the fix commit and
+closed when it ships. Security problems go through [`SECURITY.md`](SECURITY.md), never a public
+issue. More in [`CONTRIBUTING.md`](CONTRIBUTING.md); architecture and build conventions are in
+[`docs/DESIGN.md`](docs/DESIGN.md) and [`AGENTS.md`](AGENTS.md); changes are in
+[`CHANGELOG.md`](CHANGELOG.md).

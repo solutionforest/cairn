@@ -1,0 +1,22 @@
+name: pr-policy
+# Cairn takes contributions as issues, not pull requests (CONTRIBUTING.md). Pull requests from
+# anyone outside the maintainer team are closed with a pointer to the issue tracker.
+# pull_request_target so the token can comment on fork PRs; the job never checks out or runs
+# the PR's code, it only calls the API.
+on:
+  pull_request_target:
+    types: [opened, reopened]
+permissions:
+  pull-requests: write
+jobs:
+  close:
+    if: ${{ !contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh pr close "$PR" --repo "$REPO" --comment "Thanks for this! Cairn takes contributions as issues, not pull requests, for now: please open one at https://github.com/$REPO/issues/new/choose describing the problem (and paste your diff there if you have one; it is read and credited when used). The maintainers' agent reproduces and fixes each issue under review. See CONTRIBUTING.md."

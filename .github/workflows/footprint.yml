@@ -1,7 +1,7 @@
 name: footprint
 
 # PRODUCTION-READINESS E2: static musl release binary <= 20 MB and idle RSS <= 25 MiB after a
-# 110 s settle, measured on a regular Linux kernel (the dev host is gVisor, whose RSS is not
+# 110 s settle, measured on a regular Linux kernel (GitHub-hosted x86_64) (the dev host is gVisor, whose RSS is not
 # comparable). Size + idle only; the 10 GiB streaming run (E1) stays a manual measurement.
 on:
   push:
@@ -21,7 +21,7 @@ env:
 jobs:
   footprint:
     name: footprint (size + idle RSS budget)
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4

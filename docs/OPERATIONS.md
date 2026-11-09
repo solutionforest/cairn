@@ -25,7 +25,7 @@ the max of 0.2 s samples and a shorter spike could be missed).
 what runs) and faults anonymous memory in coarse chunks: five fresh starts of the same binary
 measured 25.4–34.3 MiB, with the binary mapping constant at 17.4 MiB and anonymous memory
 varying between 6 and 16 MiB from the first second on. The E2 budget is therefore checked on a
-regular Linux kernel by `.github/workflows/footprint.yml` (self-hosted runner, size + idle,
+regular Linux kernel by `.github/workflows/footprint.yml` (GitHub-hosted runner, size + idle,
 fails over budget); the step summary of the latest run is the number to quote.
 
 Regular-kernel run 2026-11-09T04:15Z (CI `footprint` job, run 42560176403): cairn 0.1.0 @ eb04188,

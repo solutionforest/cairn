@@ -530,3 +530,14 @@ Dated (UTC) design and implementation decisions, newest last. Moved out of `BUIL
   (gVisor) cannot run containers, so `.github/workflows/compose.yml` proves the file on the
   self-hosted runners: pull, up, S3 round trip, UI lists the bucket and the trashed object,
   foreign Host refused, restart keeps data.
+- **2026-11-09 — Public repository, GitHub-hosted CI, issues instead of pull requests.** The repo,
+  release assets and GHCR image are public from `v0.1.0-alpha.2`, the first release built on
+  GitHub-hosted `ubuntu-latest` (all workflows moved off the org's self-hosted runners, which
+  were only for the private phase). Contributions come in as issues: templates for bug, S3
+  compatibility and feature requests, blank issues off, security routed to private advisories.
+  `pr-policy.yml` closes pull requests from non-members with a pointer to the tracker, using
+  `pull_request_target` without checking out PR code. The maintainers' AI agent reproduces each
+  issue in a test and writes the fix; a maintainer reviews it. Reason: one review path, every fix
+  starts from a reproduction, and the narrow scope (DESIGN §0) is enforced at the issue, before
+  anyone writes code. `compose.yml` also runs after each release, and a push run skips when its
+  pinned image is not published yet, so a version bump does not race the release.

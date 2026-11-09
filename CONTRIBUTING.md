@@ -5,9 +5,32 @@ proposing a feature. If it does not serve one of the four claims there, or a tab
 [`docs/PRODUCTION-READINESS.md`](docs/PRODUCTION-READINESS.md), it will be declined kindly.
 VaultS3, RustFS, SeaweedFS and Garage are all good; breadth lives there.
 
+## Issues, not pull requests
+
+For now Cairn takes contributions as **issues only**. Pull requests from outside the maintainer
+team are closed automatically (`.github/workflows/pr-policy.yml`) with a pointer to the issue
+tracker; please do not take it personally, and do open the issue.
+
+[Open an issue](https://github.com/solutionforest/cairn/issues/new/choose) and pick a template:
+
+- **Bug report**: version, how you run Cairn, client and exact command, expected vs actual,
+  log lines (redact keys and secrets). A minimal reproduction gets fixed fastest.
+- **S3 compatibility**: client, operation, the AWS behaviour you expected. Check
+  [`docs/COMPAT.md`](docs/COMPAT.md) first; known deviations are listed there.
+- **Feature request**: the problem first, then the solution you have in mind.
+
+How an issue becomes a fix: the maintainers' AI agent triages it, reproduces it in a test,
+writes the change following [`AGENTS.md`](AGENTS.md), and runs the full gate (fmt, clippy, tests,
+s3-tests). A maintainer reviews and merges it; the commit references the issue, and the issue is
+closed when the fix ships in a release. If you already have a patch, paste the diff in the issue;
+it is read and credited (`Co-authored-by`) when used.
+
+Security problems never go in a public issue; use [`SECURITY.md`](SECURITY.md).
+
 ## No CLA. DCO instead.
 
-There is no contributor licence agreement. You keep your copyright. Every commit carries a
+This applies to every commit, including maintainer and agent commits, and to any patch you post
+in an issue. There is no contributor licence agreement. You keep your copyright. Every commit carries a
 [Developer Certificate of Origin](https://developercertificate.org/) sign-off:
 
 ```
@@ -22,9 +45,7 @@ The DCO 1.1 in one breath: (a) you created the contribution and may submit it un
 project's licence, or (b) it is based on prior work under a compatible open-source licence and
 you may submit it with modifications, or (c) someone who certified (a) or (b) gave it to you
 unchanged; and (d) you understand the contribution and your sign-off are public and kept
-indefinitely. Use your real name. Forgot to sign off? `git commit --amend -s` or
-`git rebase --signoff main`, then force-push your branch. Pull requests with unsigned commits
-are not merged.
+indefinitely. Use your real name. Unsigned commits are not merged.
 
 We will never ask you to sign a CLA or assign copyright, and we will not accept one offered.
 
@@ -37,7 +58,7 @@ We will never ask you to sign a CLA or assign copyright, and we will not accept 
 
 This file is in git; any change to these lines is in the history.
 
-## Building
+## Building (to reproduce or test a patch)
 
 Constraints and conventions for humans and agents are in [`AGENTS.md`](AGENTS.md): pure-Rust
 dependencies (rustls, no C build deps), `#![forbid(unsafe_code)]`, clippy clean with
@@ -47,7 +68,7 @@ dependencies (rustls, no C build deps), `#![forbid(unsafe_code)]`, clippy clean 
 ```
 cargo check -p cairn-engine        # iterate per crate
 cargo test -p cairn-server         # integration tests boot the server in-process
-cargo test --workspace             # before opening a PR
+cargo test --workspace             # before proposing a patch
 ```
 
 ## Changes to behaviour

@@ -1,0 +1,25 @@
+name: S3 compatibility
+description: An S3 client or SDK behaves differently against Cairn than against AWS S3.
+labels: ["s3-compat", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: Check [docs/COMPAT.md](https://github.com/solutionforest/cairn/blob/master/docs/COMPAT.md) first; documented deviations are listed there.
+  - type: input
+    id: version
+    attributes: { label: Cairn version, placeholder: 0.1.0-alpha.2 }
+    validations: { required: true }
+  - type: input
+    id: client
+    attributes: { label: Client and version, placeholder: "rclone 1.68, aws-sdk-go-v2 1.30, ..." }
+    validations: { required: true }
+  - type: input
+    id: operation
+    attributes: { label: S3 operation, placeholder: "PutBucketLifecycleConfiguration" }
+    validations: { required: true }
+  - type: textarea
+    id: details
+    attributes:
+      label: Request, Cairn's response, and what AWS returns
+      description: A link to the AWS docs for the expected behaviour helps. Redact secrets.
+    validations: { required: true }

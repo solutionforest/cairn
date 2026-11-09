@@ -6,8 +6,8 @@
 #   2. docker compose up -d                  # S3 on http://127.0.0.1:9000
 #      docker compose --profile ui up -d     # plus the admin UI on http://127.0.0.1:9080
 #
-# The image is pulled from GHCR (private for now: `docker login ghcr.io` first). Without access,
-# `docker compose up -d --build` builds it from this checkout instead (slow: a full Rust build).
+# The image is pulled from GHCR (public, no login). `docker compose up -d --build` builds it from
+# this checkout instead (slow: a full Rust build).
 #
 # The root credential is sealed into the credential store on the first start (empty volume);
 # later starts ignore it. Data lives in the named volume `cairn-data`: `docker compose down -v`
@@ -17,7 +17,7 @@ name: cairn
 
 services:
   cairn:
-    image: ghcr.io/solutionforest/cairn:${CAIRN_VERSION:-0.1.0-alpha.1}
+    image: ghcr.io/solutionforest/cairn:${CAIRN_VERSION:-0.1.0-alpha.2}
     build:
       context: .
       dockerfile: deploy/Dockerfile

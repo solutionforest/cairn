@@ -27,8 +27,7 @@ concurrency:
 
 jobs:
   s3-tests:
-    # Private repo: org EPAR ephemeral runners (labels self-hosted, linux). They start bare.
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
       S3_TESTS_FULL: ${{ (github.event_name == 'schedule' || inputs.full) && '1' || '0' }}

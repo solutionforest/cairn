@@ -1,0 +1,45 @@
+name: Bug report
+description: Cairn crashed, lost or corrupted data, or did something its docs say it should not.
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks. The maintainers' AI agent reproduces each report in a test before fixing it, so exact
+        commands help most. **Redact access keys, secrets and session tokens.**
+  - type: input
+    id: version
+    attributes:
+      label: Cairn version
+      description: Output of `cairn --version`, or the image tag.
+      placeholder: cairn 0.1.0-alpha.2
+    validations: { required: true }
+  - type: dropdown
+    id: install
+    attributes:
+      label: How do you run it?
+      options: [scripts/start.sh, release binary, docker compose, docker run, built from source, other]
+    validations: { required: true }
+  - type: input
+    id: platform
+    attributes:
+      label: OS, CPU and filesystem
+      placeholder: Debian 12, x86_64, ext4
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Client (aws-cli, rclone, mc, SDK + version) and the exact commands or requests.
+      render: shell
+    validations: { required: true }
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs actual
+    validations: { required: true }
+  - type: textarea
+    id: logs
+    attributes:
+      label: Server log lines
+      description: The lines around the failure (`RUST_LOG=debug` if you can). Redact secrets.
+      render: text
