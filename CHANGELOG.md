@@ -15,6 +15,8 @@ developers.
 - Upgrade promise: data directories and backups from 0.1.0-alpha.3 on open in every later
   release. CI writes data with every published release and checks the new build reads it back
   identically, including deleted objects, deleted buckets and time-travel reads.
+- Nightly fuzzing of request signature checks, policy documents, Tidemark's own S3 header
+  parsers and the metadata key layout (`fuzz/`).
 
 ### Changed
 - Smaller binary (14.6 MiB on x86_64, was 17.3 MiB): the AWS SDK and the OIDC/JWT libraries are no

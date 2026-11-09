@@ -25,3 +25,7 @@ hex.workspace = true
 base64.workspace = true
 url.workspace = true
 subtle.workspace = true
+
+[features]
+# Exposes header parsers to the fuzz targets in `fuzz/`.
+fuzzing = []

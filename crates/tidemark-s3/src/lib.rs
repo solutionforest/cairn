@@ -12,6 +12,13 @@ mod ops;
 
 pub use auth::RootAuth;
 pub use convert::RequestId;
+
+/// Header parsers exposed to `fuzz/` only.
+#[cfg(feature = "fuzzing")]
+#[doc(hidden)]
+pub mod fuzzing {
+    pub use crate::convert::{as_of, copy_range, parse_tagging};
+}
 pub use observe::{ObservedAccess, OpInfo, OpSlot};
 
 use s3s::auth::S3Auth;

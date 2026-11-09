@@ -1,0 +1,67 @@
+# Nightly fuzzing of the parsers that take untrusted input in our own code (s3s parses the rest):
+# SigV4, policy JSON, our S3 header parsers, and the metadata key encoding. Targets live in fuzz/.
+# A pull request touching fuzz/ or the fuzzed crates only checks the targets still build.
+name: fuzz
+
+on:
+  schedule:
+    - cron: "41 2 * * *" # nightly 02:41 UTC
+  pull_request:
+    paths:
+      - "fuzz/**"
+      - "crates/tidemark-auth/**"
+      - "crates/tidemark-core/**"
+      - "crates/tidemark-meta/**"
+      - "crates/tidemark-s3/**"
+      - ".github/workflows/fuzz.yml"
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: "Seconds per target"
+        default: "150"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fuzz:
+    name: fuzz ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [sigv4, policy, s3_headers, meta_keys]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+      - name: fmt
+        run: rustfmt --edition 2024 --check fuzz/fuzz_targets/*.rs
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
+      - name: build
+        working-directory: fuzz
+        run: cargo fuzz build ${{ matrix.target }}
+      - name: run
+        if: github.event_name != 'pull_request'
+        working-directory: fuzz
+        run: >
+          cargo fuzz run ${{ matrix.target }} --
+          -max_total_time=${{ inputs.seconds || '150' }} -rss_limit_mb=2048
+      - name: upload crash inputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: fuzz/artifacts/
+          if-no-files-found: ignore

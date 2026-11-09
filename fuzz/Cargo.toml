@@ -1,0 +1,53 @@
+[package]
+name = "tidemark-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "AGPL-3.0-only"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Not a member of the main workspace: cargo-fuzz builds it with nightly and sanitizers.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+http = "1"
+tidemark-auth = { path = "../crates/tidemark-auth" }
+tidemark-core = { path = "../crates/tidemark-core" }
+tidemark-meta = { path = "../crates/tidemark-meta" }
+tidemark-s3 = { path = "../crates/tidemark-s3", features = ["fuzzing"] }
+url = "2"
+
+[[bin]]
+name = "sigv4"
+path = "fuzz_targets/sigv4.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "policy"
+path = "fuzz_targets/policy.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "s3_headers"
+path = "fuzz_targets/s3_headers.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "meta_keys"
+path = "fuzz_targets/meta_keys.rs"
+test = false
+doc = false
+bench = false
+
+[profile.release]
+debug = 1

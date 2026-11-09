@@ -678,7 +678,7 @@ function sinks (§10).
   (PRODUCTION-READINESS rows A5, A6, A7, D7).
 - Crash safety: a `crash-sim` test injects failures between blob rename and meta commit and asserts
   fsck finds only orphans.
-- Fuzz: `cargo fuzz` targets for XML parsing inputs that reach our code, policy JSON, key layouts.
+- Fuzz: `fuzz/` (cargo-fuzz, nightly in CI): SigV4 parse/verify and presign round trip, policy JSON, our S3 header parsers, metadata key layout. XML is parsed by s3s, not our code.
 - Load: `warp` (MinIO's benchmark tool) and `s3-benchmark` scripts under `bench/`.
 
 ---
