@@ -1,6 +1,7 @@
 # Release pipeline: push a `v*` tag -> static musl binaries (x86_64, aarch64) with embedded
 # dependency metadata (cargo-auditable), per-binary CycloneDX SBOMs, SHA256SUMS, a GitHub Release
 # whose notes come from CHANGELOG.md, and a multi-arch image on ghcr.io/solutionforest/cairn.
+# The first job fails the run unless CHANGELOG.md has a dated section and link for the tag.
 #
 # Decisions (see docs/BUILD-PLAN.md decisions log, 2026-11-08 Agent C):
 # - runs-on: ubuntu-latest (GitHub-hosted) since the repo went public on 2026-11-09; it ran on the
@@ -41,8 +42,27 @@ env:
   TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
+  changelog:
+    name: Changelog entry
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TAG }}
+      - name: Require a CHANGELOG.md section for this tag
+        run: |
+          scripts/changelog-section.sh "${TAG#v}" CHANGELOG.md > notes.md
+          cat notes.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-notes
+          path: notes.md
+          if-no-files-found: error
+
   build:
     name: build ${{ matrix.target }}
+    needs: changelog
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
@@ -148,8 +168,9 @@ jobs:
         run: |
           sha256sum -- *.tar.gz *.cdx.json > SHA256SUMS
           cat SHA256SUMS
-      - name: Release notes from CHANGELOG.md
-        run: scripts/changelog-section.sh "${TAG#v}" CHANGELOG.md > notes.md
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-notes
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}

@@ -5,8 +5,9 @@ All notable changes to Cairn are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (pre-1.0: minor versions may break
 compatibility; breaking changes are called out under **Changed** or **Removed**).
 
-The release workflow copies the section matching the tag (or `Unreleased`) into the GitHub
-Release notes, so write entries for operators, not for developers.
+Every release has its own dated section here: the release workflow refuses a tag without one
+and copies that section into the GitHub Release notes, so write entries for operators, not for
+developers.
 
 ## [Unreleased]
 

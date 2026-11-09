@@ -76,4 +76,9 @@ cargo test --workspace             # before proposing a patch
 - A change to the design gets a dated line in [`docs/DECISIONS.md`](docs/DECISIONS.md) in the same
   commit.
 - A change an operator would notice gets a line under `Unreleased` in [`CHANGELOG.md`](CHANGELOG.md).
+- Every release has its own changelog entry. Before tagging `vX.Y.Z`, move the `Unreleased`
+  entries into a `## [X.Y.Z] - YYYY-MM-DD` section and add its `[X.Y.Z]: <url>` link line.
+  The release workflow stops before building if either is missing
+  (`scripts/changelog-section.sh X.Y.Z` runs the same check locally) and uses that section as
+  the GitHub Release notes.
 - New `x-cairn-*` headers or `cairn:*` actions go in [`docs/EXTENSIONS.md`](docs/EXTENSIONS.md).

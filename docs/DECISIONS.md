@@ -541,3 +541,9 @@ Dated (UTC) design and implementation decisions, newest last. Moved out of `BUIL
   starts from a reproduction, and the narrow scope (DESIGN §0) is enforced at the issue, before
   anyone writes code. `compose.yml` also runs after each release, and a push run skips when its
   pinned image is not published yet, so a version bump does not race the release.
+- **2026-11-09 — No release without its own changelog entry.** `scripts/changelog-section.sh`
+  used to fall back to the `Unreleased` section and then to "See CHANGELOG.md", so a tag cut
+  without an entry would still publish, with notes for the wrong version. It now exits 1 unless
+  the tag's version has a dated `## [X.Y.Z] - YYYY-MM-DD` section with a body and a link line,
+  and `release.yml` runs it as a first `changelog` job that `build` needs, so a missing entry
+  fails in seconds instead of after the 90-minute build. Both published pre-releases pass.
