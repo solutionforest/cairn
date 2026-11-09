@@ -60,7 +60,7 @@ aws s3 rm s3://photos/cat.jpg         # oops
 
 Options: `--data-dir`, `--port`, `--ui-port`, `--version`; `CAIRN_BIN=/path/to/cairn` uses your
 own build. The script is for trying Cairn and for single-user boxes. For a server that starts on
-boot, use [systemd](#run-it-as-a-service) or [Docker](#docker), and delete `credentials.env` once
+boot, use [systemd](#run-it-as-a-service) or [Docker Compose](#docker-compose), and delete `credentials.env` once
 the credentials are in your password manager.
 
 ### Connect your apps
@@ -158,23 +158,34 @@ tar xzf "cairn-$v-$t.tar.gz"
 `init` prints the root access key and secret once; save them securely. The binary is static, so
 it runs on any Linux without extra libraries.
 
-### Docker
-
-Set your own strong, unique credentials first. Private GHCR images need an authenticated account
-with access.
+### Docker Compose
 
 ```sh
-export CAIRN_ROOT_ACCESS_KEY='<your access key>'
-export CAIRN_ROOT_SECRET='<your strong random secret>'
-docker run -d --name cairn --restart unless-stopped \
-  -p 127.0.0.1:9000:9000 -v cairn-data:/data \
-  -e CAIRN_ROOT_ACCESS_KEY -e CAIRN_ROOT_SECRET \
-  ghcr.io/solutionforest/cairn:0.1.0-alpha.1
+gh repo clone solutionforest/cairn && cd cairn    # private for now; later: git clone
+printf 'CAIRN_ROOT_ACCESS_KEY=%s\nCAIRN_ROOT_SECRET=%s\n' \
+  "$(openssl rand -hex 10)" "$(openssl rand -base64 30)" > .env && chmod 600 .env
+docker login ghcr.io                  # private image for now: a GitHub token with read:packages
+docker compose up -d                  # S3 on http://127.0.0.1:9000
+docker compose --profile ui up -d     # optional: plus the admin UI on http://127.0.0.1:9080
 ```
 
-The named volume holds the data; removing it deletes the data. The container uses the
-credentials only when it initializes an empty data directory. A compose file is in
-[`deploy/docker-compose.yml`](deploy/docker-compose.yml).
+[`compose.yaml`](compose.yaml) runs the published image read-only, as a non-root user with no
+capabilities, and keeps data in the `cairn-data` volume. `.env` holds your root credentials
+(`source .env` gives you `CAIRN_ROOT_*`; aws-cli and rclone want them as `AWS_ACCESS_KEY_ID` and
+`AWS_SECRET_ACCESS_KEY`). Cairn reads them only on the first start, when it seals them into its
+credential store. Without access to the image, `docker compose up -d --build` builds it from the
+checkout instead (a full Rust build, several minutes). Both ports listen on `127.0.0.1` only; set
+`CAIRN_PORT` or `CAIRN_UI_PORT` in `.env` to move them. Open the admin UI as `127.0.0.1`, not
+`localhost`: it refuses other host names. `docker compose down` stops the stack and keeps the data;
+`docker compose down -v` deletes it.
+
+Without compose:
+
+```sh
+docker run -d --name cairn --restart unless-stopped \
+  -p 127.0.0.1:9000:9000 -v cairn-data:/data --env-file .env \
+  ghcr.io/solutionforest/cairn:0.1.0-alpha.1
+```
 
 ### Run it as a service
 

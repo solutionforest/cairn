@@ -3,3 +3,5 @@ target/
 .git/
 **/*.redb
 data/
+.env
+cairn-data/

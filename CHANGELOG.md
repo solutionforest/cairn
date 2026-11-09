@@ -50,8 +50,9 @@ still change before 0.1.0; `cairn migrate` handles any change, with a snapshot t
 - **Footprint:** 17.3 MiB static binary (x86_64), about 10 MiB idle RSS, under 60 MiB RSS
   while streaming a 10 GiB object.
 - **Distribution:** static musl binaries for x86_64 and aarch64, a multi-arch image on
-  `ghcr.io/solutionforest/cairn`, CycloneDX SBOMs and `SHA256SUMS`; `deploy/` has a
-  docker-compose file, a hardened systemd unit and an example config with every key.
+  `ghcr.io/solutionforest/cairn`, CycloneDX SBOMs and `SHA256SUMS`; `compose.yaml` runs it
+  (with the admin UI as an opt-in profile), and `deploy/` has a hardened systemd unit and an
+  example config with every key.
 
 ### Not in this release
 Replication, tiering, event notifications, OIDC, Object Lock, SSE-C / SSE-KMS, CORS,

@@ -169,7 +169,8 @@ cairn/
 │   └── cairn-cli/              `cairn` binary: serve, admin client, mcp --stdio, backup, fsck
 ├── crates/cairn-server/tests/  black-box integration tests (aws-sdk-s3 against in-process server)
 ├── docs/                       DESIGN.md (this), BUILD-PLAN.md, API extensions, ops guide
-└── deploy/                     Dockerfile (distroless/scratch), docker-compose, systemd unit
+├── deploy/                     Dockerfile (distroless/scratch), systemd unit, example config
+└── compose.yaml                single-node stack: cairn + optional admin UI (`--profile ui`)
 ```
 
 Dependency direction: `core ← meta, blob, auth ← engine ← s3, admin, mcp ← server ← cli`, with

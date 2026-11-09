@@ -1,0 +1,73 @@
+name: compose
+
+# Smoke test for the README's Docker Compose path: pull the published image, `docker compose
+# --profile ui up`, then use S3 and the admin UI through the published ports. The dev host
+# (gVisor) cannot run containers, so this is where the compose file is proven.
+on:
+  push:
+    branches: [master]
+    paths: ["compose.yaml", "admin-ui/**", "deploy/Dockerfile", ".github/workflows/compose.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: compose-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compose:
+    name: docker compose up (published image + admin UI)
+    runs-on: self-hosted
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+    env:
+      CAIRN_PORT: "19000"
+      CAIRN_UI_PORT: "19080"
+      COMPOSE_PROJECT_NAME: cairn-ci-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: .env as in the README
+        run: |
+          printf 'CAIRN_ROOT_ACCESS_KEY=%s\nCAIRN_ROOT_SECRET=%s\n' \
+            "$(openssl rand -hex 10)" "$(openssl rand -base64 30)" > .env && chmod 600 .env
+      - name: up
+        run: |
+          docker compose version
+          docker compose --profile ui pull
+          docker compose --profile ui up -d --no-build
+          for i in $(seq 60); do curl -sf "http://127.0.0.1:$CAIRN_PORT/readyz" && break; sleep 1; done
+          curl -sf "http://127.0.0.1:$CAIRN_PORT/readyz"
+      - name: S3 and admin UI
+        run: |
+          set -a; . ./.env; set +a
+          s3() { curl -sf --aws-sigv4 "aws:amz:us-east-1:s3" -u "$CAIRN_ROOT_ACCESS_KEY:$CAIRN_ROOT_SECRET" \
+            -H "x-amz-content-sha256: UNSIGNED-PAYLOAD" "$@"; }
+          ep="http://127.0.0.1:$CAIRN_PORT"
+          s3 -X PUT "$ep/compose-smoke"
+          echo hello > hello.txt && s3 -T hello.txt "$ep/compose-smoke/hello.txt"
+          test "$(s3 "$ep/compose-smoke/hello.txt")" = hello
+          s3 -X DELETE "$ep/compose-smoke/hello.txt"
+          ui="http://127.0.0.1:$CAIRN_UI_PORT"
+          for i in $(seq 30); do curl -sf -o /dev/null "$ui/" && break; sleep 1; done
+          curl -sf -H 'X-Cairn-UI: 1' "$ui/api/buckets" | grep -q '"compose-smoke"'
+          curl -sf -H 'X-Cairn-UI: 1' "$ui/api/trash?bucket=compose-smoke" | grep -q '"hello.txt"'
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H 'X-Cairn-UI: 1' -H "Host: evil:$CAIRN_UI_PORT" "$ui/api/info")
+          test "$code" = 403
+      - name: restart keeps data
+        run: |
+          docker compose --profile ui restart
+          for i in $(seq 60); do curl -sf "http://127.0.0.1:$CAIRN_PORT/readyz" && break; sleep 1; done
+          for i in $(seq 30); do curl -sf -o /dev/null "http://127.0.0.1:$CAIRN_UI_PORT/" && break; sleep 1; done
+          curl -sf -H 'X-Cairn-UI: 1' "http://127.0.0.1:$CAIRN_UI_PORT/api/buckets" | grep -q '"compose-smoke"'
+      - name: logs
+        if: failure()
+        run: docker compose --profile ui logs --no-color
+      - name: down
+        if: always()
+        run: docker compose --profile ui down -v --remove-orphans

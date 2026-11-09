@@ -519,3 +519,14 @@ Dated (UTC) design and implementation decisions, newest last. Moved out of `BUIL
   generates the credentials itself, passes them to `init` through `CAIRN_ROOT_*`, and writes
   `cairn-data/credentials.env` with mode 0600. The README tells people to delete it once the
   credentials are stored elsewhere and to use systemd or Docker for long-running installs.
+- **2026-11-09 — `compose.yaml` at the repository root, admin UI as a profile.** `docker compose
+  up -d` from a checkout is the shortest path to a server that restarts on boot, so the compose
+  file moved from `deploy/docker-compose.yml` to the root and reads the root credential from a
+  `.env` the README generates with one `printf` (ignored by git and by the Docker build
+  context). The admin UI runs as `--profile ui` in `python:3.13-alpine` with `admin-ui/` mounted
+  read-only; inside the container it binds `0.0.0.0` (new `CAIRN_UI_BIND`, default `127.0.0.1`)
+  and the port is published on the host's loopback only, so the Host/Origin checks still apply.
+  `build:` sits next to `image:` so people without GHCR access can `--build`. The dev host
+  (gVisor) cannot run containers, so `.github/workflows/compose.yml` proves the file on the
+  self-hosted runners: pull, up, S3 round trip, UI lists the bucket and the trashed object,
+  foreign Host refused, restart keeps data.

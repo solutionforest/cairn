@@ -22,6 +22,7 @@ SECRET_KEY = os.environ.get("CAIRN_SECRET_KEY") or os.environ.get("CAIRN_SECRET_
 REGION = os.environ.get("CAIRN_REGION", "us-east-1")
 PORT = int(os.environ.get("CAIRN_UI_PORT", "9080"))
 HOST = f"127.0.0.1:{PORT}"
+BIND = os.environ.get("CAIRN_UI_BIND", "127.0.0.1")
 PAGE = (Path(__file__).resolve().parent / "index.html").read_bytes()
 
 READ = re.compile(r"^(info|whoami|buckets|users|access-keys|trash)$")
@@ -140,4 +141,4 @@ if __name__ == "__main__":
     if not ACCESS_KEY or not SECRET_KEY:
         sys.exit("Set CAIRN_ACCESS_KEY and CAIRN_SECRET_KEY.")
     print(f"Cairn admin: http://{HOST}  (Cairn at {ENDPOINT})")
-    ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+    ThreadingHTTPServer((BIND, PORT), Handler).serve_forever()
