@@ -10,25 +10,47 @@ Release notes, so write entries for operators, not for developers.
 
 ## [Unreleased]
 
-### Added
-- Storage core: `redb` metadata store with group commit and point-in-time (`head_at`) queries;
-  content-addressed filesystem blob store with BLAKE3 ids, streaming multi-hash writer and
-  chunked AES-256-GCM encryption at rest.
-- IAM: policy language and evaluator, credential store, STS sessions, SigV4 signing/presign.
-- Engine and S3 layer (in progress): buckets, objects, versions, multipart uploads, checksums.
-- Event notifications (`cairn-events`): S3 event-message 2.1 records plus `cairn:TrashRestored`,
-  `cairn:PitrRestore`, `cairn:BucketDeleted`; `NotificationConfiguration` XML including
-  `CloudFunctionConfiguration` / `LambdaFunctionConfiguration`; durable outbox committed in the
-  same transaction as the mutation; per-sink delivery worker with exponential backoff, jitter
-  and a dead-letter queue; webhook sink with HMAC-SHA256 signatures; function sinks with
-  `bearer`, `sigv4-lambda` (AWS Lambda Invoke) and `cf-access` (Cloudflare Access) auth;
-  Server-Sent Events stream at `/_cairn/v1/events`.
-- Release engineering: static musl binaries for x86_64 and aarch64, multi-arch container image
-  on `ghcr.io/solutionforest/cairn`, CycloneDX SBOMs, SHA256SUMS, `cargo deny` / `cargo audit`
-  in CI, `SECURITY.md`.
-- Deployment examples: `deploy/docker-compose.yml`, `deploy/cairn.service` (hardened systemd
-  unit), `deploy/cairn.example.toml` (every key with its default).
-- Tooling: `bench/` (warp-based benchmark harness), `scripts/s3-tests/` (ceph s3-tests runner
-  with an allowed-failures list).
+## [0.1.0-alpha.1] - 2026-11-09
 
-[Unreleased]: https://github.com/solutionforest/cairn/commits/master
+First pre-release. Single node, one data directory, one static binary. On-disk formats may
+still change before 0.1.0; `cairn migrate` handles any change, with a snapshot taken first.
+
+### Added
+- **S3 API** for buckets, objects, versions, multipart uploads (7 operations), CopyObject,
+  ListObjects v1/v2/versions, tagging, Range and conditional requests, 5 checksum algorithms,
+  GetObjectAttributes, bucket policies and PublicAccessBlock, lifecycle expiration and
+  abort-incomplete-multipart, SSE-S3 (`AES256`) and bucket default encryption. ACLs work the
+  way S3 has defaulted to since 2023 (`BucketOwnerEnforced`). Per-operation status and
+  deviations: `docs/COMPAT.md`. Clients tested: aws-cli, rclone, mc, aws-sdk-s3.
+- **Undo without setup:** every bucket keeps history, so deleting an object, a version or a
+  whole bucket goes to the trash; `cairn trash restore` brings it back byte-identical.
+- **Point-in-time recovery** without a prior snapshot: read any object as of an instant with
+  `x-cairn-as-of`, or `cairn pitr restore` a bucket to one, including before it was deleted.
+- **Deduplication:** content-addressed blobs; identical uploads, copies and restores write no
+  new bytes, encrypted or not.
+- **MCP server** (stdio and HTTP at `/_cairn/mcp`) whose every tool call is an IAM policy
+  decision; time travel needs `cairn:TimeTravel`.
+- **Security:** SigV4 (header and presigned), IAM users, groups, managed and inline policies,
+  roles, STS `AssumeRole` / `GetSessionToken`, explicit-deny-wins evaluation on S3, admin and
+  MCP requests; root credential sealed in the credential store at `cairn init`, never logged;
+  encryption at rest with a master key from file or environment.
+- **Recovery and integrity:** crash-consistent writes (kill -9 safe), `cairn fsck [--repair]`,
+  scheduled `cairn scrub`, encrypted full and incremental `cairn backup` / `cairn restore`,
+  schema migrations with `cairn migrate --dry-run`, `507` on a full disk with reads and deletes
+  still working.
+- **Operations:** `/healthz`, `/readyz`, Prometheus `/metrics`, JSON logs with request ids, an
+  audit log of mutating and denied requests, `cairn config check`, and `cairn admin` for users,
+  keys, groups, policies, roles, buckets, trash and PITR (`--json`).
+- **Footprint:** 17.3 MiB static binary (x86_64), about 10 MiB idle RSS, under 60 MiB RSS
+  while streaming a 10 GiB object.
+- **Distribution:** static musl binaries for x86_64 and aarch64, a multi-arch image on
+  `ghcr.io/solutionforest/cairn`, CycloneDX SBOMs and `SHA256SUMS`; `deploy/` has a
+  docker-compose file, a hardened systemd unit and an example config with every key.
+
+### Not in this release
+Replication, tiering, event notifications, OIDC, Object Lock, SSE-C / SSE-KMS, CORS,
+PostObject, quotas and rate limiting are not supported; `docs/COMPAT.md` lists how each
+related request is answered.
+
+[Unreleased]: https://github.com/solutionforest/cairn/compare/v0.1.0-alpha.1...master
+[0.1.0-alpha.1]: https://github.com/solutionforest/cairn/releases/tag/v0.1.0-alpha.1

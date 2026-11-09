@@ -29,20 +29,20 @@ clustering, OIDC, search or FUSE in one AGPL binary, [VaultS3](https://github.co
 already does that well. If you need a distributed cluster, use [RustFS](https://github.com/rustfs/rustfs)
 or [Garage](https://garagehq.deuxfleurs.fr/).
 
-> **Status: pre-alpha.** The four claims below are proven by integration tests through the
-> server; the remaining release rows are tracked in the readiness list. There is no release yet
-> and on-disk formats may change. Follow [`docs/BUILD-PLAN.md`](docs/BUILD-PLAN.md) for progress and
-> [`docs/PRODUCTION-READINESS.md`](docs/PRODUCTION-READINESS.md) for what "1.0-ready" means.
-> "Cairn" is a working title (see the name-check entry in the BUILD-PLAN decisions log).
+> **Status: alpha (`v0.1.0-alpha.1`).** The four claims below are proven by integration tests
+> through the server, and every row of [`docs/PRODUCTION-READINESS.md`](docs/PRODUCTION-READINESS.md)
+> names its proof. On-disk formats may still change before 0.1.0; `cairn migrate` handles it,
+> snapshot first. Changes: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## 60-second quickstart
 
 ```sh
-# 1. Get the binary (static, x86_64 or aarch64 Linux) or the container image
-curl -fsSLO https://github.com/solutionforest/cairn/releases/latest/download/cairn-v<version>-x86_64-unknown-linux-musl.tar.gz
-tar xzf cairn-*.tar.gz && sudo install cairn-*/cairn /usr/local/bin/
+# 1. Get the binary (static Linux, x86_64 or aarch64) or the container image
+v=v0.1.0-alpha.1 t=$(uname -m)-unknown-linux-musl
+curl -fsSLO https://github.com/solutionforest/cairn/releases/download/$v/cairn-$v-$t.tar.gz
+tar xzf cairn-$v-$t.tar.gz && sudo install cairn-$v-$t/cairn /usr/local/bin/
 #    or: docker run -p 9000:9000 -v cairn-data:/data \
-#          -e CAIRN_ROOT_ACCESS_KEY=<key> -e CAIRN_ROOT_SECRET=<secret> ghcr.io/solutionforest/cairn
+#          -e CAIRN_ROOT_ACCESS_KEY=<key> -e CAIRN_ROOT_SECRET=<secret> ghcr.io/solutionforest/cairn:0.1.0-alpha.1
 
 # 2. Initialise a data directory (prints the root access key and secret once) and serve
 cairn init --data-dir ./cairn-data
@@ -111,8 +111,9 @@ per-operation status, known differences and client test results are tracked in
 [`docs/COMPAT.md`](docs/COMPAT.md), Cairn-specific
 headers and actions in [`docs/EXTENSIONS.md`](docs/EXTENSIONS.md), and every push runs the ceph
 `s3-tests` suite and fails if any test in the committed
-[`scripts/s3-tests/expected-pass.txt`](scripts/s3-tests/expected-pass.txt) regresses (baseline:
-275 of 462 executed, 59.5%; the target is 80%).
+[`scripts/s3-tests/expected-pass.txt`](scripts/s3-tests/expected-pass.txt) regresses (317 of 370 executed
+pass, 85.7%, with the 53 ACL-grant tests that S3 itself refuses on default buckets deselected;
+74.9% counting them).
 
 ## Licence
 

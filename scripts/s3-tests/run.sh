@@ -156,6 +156,12 @@ rm -f "$junit"
 
 kargs=()
 [ -n "$deselect" ] && kargs=(-k "$deselect")
+# Tests that need ACL grants to someone other than the bucket owner: S3 refuses them on its
+# default BucketOwnerEnforced buckets, and Cairn has no other ownership mode (acl-grants.txt).
+# Exact names via cairn_deselect.py: pytest's --deselect matches by prefix.
+deselect_file=
+[ "$mode" != full ] && deselect_file="$here/acl-grants.txt"
+kargs+=(-p cairn_deselect)
 # shellcheck disable=SC2086 # $paths and $S3_TESTS_EXTRA are intentionally word-split
 pytest_args=(-p no:cacheprovider -o junit_family=xunit2 --junitxml="$junit" -m "$markers" "${kargs[@]}" ${S3_TESTS_EXTRA:-} $paths)
 venv="$work/venv"
@@ -165,7 +171,8 @@ if [ ! -x "$venv/bin/pytest" ]; then
     || { rm -rf "$venv"; echo "virtualenv setup failed (Debian: apt install python3-venv)" >&2; exit 2; }
 fi
 echo "running s3-tests@${commit:0:12} ($mode)"
-(cd "$src" && S3TEST_CONF="$conf" S3_USE_SIGV4=true "$venv/bin/pytest" "${pytest_args[@]}") || true
+(cd "$src" && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}" CAIRN_DESELECT_FILE="$deselect_file" \
+  S3TEST_CONF="$conf" S3_USE_SIGV4=true "$venv/bin/pytest" "${pytest_args[@]}") || true
 
 [ -s "$junit" ] || { echo "no junit report produced (collection error?)" >&2; exit 2; }
 case "$mode" in

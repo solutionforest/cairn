@@ -180,7 +180,8 @@ async fn versioning_and_delete_marker_lifecycle() {
         "NoSuchVersion"
     );
 
-    // Suspended: new writes get version id "null" and replace the previous null version.
+    // Suspended: new writes get version id "null" and replace the previous null version;
+    // like S3, the write response does not echo the null id.
     set_versioning(&env, "ver", false).await;
     let p = s3
         .put_object()
@@ -190,7 +191,7 @@ async fn versioning_and_delete_marker_lifecycle() {
         .send()
         .await
         .unwrap();
-    assert_eq!(p.version_id(), Some("null"));
+    assert_eq!(p.version_id(), None);
     s3.put_object()
         .bucket("ver")
         .key("k")

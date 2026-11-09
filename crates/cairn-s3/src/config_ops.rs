@@ -199,6 +199,8 @@ fn rule_out(r: &LifecycleRule) -> LifecycleRule_ {
     }
 }
 
+const ENCRYPTION: &str = "encryption";
+
 impl CairnS3 {
     fn policies(&self) -> CResult<&cairn_auth::BucketPolicyStore> {
         self.policies
@@ -365,6 +367,21 @@ impl CairnS3 {
             .into_iter()
             .map(rule_in)
             .collect::<CResult<Vec<_>>>()?;
+        let mut rules = rules;
+        let mut n = 0;
+        // S3 assigns an ID to a rule sent without one; it appears in GET and x-amz-expiration.
+        for i in 0..rules.len() {
+            if rules[i].id.is_none() {
+                let id = loop {
+                    n += 1;
+                    let id = format!("rule-{n}");
+                    if !rules.iter().any(|r| r.id.as_deref() == Some(&id)) {
+                        break id;
+                    }
+                };
+                rules[i].id = Some(id);
+            }
+        }
         self.engine
             .put_bucket_lifecycle(&i.bucket, LifecycleConfiguration { rules })
             .await?;
@@ -393,5 +410,79 @@ impl CairnS3 {
             .delete_bucket_lifecycle(&req.input.bucket)
             .await?;
         ok(DeleteBucketLifecycleOutput::default())
+    }
+
+    /// PutBucketEncryption: only SSE-S3 (`AES256`), and only when the store has a master key,
+    /// because the key is store-wide: with one configured every blob is already encrypted, so the
+    /// stored document describes what is true rather than switching anything on.
+    pub(crate) async fn do_put_bucket_encryption(
+        &self,
+        req: S3Request<PutBucketEncryptionInput>,
+    ) -> Res<PutBucketEncryptionOutput> {
+        let i = req.input;
+        self.engine.bucket(&i.bucket)?;
+        let rules = &i.server_side_encryption_configuration.rules;
+        let sse_s3 = !rules.is_empty()
+            && rules.iter().all(|r| {
+                r.apply_server_side_encryption_by_default
+                    .as_ref()
+                    .is_some_and(|d| {
+                        d.sse_algorithm.as_str() == "AES256" && d.kms_master_key_id.is_none()
+                    })
+            });
+        if !sse_s3 {
+            return Err(CError::new(
+                Code::NotImplemented,
+                "only SSE-S3 (AES256) bucket encryption is supported",
+            ));
+        }
+        if self.engine.config().at_rest_key.is_none() {
+            return Err(CError::new(
+                Code::InvalidRequest,
+                "SSE-S3 needs a store master key (storage.master_key_file); see OPERATIONS.md",
+            ));
+        }
+        self.engine
+            .put_bucket_config(&i.bucket, ENCRYPTION, Some(b"AES256".to_vec()))
+            .await?;
+        ok(PutBucketEncryptionOutput::default())
+    }
+
+    pub(crate) async fn do_get_bucket_encryption(
+        &self,
+        req: S3Request<GetBucketEncryptionInput>,
+    ) -> Res<GetBucketEncryptionOutput> {
+        let b = req.input.bucket;
+        if !self.engine.bucket(&b)?.configs.contains_key(ENCRYPTION) {
+            return Err(
+                CError::code(Code::ServerSideEncryptionConfigurationNotFoundError).with_resource(b),
+            );
+        }
+        ok(GetBucketEncryptionOutput {
+            server_side_encryption_configuration: Some(ServerSideEncryptionConfiguration {
+                rules: vec![ServerSideEncryptionRule {
+                    apply_server_side_encryption_by_default: Some(ServerSideEncryptionByDefault {
+                        sse_algorithm: ServerSideEncryption::from_static(
+                            ServerSideEncryption::AES256,
+                        ),
+                        kms_master_key_id: None,
+                    }),
+                    bucket_key_enabled: Some(false),
+                    ..Default::default()
+                }],
+            }),
+        })
+    }
+
+    pub(crate) async fn do_delete_bucket_encryption(
+        &self,
+        req: S3Request<DeleteBucketEncryptionInput>,
+    ) -> Res<DeleteBucketEncryptionOutput> {
+        let b = req.input.bucket;
+        self.engine.bucket(&b)?;
+        self.engine.put_bucket_config(&b, ENCRYPTION, None).await?;
+        let mut r = S3Response::new(DeleteBucketEncryptionOutput::default());
+        r.status = Some(http::StatusCode::NO_CONTENT);
+        Ok(r)
     }
 }

@@ -25,7 +25,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
  && install -D -m 0755 target/release/cairn /out/cairn
 
 # ---- data dir skeleton owned by the runtime user (named volumes inherit it) --------------------
-FROM alpine:3 AS datadir
+# Built on the build platform: the directory is arch-independent, so no QEMU for the other arch.
+FROM --platform=$BUILDPLATFORM alpine:3 AS datadir
 RUN mkdir -p /data && chown 65532:65532 /data && chmod 0750 /data
 
 # ---- release: prebuilt binary for $TARGETARCH -------------------------------------------------

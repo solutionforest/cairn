@@ -1,0 +1,63 @@
+# ceph/s3-tests cases that need an ACL grant to someone other than the bucket owner (a canned
+# public/authenticated ACL, an explicit grantee, or an ownership mode other than
+# BucketOwnerEnforced). S3 refuses these on its default buckets since April 2023
+# (AccessControlListNotSupported), and Cairn has only that mode (DECISIONS 2026-11-08, ACLs), so
+# the gate deselects them the way it deselects CORS. The weekly full sweep (S3_TESTS_FULL=1)
+# still runs them. One `module::test` per line; the rest of the line is the reason.
+#
+# Selected 2026-11-09 from the failures of the 2026-11-08 run: every failure whose error was
+# AccessControlListNotSupported / InvalidBucketAclWithObjectOwnership / a refused ownership
+# mode, plus the tests whose only setup is a canned ACL grant (read by source).
+test_headers::test_object_acl_create_contentlength_none refused ACL grant or ownership mode
+test_s3::test_100_continue refused ACL grant or ownership mode
+test_s3::test_access_bucket_private_object_publicread refused ACL grant or ownership mode
+test_s3::test_access_bucket_private_object_publicreadwrite refused ACL grant or ownership mode
+test_s3::test_access_bucket_private_objectv2_publicread refused ACL grant or ownership mode
+test_s3::test_access_bucket_private_objectv2_publicreadwrite refused ACL grant or ownership mode
+test_s3::test_access_bucket_publicread_object_private refused ACL grant or ownership mode
+test_s3::test_access_bucket_publicread_object_publicread refused ACL grant or ownership mode
+test_s3::test_access_bucket_publicread_object_publicreadwrite refused ACL grant or ownership mode
+test_s3::test_access_bucket_publicreadwrite_object_private refused ACL grant or ownership mode
+test_s3::test_access_bucket_publicreadwrite_object_publicread refused ACL grant or ownership mode
+test_s3::test_access_bucket_publicreadwrite_object_publicreadwrite refused ACL grant or ownership mode
+test_s3::test_bucket_acl_grant_email_not_exist refused ACL grant or ownership mode
+test_s3::test_bucket_acl_grant_nonexist_user refused ACL grant or ownership mode
+test_s3::test_bucket_create_delete_bucket_ownership refused ACL grant or ownership mode
+test_s3::test_bucket_list_objects_anonymous refused ACL grant or ownership mode
+test_s3::test_bucket_listv2_objects_anonymous refused ACL grant or ownership mode
+test_s3::test_bucket_policy_acl refused ACL grant or ownership mode
+test_s3::test_bucketv2_policy_acl refused ACL grant or ownership mode
+test_s3::test_create_bucket_bucket_owner_preferred refused ACL grant or ownership mode
+test_s3::test_create_bucket_object_writer refused ACL grant or ownership mode
+test_s3::test_expected_bucket_owner refused ACL grant or ownership mode
+test_s3::test_get_authpublic_acl_bucket_policy_status refused ACL grant or ownership mode
+test_s3::test_get_public_acl_bucket_policy_status refused ACL grant or ownership mode
+test_s3::test_ignore_public_acls refused ACL grant or ownership mode
+test_s3::test_list_multipart_upload_owner refused ACL grant or ownership mode
+test_s3::test_object_acl_full_control_verify_attributes refused ACL grant or ownership mode
+test_s3::test_object_copy_not_owned_object_bucket refused ACL grant or ownership mode
+test_s3::test_put_bucket_acl_grant_group_read refused ACL grant or ownership mode
+test_s3::test_put_bucket_ownership_bucket_owner_enforced refused ACL grant or ownership mode
+test_s3::test_put_bucket_ownership_bucket_owner_preferred refused ACL grant or ownership mode
+test_s3::test_put_bucket_ownership_object_writer refused ACL grant or ownership mode
+test_s3::test_versioned_object_acl refused ACL grant or ownership mode
+test_s3::test_versioned_object_acl_no_version_specified refused ACL grant or ownership mode
+test_s3::test_object_raw_get anonymous access via a public-read canned ACL
+test_s3::test_object_raw_get_bucket_gone anonymous access via a public-read canned ACL
+test_s3::test_object_raw_get_object_gone anonymous access via a public-read canned ACL
+test_s3::test_object_delete_key_bucket_gone anonymous access via a public-read canned ACL
+test_s3::test_object_anon_put_write_access anonymous access via a public-read canned ACL
+test_s3::test_object_raw_get_bucket_acl anonymous access via a public-read canned ACL
+test_s3::test_bucket_acl_canned reads back canned ACL grants
+test_s3::test_bucket_acl_canned_publicreadwrite reads back canned ACL grants
+test_s3::test_bucket_acl_canned_authenticatedread reads back canned ACL grants
+test_s3::test_object_acl_canned_during_create reads back canned ACL grants
+test_s3::test_object_acl_canned reads back canned ACL grants
+test_s3::test_object_acl_canned_publicreadwrite reads back canned ACL grants
+test_s3::test_object_acl_canned_authenticatedread reads back canned ACL grants
+test_s3::test_object_acl_canned_bucketownerread reads back canned ACL grants
+test_s3::test_object_acl_canned_bucketownerfullcontrol reads back canned ACL grants
+test_s3::test_bucket_acl_revoke_all reads back canned ACL grants
+test_s3::test_bucket_concurrent_set_canned_acl reads back canned ACL grants
+test_s3::test_bucket_recreate_new_acl reads back canned ACL grants
+test_s3::test_bucket_recreate_overwrite_acl reads back canned ACL grants

@@ -3,9 +3,10 @@
 # whose notes come from CHANGELOG.md, and a multi-arch image on ghcr.io/solutionforest/cairn.
 #
 # Decisions (see docs/BUILD-PLAN.md decisions log, 2026-11-08 Agent C):
-# - runs-on: ubuntu-latest, not the self-hosted EPAR runners used by ci.yml. This workflow only
-#   runs on tags, needs more than 1 vCPU for two LTO release builds, and pushes to GHCR, which is
-#   simplest with the hosted runners' Docker daemon. Cost: a few hosted minutes per release.
+# - runs-on: self-hosted (the org's EPAR runners), like every other workflow while the repo is
+#   private (maintainer decision 2026-11-08). Switch to ubuntu-latest when the repo goes public.
+#   The pool mixes x86_64 and arm64 hosts; nothing here depends on the host arch (zig
+#   cross-compiles both targets, and the image stages that run commands use $BUILDPLATFORM).
 # - cargo-zigbuild, not cross: zig's bundled musl/libc headers and linker cross-compile `ring`'s C
 #   and assembly to aarch64 without a Docker daemon or per-target images. cross would need
 #   Docker-in-Docker and pull ~1 GB of toolchain images per target.
@@ -40,7 +41,7 @@ env:
 jobs:
   build:
     name: build ${{ matrix.target }}
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 90
     strategy:
       fail-fast: true
@@ -123,7 +124,7 @@ jobs:
   github-release:
     name: GitHub Release
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 15
     permissions:
       contents: write
@@ -155,7 +156,7 @@ jobs:
   image:
     name: Container image
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 30
     permissions:
       contents: read

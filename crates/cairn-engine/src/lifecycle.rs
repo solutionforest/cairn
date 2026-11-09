@@ -143,6 +143,41 @@ fn days(d: u32) -> Duration {
     Duration::from_secs(u64::from(d) * DAY)
 }
 
+/// When a current version created at `created` expires under `rule`, as S3 computes it: a
+/// `Days` rule adds the days and rounds up to the next midnight UTC; a `Date` rule expires on
+/// that date. `None` when the rule has no current-version expiration.
+fn expiry_at(rule: &LifecycleRule, created: Ts) -> Option<Ts> {
+    match (rule.expiration_days, rule.expiration_date) {
+        (Some(d), _) => {
+            let t = created.plus(days(d)).secs();
+            let day = DAY as i64;
+            Some(Ts::from_secs(
+                t.div_euclid(day) * day + if t.rem_euclid(day) == 0 { 0 } else { day },
+            ))
+        }
+        (None, Some(t)) => Some(t),
+        _ => None,
+    }
+}
+
+impl LifecycleConfiguration {
+    /// The first enabled rule that will expire this current version, and when: what S3 reports
+    /// in `x-amz-expiration` on PUT, GET and HEAD. The lifecycle worker uses the same instant.
+    pub fn current_expiry<'a>(
+        &'a self,
+        key: &str,
+        v: &VersionRecord,
+    ) -> Option<(Ts, Option<&'a str>)> {
+        if v.is_delete_marker() {
+            return None;
+        }
+        self.rules
+            .iter()
+            .filter(|r| r.enabled && LifecycleConfiguration::matches(&r.filter, key, v))
+            .find_map(|r| expiry_at(r, v.created_at).map(|t| (t, r.id.as_deref())))
+    }
+}
+
 /// What one lifecycle pass did.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct LifecycleStats {
@@ -251,16 +286,11 @@ impl CairnEngine {
                         out.push(Action::ExpireVersion(key.to_string(), cur.version_id, true));
                         break;
                     }
-                } else if LifecycleConfiguration::matches(&rule.filter, key, cur) {
-                    let due = match (rule.expiration_days, rule.expiration_date) {
-                        (Some(d), _) => cur.created_at.plus(days(d)) <= now,
-                        (None, Some(t)) => t <= now,
-                        _ => false,
-                    };
-                    if due {
-                        out.push(Action::ExpireCurrent(key.to_string(), cur.version_id));
-                        break;
-                    }
+                } else if LifecycleConfiguration::matches(&rule.filter, key, cur)
+                    && expiry_at(rule, cur.created_at).is_some_and(|t| t <= now)
+                {
+                    out.push(Action::ExpireCurrent(key.to_string(), cur.version_id));
+                    break;
                 }
             }
             if versioned {

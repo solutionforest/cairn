@@ -273,7 +273,7 @@ impl CairnEngine {
         let body = v.body().expect("object version");
         Ok(PutObjectRes {
             etag: body.etag.clone(),
-            version_id: s3_version_id(&v, b.versioning),
+            version_id: s3_write_version_id(&v, b.versioning),
             checksum: body.checksum.as_ref().map(|c| (c.algo, c.value.clone())),
             size: body.size,
             version: v,

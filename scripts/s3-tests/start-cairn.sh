@@ -23,7 +23,10 @@ ep="http://127.0.0.1:$port"
 
 CAIRN_ROOT_ACCESS_KEY="$ak" CAIRN_ROOT_SECRET="$sk" \
   "$cairn" init --data-dir "$data" --listen "127.0.0.1:$port" >&2
-nohup "$cairn" serve --config "$data/cairn.toml" > "$log" 2>&1 &
+# Encrypt at rest with the keys/master.key `init` created, so the suite's sse_s3 tests (bucket
+# encryption, AES256 PUT/GET) run against an encrypted store, as a production SSE-S3 setup would.
+CAIRN_STORAGE_ENCRYPT_AT_REST=true \
+  nohup "$cairn" serve --config "$data/cairn.toml" > "$log" 2>&1 &
 pid=$!
 for _ in $(seq 1 120); do
   curl -fs "$ep/readyz" > /dev/null 2>&1 && break

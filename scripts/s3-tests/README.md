@@ -39,10 +39,15 @@ Outputs land in `target/s3-tests/report/`: `junit.xml`, `passed.txt`, `failed.tx
   hosting, SNS, S3 Control, IAM account/user/group/role APIs, STS + web identity token tests,
   SigV2, and the v0.1-shelved Object Lock and SSE-C/KMS (`object_lock`, `encryption`);
   CORS and PostObject (shelved, no marker) are removed with `-k` (`S3_TESTS_DESELECT`).
+- ACL grants: the tests in `acl-grants.txt` need an ACL grant to someone other than the bucket
+  owner, which S3 refuses on its default `BucketOwnerEnforced` buckets and Cairn does not
+  support. The gate deselects them by exact name through the `cairn_deselect.py` pytest plugin
+  (pytest's own `--deselect` matches by prefix). The full sweep runs them.
   Bucket policy, versioning, lifecycle expiration, SSE-S3, checksums, tagging, conditional
   writes and multipart are **included**. Override with `S3_TESTS_MARKERS`.
-- `[s3 alt]` is the `s3alt` user created by `start-cairn.sh` with no policies (a distinct,
-  default-denied principal); `[s3 tenant]` defaults to alt.
+- `[s3 alt]` is the `s3alt` user created by `start-cairn.sh` with an `s3:*` policy (the
+  suite's setup lists and deletes alt's buckets); it is a second user in Cairn's single
+  account, so tests that expect cross-account denial fail. `[s3 tenant]` defaults to alt.
 
 ## Gating: expected-pass.txt
 

@@ -179,7 +179,7 @@ async fn sse_s3_key_from_file_never_writes_plaintext() {
     .await
     .err()
     .expect("started with a different master key");
-    assert!(format!("{err:#}").contains("decryption failed"), "{err:#}");
+    assert!(format!("{err:#}").contains("cannot unseal"), "{err:#}");
     let store = cairn_blob::FsBlobStore::open(dir.path(), false).unwrap();
     let ids = blob_ids(&dir.path().join("blobs"));
     assert!(ids.len() >= 3);
@@ -258,4 +258,122 @@ fn blob_ids(dir: &Path) -> Vec<cairn_core::BlobId> {
         }
     }
     out
+}
+
+fn sse_config(alg: ServerSideEncryption) -> aws_sdk_s3::types::ServerSideEncryptionConfiguration {
+    use aws_sdk_s3::types::{
+        ServerSideEncryptionByDefault, ServerSideEncryptionConfiguration, ServerSideEncryptionRule,
+    };
+    ServerSideEncryptionConfiguration::builder()
+        .rules(
+            ServerSideEncryptionRule::builder()
+                .apply_server_side_encryption_by_default(
+                    ServerSideEncryptionByDefault::builder()
+                        .sse_algorithm(alg)
+                        .build()
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .build()
+        .unwrap()
+}
+
+/// Put/Get/DeleteBucketEncryption: SSE-S3 only, and only on a store with a master key.
+#[tokio::test]
+async fn bucket_encryption_config_round_trips_on_an_encrypted_store() {
+    let dir = tempfile::tempdir().unwrap();
+    let env = [("CAIRN_STORAGE_MASTER_KEY", hex(&[0x5a; 32]))];
+    let node = Node::start(encrypted(dir.path(), &env)).await;
+    let s3 = &node.s3;
+    node.bucket("enc").await;
+    let get = || s3.get_bucket_encryption().bucket("enc").send();
+    assert_eq!(
+        code(get().await),
+        "ServerSideEncryptionConfigurationNotFoundError"
+    );
+    s3.delete_bucket_encryption()
+        .bucket("enc")
+        .send()
+        .await
+        .unwrap();
+    s3.put_bucket_encryption()
+        .bucket("enc")
+        .server_side_encryption_configuration(sse_config(ServerSideEncryption::Aes256))
+        .send()
+        .await
+        .unwrap();
+    let got = get().await.unwrap();
+    let rule = &got.server_side_encryption_configuration().unwrap().rules()[0];
+    assert_eq!(
+        rule.apply_server_side_encryption_by_default()
+            .unwrap()
+            .sse_algorithm(),
+        &ServerSideEncryption::Aes256
+    );
+    assert_eq!(
+        code(
+            s3.put_bucket_encryption()
+                .bucket("enc")
+                .server_side_encryption_configuration(sse_config(ServerSideEncryption::AwsKms))
+                .send()
+                .await
+        ),
+        "NotImplemented"
+    );
+    s3.delete_bucket_encryption()
+        .bucket("enc")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        code(get().await),
+        "ServerSideEncryptionConfigurationNotFoundError"
+    );
+    node.stop().await;
+}
+
+/// Without a master key, asking for bucket encryption is refused rather than recorded as true.
+#[tokio::test]
+async fn bucket_encryption_needs_a_master_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let node = Node::open(dir.path()).await;
+    node.bucket("plain").await;
+    assert_eq!(
+        code(
+            node.s3
+                .put_bucket_encryption()
+                .bucket("plain")
+                .server_side_encryption_configuration(sse_config(ServerSideEncryption::Aes256))
+                .send()
+                .await
+        ),
+        "InvalidRequest"
+    );
+    node.stop().await;
+}
+
+/// A master key other than the one the data dir was initialised with stops startup with a
+/// message naming the key, instead of serving 500s on every authenticated request.
+#[tokio::test]
+async fn wrong_master_key_refuses_to_start() {
+    let dir = tempfile::tempdir().unwrap();
+    let node = Node::open(dir.path()).await;
+    node.stop().await;
+    for keep_root_in_config in [true, false] {
+        let mut cfg = cairn_server::test_support::test_config(dir.path());
+        if !keep_root_in_config {
+            cfg.auth.root_access_key = None;
+            cfg.auth.root_secret_key = None;
+        }
+        let cfg = cfg
+            .with_env([("CAIRN_STORAGE_MASTER_KEY".to_string(), hex(&[0x11; 32]))])
+            .unwrap();
+        let err = match cairn_server::Server::bind(cfg).await {
+            Ok(_) => panic!("started with the wrong master key"),
+            Err(e) => format!("{e:#}"),
+        };
+        assert!(err.contains("cannot unseal"), "{err}");
+    }
+    Node::open(dir.path()).await.stop().await;
 }

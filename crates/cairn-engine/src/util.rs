@@ -134,6 +134,15 @@ pub(crate) fn s3_version_id(v: &VersionRecord, versioning: Versioning) -> Option
     }
 }
 
+/// Version id a write reports (PUT, Copy, Complete): a suspended bucket writes the `null`
+/// version, which S3 does not echo back in `x-amz-version-id`.
+pub(crate) fn s3_write_version_id(v: &VersionRecord, versioning: Versioning) -> Option<String> {
+    match versioning {
+        Versioning::Suspended if v.is_null => None,
+        _ => s3_version_id(v, versioning),
+    }
+}
+
 /// `null` or hex.
 pub(crate) fn display_vid(v: &VersionRecord) -> String {
     if v.is_null {

@@ -134,6 +134,18 @@ impl CairnS3 {
         }
     }
 
+    /// `x-amz-expiration` for a current version: the lifecycle rule that will expire it and when.
+    fn expiration(&self, bucket: &str, key: &str, v: &cairn_meta::VersionRecord) -> Option<String> {
+        let b = self.engine.bucket(bucket).ok()?;
+        let cfg = cairn_engine::lifecycle::bucket_lifecycle(&b).ok()??;
+        let (at, rule) = cfg.current_expiry(key, v)?;
+        Some(format!(
+            "expiry-date=\"{}\", rule-id=\"{}\"",
+            at.to_jiff().strftime("%a, %d %b %Y %H:%M:%S GMT"),
+            rule.unwrap_or_default()
+        ))
+    }
+
     fn max_meta(&self) -> usize {
         self.engine.config().limits.max_metadata_size
     }
@@ -154,14 +166,22 @@ impl CairnS3 {
             .as_ref()
             .and_then(|c| c.location_constraint.as_ref())
             .map(|l| l.as_str().to_string());
-        self.engine
+        let legacy_region = location.as_deref().unwrap_or(&self.region) == "us-east-1";
+        match self
+            .engine
             .create_bucket(
                 &i.bucket,
                 &who,
                 i.object_lock_enabled_for_bucket.unwrap_or(false),
                 location,
             )
-            .await?;
+            .await
+        {
+            Ok(_) => {}
+            // AWS us-east-1 answers 200 and changes nothing when you re-create a bucket you own.
+            Err(e) if e.code == Code::BucketAlreadyOwnedByYou && legacy_region => {}
+            Err(e) => return Err(e),
+        }
         ok(CreateBucketOutput {
             location: Some(format!("/{}", i.bucket)),
             ..Default::default()
@@ -387,12 +407,14 @@ impl CairnS3 {
             conditions: write_conditions(i.if_match.as_ref(), i.if_none_match.as_ref()),
             owner: who,
         };
+        let (bucket, key) = (preq.bucket.clone(), preq.key.clone());
         let r = match replica {
             Some(vid) => self.engine.put_object_replica(preq, vid).await?,
             None => self.engine.put_object(preq).await?,
         };
         let mut out = PutObjectOutput {
             e_tag: Some(etag_out(&r.etag)),
+            expiration: self.expiration(&bucket, &key, &r.version),
             version_id: r.version_id,
             server_side_encryption: sse,
             ..Default::default()
@@ -462,6 +484,7 @@ impl CairnS3 {
             .checksum_mode
             .as_ref()
             .is_some_and(|m| m.as_str() == "ENABLED");
+        let key = i.key.clone();
         let mut r = self
             .read_object(
                 &req.headers,
@@ -482,6 +505,7 @@ impl CairnS3 {
         };
         fill_read!(out, r, body, checksum_mode, part_no);
         out.replication_status = self.replication_status(&bucket, &r.version);
+        out.expiration = self.expiration(&bucket, &key, &r.version);
         let mut resp = S3Response::new(out);
         add_blob_hash(&mut resp.headers, &body);
         Ok(resp)
@@ -501,6 +525,7 @@ impl CairnS3 {
             .checksum_mode
             .as_ref()
             .is_some_and(|m| m.as_str() == "ENABLED");
+        let key = i.key.clone();
         let r = self
             .read_object(
                 &req.headers,
@@ -518,6 +543,7 @@ impl CairnS3 {
         let mut out = HeadObjectOutput::default();
         fill_read!(out, r, body, checksum_mode, part_no);
         out.replication_status = self.replication_status(&bucket, &r.version);
+        out.expiration = self.expiration(&bucket, &key, &r.version);
         let mut resp = S3Response::new(out);
         add_blob_hash(&mut resp.headers, &body);
         Ok(resp)
@@ -1655,6 +1681,9 @@ forward! {
     put_bucket_lifecycle_configuration => do_put_bucket_lifecycle_configuration: PutBucketLifecycleConfigurationInput => PutBucketLifecycleConfigurationOutput;
     get_bucket_lifecycle_configuration => do_get_bucket_lifecycle_configuration: GetBucketLifecycleConfigurationInput => GetBucketLifecycleConfigurationOutput;
     delete_bucket_lifecycle => do_delete_bucket_lifecycle: DeleteBucketLifecycleInput => DeleteBucketLifecycleOutput;
+    put_bucket_encryption => do_put_bucket_encryption: PutBucketEncryptionInput => PutBucketEncryptionOutput;
+    get_bucket_encryption => do_get_bucket_encryption: GetBucketEncryptionInput => GetBucketEncryptionOutput;
+    delete_bucket_encryption => do_delete_bucket_encryption: DeleteBucketEncryptionInput => DeleteBucketEncryptionOutput;
     get_object_attributes => do_get_object_attributes: GetObjectAttributesInput => GetObjectAttributesOutput;
     get_bucket_acl => do_get_bucket_acl: GetBucketAclInput => GetBucketAclOutput;
     put_bucket_acl => do_put_bucket_acl: PutBucketAclInput => PutBucketAclOutput;

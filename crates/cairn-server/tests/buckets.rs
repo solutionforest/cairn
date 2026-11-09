@@ -11,8 +11,40 @@ async fn bucket_crud_location_tagging_versioning() {
     let s3 = &env.s3;
     env.bucket("alpha").await;
     env.bucket("beta").await;
+    s3.put_object()
+        .bucket("alpha")
+        .key("kept")
+        .body(b"x".to_vec().into())
+        .send()
+        .await
+        .unwrap();
+    // us-east-1: re-creating your own bucket is a no-op 200 that keeps its contents.
+    s3.create_bucket().bucket("alpha").send().await.unwrap();
+    s3.head_object()
+        .bucket("alpha")
+        .key("kept")
+        .send()
+        .await
+        .unwrap();
+    s3.delete_object()
+        .bucket("alpha")
+        .key("kept")
+        .send()
+        .await
+        .unwrap();
+    // Any other region keeps the 409.
     assert_eq!(
-        code(s3.create_bucket().bucket("alpha").send().await),
+        code(
+            s3.create_bucket()
+                .bucket("alpha")
+                .create_bucket_configuration(
+                    aws_sdk_s3::types::CreateBucketConfiguration::builder()
+                        .location_constraint(aws_sdk_s3::types::BucketLocationConstraint::EuWest1)
+                        .build()
+                )
+                .send()
+                .await
+        ),
         "BucketAlreadyOwnedByYou"
     );
     assert_eq!(

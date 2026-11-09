@@ -440,3 +440,49 @@ Dated (UTC) design and implementation decisions, newest last. Moved out of `BUIL
   break those apps. Public access is a bucket policy, gated by PublicAccessBlock. Open question
   for the owner: whether the 51 ceph s3-tests that need ACL grants count against A4 (72.1%
   today) or are deselected like CORS (82.0%).
+
+- **2026-11-09 — ACL-grant s3-tests are deselected from the A4 gate (answers the open question
+  above).** The 53 tests in `scripts/s3-tests/acl-grants.txt` need an ACL grant to someone other
+  than the owner, or an ownership mode other than `BucketOwnerEnforced`. S3 answers them with
+  `AccessControlListNotSupported` on its own default buckets, so counting them measures
+  compatibility with pre-2023 S3, not with S3. They are deselected by name, the way CORS is,
+  with the reason per line; the weekly full sweep still runs them, and the readiness row
+  reports both the gated rate and the rate over every executed test. Tests that fail because
+  Cairn has one account (`[s3 alt]` is a second IAM user with `s3:*`, not a second account)
+  stay in the denominator as failures. Reversible: delete the file.
+
+- **2026-11-09 — Crates are not published; the name stays "Cairn" (F4).** Cairn ships as a
+  static binary and a container image, never as a library, so `publish = false` is set
+  workspace-wide and the crates.io conflicts (`cairn`, `cairn-cli`, `cairn-core` taken) stop
+  mattering. Distribution names are namespaced: binary `cairn`, image
+  `ghcr.io/solutionforest/cairn`, release assets `cairn-<tag>-<target>.tar.gz`. The GitHub
+  name is crowded (two other S3 servers called Cairn, 6★ and Java) and trademarks were not
+  checked; a rename stays possible before 1.0 and would touch the image name, binary name and
+  docs only.
+
+- **2026-11-09 — Startup refuses a master key that cannot unseal the credential store.**
+  Found while enabling SSE-S3 in the s3-tests harness: `serve` with a `CAIRN_STORAGE_MASTER_KEY`
+  other than the `keys/master.key` used at `cairn init` started, then answered every admin and
+  STS call with 500 (`secret decryption failed`). The server now unseals the root credential
+  once at startup and exits with a message naming the key source. Test:
+  `crates/cairn-server/tests/sse.rs::wrong_master_key_refuses_to_start`.
+
+- **2026-11-09 — Re-creating your own bucket in `us-east-1` is a 200 no-op**, as on AWS; other
+  regions keep `409 BucketAlreadyOwnedByYou`. Idempotent provisioning (Terraform, `aws s3 mb`
+  retries, app start-up "ensure bucket") expects the AWS answer; the earlier everywhere-409 was
+  a deviation with no safety benefit, since the bucket and its contents are untouched either way.
+
+- **2026-11-09 — Two startup/shutdown bugs found by the wrong-master-key test.** (1) A
+  `ShutdownTrigger` fired before `Server::run_until` subscribed was lost: `watch::Sender::send`
+  drops the value when no receiver exists, so the server never stopped. `trigger` now uses
+  `send_replace`. (2) A `Server::bind` that failed after opening the engine left the metadata
+  database locked for the rest of the process; a drop guard now shuts the engine down on every
+  early return. Neither affects the `cairn serve` binary (a failed start exits the process, and
+  SIGTERM goes through the signal future), but both affect embedders and tests. Test:
+  `crates/cairn-server/tests/server.rs::shutdown_triggered_before_run_still_stops_and_failed_bind_releases_the_store`,
+  checked to fail with each fix reverted.
+
+- **2026-11-09 — The s3-tests deselect list matches exact names.** pytest's `--deselect`
+  matches node ids by prefix, so listing `test_100_continue` also dropped
+  `test_100_continue_error_retry` and five other passing tests. `scripts/s3-tests/cairn_deselect.py`
+  (a pytest plugin) deselects only exact `module::name` matches.

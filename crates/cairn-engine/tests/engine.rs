@@ -427,10 +427,11 @@ async fn versioning_and_delete_markers() {
         .await
         .unwrap();
     assert_eq!(get(&e, "bkt", "k").await.unwrap(), b"v1");
-    // Suspended: writes replace the single null version.
+    // Suspended: writes replace the single null version, which S3 does not echo back.
     e.put_bucket_versioning("bkt", false).await.unwrap();
     let s = put(&e, "bkt", "k", b"s1").await;
-    assert_eq!(s.version_id.as_deref(), Some("null"));
+    assert_eq!(s.version_id, None);
+    assert!(s.version.is_null);
     put(&e, "bkt", "k", b"s2").await;
     assert_eq!(get_req(&e, by("null")).await.unwrap(), b"s2");
     assert_eq!(get_req(&e, by(&v1)).await.unwrap(), b"v1");

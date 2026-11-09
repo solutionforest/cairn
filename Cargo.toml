@@ -8,6 +8,8 @@ edition = "2024"
 license = "AGPL-3.0-only"
 repository = "https://github.com/solutionforest/cairn"
 rust-version = "1.88"
+# Cairn ships as a static binary and a container image, not as crates (DECISIONS 2026-11-09).
+publish = false
 
 [workspace.dependencies]
 cairn-core = { path = "crates/cairn-core", version = "0.1.0" }

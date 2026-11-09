@@ -164,3 +164,110 @@ async fn policy_public_access_block_and_lifecycle_round_trip() {
         "NoSuchLifecycleConfiguration"
     );
 }
+
+/// `x-amz-expiration` on PUT, HEAD and GET names the matching rule and the expiry instant
+/// (creation + Days, rounded up to midnight UTC); rules sent without an ID get one.
+#[tokio::test]
+async fn lifecycle_expiration_header_and_generated_ids() {
+    let env = Env::new().await;
+    let s3 = &env.s3;
+    env.bucket("exp").await;
+    let rule = |id: Option<&str>, prefix: &str, days: i32| {
+        LifecycleRule::builder()
+            .set_id(id.map(str::to_string))
+            .filter(LifecycleRuleFilter::builder().prefix(prefix).build())
+            .expiration(LifecycleExpiration::builder().days(days).build())
+            .status(ExpirationStatus::Enabled)
+            .build()
+            .unwrap()
+    };
+    s3.put_bucket_lifecycle_configuration()
+        .bucket("exp")
+        .lifecycle_configuration(
+            BucketLifecycleConfiguration::builder()
+                .rules(rule(Some("one-day"), "d1/", 1))
+                .rules(rule(None, "d3/", 3))
+                .build()
+                .unwrap(),
+        )
+        .send()
+        .await
+        .unwrap();
+    let got = s3
+        .get_bucket_lifecycle_configuration()
+        .bucket("exp")
+        .send()
+        .await
+        .unwrap();
+    let ids: Vec<_> = got.rules().iter().map(|r| r.id().unwrap_or("")).collect();
+    assert_eq!(ids[0], "one-day");
+    assert!(!ids[1].is_empty(), "rule sent without an ID got none");
+
+    let before = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let put = s3
+        .put_object()
+        .bucket("exp")
+        .key("d1/a")
+        .body(b"x".to_vec().into())
+        .send()
+        .await
+        .unwrap();
+    let hdr = put.expiration().expect("PUT carries x-amz-expiration");
+    assert!(hdr.ends_with("rule-id=\"one-day\""), "{hdr}");
+    let date = hdr
+        .strip_prefix("expiry-date=\"")
+        .and_then(|s| s.split('"').next())
+        .unwrap();
+    let at = aws_sdk_s3::primitives::DateTime::from_str(
+        date,
+        aws_sdk_s3::primitives::DateTimeFormat::HttpDate,
+    )
+    .unwrap()
+    .secs() as u64;
+    assert_eq!(at % 86_400, 0, "expiry is at midnight UTC: {date}");
+    assert!(at > before + 86_400 && at <= before + 2 * 86_400, "{date}");
+
+    let head = s3
+        .head_object()
+        .bucket("exp")
+        .key("d1/a")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(head.expiration(), Some(hdr));
+    let get = s3
+        .get_object()
+        .bucket("exp")
+        .key("d1/a")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(get.expiration(), Some(hdr));
+    let other = s3
+        .put_object()
+        .bucket("exp")
+        .key("elsewhere")
+        .body(b"x".to_vec().into())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(other.expiration(), None);
+    let three = s3
+        .put_object()
+        .bucket("exp")
+        .key("d3/a")
+        .body(b"x".to_vec().into())
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        three
+            .expiration()
+            .unwrap()
+            .contains(&format!("rule-id=\"{}\"", ids[1])),
+        "generated id reported"
+    );
+}
