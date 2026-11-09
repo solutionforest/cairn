@@ -94,3 +94,30 @@ async fn graceful_shutdown_drains_in_flight_requests() {
     }
     handle.shutdown().await.unwrap();
 }
+
+#[tokio::test]
+async fn shutdown_triggered_before_run_still_stops_and_failed_bind_releases_the_store() {
+    let dir = tempfile::tempdir().unwrap();
+    let server = cairn_server::Server::bind(cairn_server::test_support::test_config(dir.path()))
+        .await
+        .unwrap();
+    server.shutdown_trigger().trigger();
+    tokio::time::timeout(
+        std::time::Duration::from_secs(20),
+        server.run_until(std::future::pending::<()>()),
+    )
+    .await
+    .expect("a shutdown requested before run_until was lost")
+    .unwrap();
+
+    let bad = cairn_server::test_support::test_config(dir.path())
+        .with_env([("CAIRN_STORAGE_MASTER_KEY".to_string(), "11".repeat(32))])
+        .unwrap();
+    let first = cairn_server::Server::bind(bad.clone()).await;
+    assert!(first.is_err(), "bound with a wrong master key");
+    let again = cairn_server::Server::bind(bad).await.err().unwrap();
+    assert!(
+        !format!("{again:#}").contains("already open"),
+        "a failed bind kept the metadata store locked: {again:#}"
+    );
+}

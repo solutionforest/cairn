@@ -66,7 +66,8 @@ pub struct ShutdownTrigger(watch::Sender<bool>);
 impl ShutdownTrigger {
     /// Begin graceful shutdown.
     pub fn trigger(&self) {
-        let _ = self.0.send(true);
+        // `send` drops the value when no receiver exists yet (a trigger before `run_until`).
+        self.0.send_replace(true);
     }
 }
 
@@ -212,6 +213,30 @@ impl cairn_auth::Clock for AuthClock {
     }
 }
 
+/// Closes the engine if [`Server::bind_with_clocks`] fails after opening it, so the metadata
+/// database lock is released for a retry in the same process.
+struct ShutdownOnDrop(Option<CairnEngine>);
+
+impl Drop for ShutdownOnDrop {
+    fn drop(&mut self) {
+        if let Some(e) = self.0.take() {
+            e.shutdown();
+        }
+    }
+}
+
+/// Startup error when the configured master key cannot unseal the credential store.
+fn wrong_master_key(cfg: &Config) -> String {
+    let source = match (&cfg.storage.master_key, &cfg.storage.master_key_file) {
+        (Some(_), _) => "storage.master_key".to_string(),
+        (None, Some(f)) => f.display().to_string(),
+        (None, None) => cfg.master_key_path().display().to_string(),
+    };
+    format!(
+        "the master key ({source}) cannot unseal this data dir's credential store: it is not the key the data dir was initialised with (check storage.master_key, storage.master_key_file and CAIRN_STORAGE_MASTER_KEY*)"
+    )
+}
+
 async fn credential_store_with_clock(
     cfg: &Config,
     engine: &CairnEngine,
@@ -226,15 +251,21 @@ async fn credential_store_with_clock(
     }
     let store = Arc::new(store);
     match (&cfg.auth.root_access_key, &cfg.auth.root_secret_key) {
-        (Some(ak), Some(sk)) => store
-            .ensure_root(ak, &SecretString::new(sk.clone()))
-            .await
-            .context("installing root credentials from configuration")?,
+        (Some(ak), Some(sk)) => match store.ensure_root(ak, &SecretString::new(sk.clone())).await {
+            Err(cairn_auth::AuthError::Crypto) => anyhow::bail!(wrong_master_key(cfg)),
+            r => r.context("installing root credentials from configuration")?,
+        },
         _ => {
-            anyhow::ensure!(
-                store.root_access_key_id().await?.is_some(),
-                "no root credentials: run `cairn init`, or set CAIRN_ROOT_ACCESS_KEY and CAIRN_ROOT_SECRET once to bootstrap them"
-            );
+            let Some(root) = store.root_access_key_id().await? else {
+                anyhow::bail!(
+                    "no root credentials: run `cairn init`, or set CAIRN_ROOT_ACCESS_KEY and CAIRN_ROOT_SECRET once to bootstrap them"
+                );
+            };
+            // Unseal once now, so a master key other than the one this data dir was initialised
+            // with stops startup instead of failing every authenticated request with a 500.
+            if let Err(cairn_auth::AuthError::Crypto) = store.lookup(&root).await {
+                anyhow::bail!(wrong_master_key(cfg));
+            }
         }
     }
     Ok(store)
@@ -279,6 +310,7 @@ impl Server {
         let sinks = sinks(&config)?;
         let outbox = Outbox::new(config.events.sse);
         let engine = open_engine(&config, outbox.clone()).await?;
+        let mut engine_guard = ShutdownOnDrop(Some(engine.clone()));
         let store = credential_store_with_clock(&config, &engine, auth_clock).await?;
         let policies = Arc::new(BucketPolicyStore::new(engine.meta().clone()));
         let access = CairnS3Access::new(store.clone(), policies.clone());
@@ -378,6 +410,7 @@ impl Server {
             )),
         };
         tracing::info!(%addr, tls = tls.is_some(), data_dir = %config.storage.data_dir.display(), "cairn listening");
+        engine_guard.0 = None;
         Ok(Server {
             listener,
             addr,
