@@ -78,15 +78,17 @@ secure=$([ "$proto" = https ] && echo True || echo False)
 
 mkdir -p "$work"
 src="$work/src"
-if [ ! -d "$src/.git" ]; then
-  git init -q "$src"
-  git -C "$src" remote add origin "$repo"
-fi
-if [ "$(git -C "$src" rev-parse -q --verify HEAD 2>/dev/null || true)" != "$commit" ]; then
-  if ! git -C "$src" fetch -q --depth 1 origin "$commit" 2>/dev/null; then
-    git -C "$src" fetch -q origin HEAD
+if [ "$(cat "$src/.cairn-commit" 2>/dev/null || true)" != "$commit" ]; then
+  rm -rf "$src"; mkdir -p "$src"
+  if [ "$repo" = https://github.com/ceph/s3-tests.git ]; then
+    curl -fsSL --retry 3 "https://codeload.github.com/ceph/s3-tests/tar.gz/$commit" \
+      | tar -xz -C "$src" --strip-components=1
+  else
+    git -C "$src" init -q
+    git -C "$src" fetch -q --depth 1 "$repo" "$commit"
+    git -C "$src" checkout -q --detach FETCH_HEAD
   fi
-  git -C "$src" checkout -q --detach "$commit"
+  echo "$commit" > "$src/.cairn-commit"
 fi
 
 conf="$work/s3tests.conf"

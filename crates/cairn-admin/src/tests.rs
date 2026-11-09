@@ -880,10 +880,38 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Capture {
     }
 }
 
+/// Process-wide subscriber that records nothing but answers `sometimes` for every callsite, so a
+/// callsite first hit by a concurrent test is never cached as disabled for a thread-local capture.
+struct Quiet;
+
+impl tracing::Subscriber for Quiet {
+    fn register_callsite(
+        &self,
+        _: &'static tracing::Metadata<'static>,
+    ) -> tracing::subscriber::Interest {
+        tracing::subscriber::Interest::sometimes()
+    }
+    fn max_level_hint(&self) -> Option<tracing::level_filters::LevelFilter> {
+        Some(tracing::level_filters::LevelFilter::TRACE)
+    }
+    fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
+        false
+    }
+    fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+        tracing::span::Id::from_u64(1)
+    }
+    fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
+    fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+    fn event(&self, _: &tracing::Event<'_>) {}
+    fn enter(&self, _: &tracing::span::Id) {}
+    fn exit(&self, _: &tracing::span::Id) {}
+}
+
 /// B4: secrets, session tokens and Authorization signatures never reach the logs, even at
 /// TRACE, across key creation, root rotation, STS issuance and S3 access checks.
 #[tokio::test(flavor = "current_thread")]
 async fn secrets_never_logged() {
+    let _ = tracing::subscriber::set_global_default(Quiet);
     let cap = Capture::default();
     let sub = tracing_subscriber::fmt()
         .with_max_level(tracing::Level::TRACE)
@@ -893,6 +921,7 @@ async fn secrets_never_logged() {
     let _g = tracing::subscriber::set_default(sub);
 
     let f = fx().await;
+    tracing::callsite::rebuild_interest_cache();
     let mut secrets: Vec<String> = vec![ROOT_SK.to_string()];
     let req = signed(
         ROOT_AK,
