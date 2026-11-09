@@ -1,5 +1,7 @@
 # Nightly fuzzing of the parsers that take untrusted input in our own code (s3s parses the rest):
 # SigV4, policy JSON, our S3 header parsers, and the metadata key encoding. Targets live in fuzz/.
+# --target is explicit: the prebuilt cargo-fuzz is a musl binary and defaults to musl, which
+# cannot take sanitizers.
 # A pull request touching fuzz/ or the fuzzed crates only checks the targets still build.
 name: fuzz
 
@@ -51,12 +53,12 @@ jobs:
           tool: cargo-fuzz
       - name: build
         working-directory: fuzz
-        run: cargo fuzz build ${{ matrix.target }}
+        run: cargo fuzz build --target x86_64-unknown-linux-gnu ${{ matrix.target }}
       - name: run
         if: github.event_name != 'pull_request'
         working-directory: fuzz
         run: >
-          cargo fuzz run ${{ matrix.target }} --
+          cargo fuzz run --target x86_64-unknown-linux-gnu ${{ matrix.target }} --
           -max_total_time=${{ inputs.seconds || '150' }} -rss_limit_mb=2048
       - name: upload crash inputs
         if: failure()
