@@ -83,8 +83,10 @@ if [ ! -d "$src/.git" ]; then
   git -C "$src" remote add origin "$repo"
 fi
 if [ "$(git -C "$src" rev-parse -q --verify HEAD 2>/dev/null || true)" != "$commit" ]; then
-  git -C "$src" fetch -q --depth 1 origin "$commit"
-  git -C "$src" checkout -q --detach FETCH_HEAD
+  if ! git -C "$src" fetch -q --depth 1 origin "$commit" 2>/dev/null; then
+    git -C "$src" fetch -q origin HEAD
+  fi
+  git -C "$src" checkout -q --detach "$commit"
 fi
 
 conf="$work/s3tests.conf"

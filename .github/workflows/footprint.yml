@@ -26,13 +26,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-        with: { targets: x86_64-unknown-linux-musl }
+      - name: host musl target
+        run: |
+          t="$(uname -m)-unknown-linux-musl"
+          rustup target add "$t"
+          echo "MUSL_TARGET=$t" >> "$GITHUB_ENV"
       - name: musl toolchain
         run: |
           command -v musl-gcc || { sudo -n apt-get update && sudo -n apt-get install -y musl-tools; }
       - uses: Swatinem/rust-cache@v2
-        with: { shared-key: footprint-musl }
-      - run: cargo build --release --locked -p cairn-cli --target x86_64-unknown-linux-musl
+        with: { shared-key: footprint-musl-${{ runner.arch }} }
+      - run: cargo build --release --locked -p cairn-cli --target "$MUSL_TARGET"
       - name: measure
         env:
           FOOTPRINT_SKIP_TRANSFER: "1"
@@ -40,4 +44,4 @@ jobs:
           FOOTPRINT_MAX_IDLE_MIB: "25"
         run: |
           set -o pipefail
-          scripts/footprint.sh target/x86_64-unknown-linux-musl/release/cairn | tee -a "$GITHUB_STEP_SUMMARY"
+          scripts/footprint.sh "target/$MUSL_TARGET/release/cairn" | tee -a "$GITHUB_STEP_SUMMARY"
