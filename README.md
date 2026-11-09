@@ -273,8 +273,8 @@ embed their dependency list for `cargo audit bin`, and ship with a CycloneDX SBO
 
 ## Contributing: issues, not pull requests
 
-Cairn takes contributions as **issues**. We do not accept pull requests for now; ones opened by
-people outside the maintainer team are closed automatically with a pointer here. Open an
+Cairn takes contributions as **issues**. We do not accept pull requests for now: opening one is
+limited to maintainers, and any that get through are closed automatically with a pointer here. Open an
 [issue](https://github.com/solutionforest/cairn/issues/new/choose) instead:
 
 - **Bug**: version (`cairn --version`), how you run it, the client and the exact command or

@@ -7,9 +7,9 @@ VaultS3, RustFS, SeaweedFS and Garage are all good; breadth lives there.
 
 ## Issues, not pull requests
 
-For now Cairn takes contributions as **issues only**. Pull requests from outside the maintainer
-team are closed automatically (`.github/workflows/pr-policy.yml`) with a pointer to the issue
-tracker; please do not take it personally, and do open the issue.
+For now Cairn takes contributions as **issues only**. Opening a pull request is limited to
+repository collaborators, and any from outside the maintainer team are closed automatically
+(`.github/workflows/pr-policy.yml`) with a pointer to the issue tracker.
 
 [Open an issue](https://github.com/solutionforest/cairn/issues/new/choose) and pick a template:
 
