@@ -35,7 +35,8 @@ jobs:
         run: |
           command -v musl-gcc || { sudo -n apt-get update && sudo -n apt-get install -y musl-tools; }
       - uses: Swatinem/rust-cache@v2
-        with: { shared-key: footprint-musl-${{ runner.arch }} }
+        with:
+          shared-key: footprint-musl-${{ runner.arch }}
       - run: cargo build --release --locked -p cairn-cli --target "$MUSL_TARGET"
       - name: measure
         env:
