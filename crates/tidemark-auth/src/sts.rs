@@ -1,7 +1,7 @@
 //! STS HTTP endpoint: `AssumeRole`, `GetSessionToken`, `GetCallerIdentity` (query API,
 //! `Version=2011-06-15`) over `POST /` (form body) and `GET /?Action=…`, SigV4-authenticated;
 //! plus the unsigned `AssumeRoleWithWebIdentity` (OIDC federation, enabled with
-//! [`StsState::with_oidc`]).
+//! `StsState::with_oidc`, `oidc` feature).
 //!
 //! Mount with `tidemark_auth::sts::router(StsState::new(store))`; route requests for which
 //! [`is_sts_request`] is true to it before they reach s3s.

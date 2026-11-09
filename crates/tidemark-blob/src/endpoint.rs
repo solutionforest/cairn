@@ -1,5 +1,5 @@
 //! Plain description of a remote S3 location. Always built; the client that talks to it
-//! ([`crate::remote_s3`]) is behind the `remote` feature.
+//! (`remote_s3`) is behind the `remote` feature.
 
 use crate::BlobError;
 use std::fmt;

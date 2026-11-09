@@ -19,7 +19,7 @@
 //!   targets thanks to `x-tidemark-version-id`).
 //! * **Worker**: [`ReplicationWorker::tick`] scans each replicated bucket's versions, delivers
 //!   new versions and delete markers in `created_at` order through a [`ReplicationTarget`]
-//!   ([`S3Target`] over aws-sdk-s3, [`EngineTarget`] in-process), with exponential backoff per
+//!   (`S3Target` over aws-sdk-s3 with the `remote` feature, [`EngineTarget`] in-process), with exponential backoff per
 //!   destination and a lag hook ([`ReplicationObserver`]).
 //!
 //! Each tick reads every version row of a replicated bucket (`O(versions)`), which is fine for

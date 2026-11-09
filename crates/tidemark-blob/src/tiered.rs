@@ -1,5 +1,5 @@
 //! Blob tiering (DESIGN §12.1): hot blobs stay in the local [`FsBlobStore`], cold blobs move to a
-//! [`ColdStore`] (remote S3 via [`RemoteBlobStore`], or a directory via [`DirColdStore`]).
+//! [`ColdStore`] (remote S3 via `RemoteBlobStore` with the `remote` feature, or a directory via [`DirColdStore`]).
 //!
 //! A blob moved by [`TieredBlobStore::tier_tick`] leaves a small stub file next to where the hot
 //! file was (`blobs/ab/cd/<hex>.cold`, text `tidemark-cold 1 <size> <encrypted>`), so `exists`,

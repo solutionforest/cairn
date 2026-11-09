@@ -2,8 +2,8 @@
 //! verification (RS256/384/512, PS256/384/512, ES256/384) and JWKS fetching with caching and
 //! `kid` rotation.
 //!
-//! Build an [`OidcVerifier`] from [`OidcProviderConfig`]s and hand it to
-//! [`crate::sts::StsState::with_oidc`]. Tokens are never logged; error messages never echo
+//! Build an `OidcVerifier` (`oidc` feature) from [`OidcProviderConfig`]s and hand it to
+//! `StsState::with_oidc`. Tokens are never logged; error messages never echo
 //! token contents.
 
 #[cfg(feature = "oidc")]

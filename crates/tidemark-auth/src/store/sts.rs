@@ -180,7 +180,7 @@ impl CredentialStore {
     }
 
     /// AssumeRoleWithWebIdentity: `identity` is an already verified OIDC token (see
-    /// [`crate::oidc::OidcVerifier`]). The role's trust policy must allow
+    /// `OidcVerifier`, `oidc` feature). The role's trust policy must allow
     /// `sts:AssumeRoleWithWebIdentity` to `Principal: {"Federated": <issuer | provider id |
     /// oidc-provider ARN>}`; conditions see `<provider>:sub`, `<provider>:aud`,
     /// `<provider>:iss`, `aws:FederatedProvider` and `aws:RequestTag/<k>` for mapped tags. An
