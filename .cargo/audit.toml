@@ -1,0 +1,10 @@
+# cargo-audit policy, read by `cargo audit` (security.yml) and `cargo audit bin` (release.yml).
+# Mirrors deny.toml [advisories].ignore; the reasons live there. Keep the two lists identical.
+[advisories]
+ignore = [
+    "RUSTSEC-2023-0089",
+    "RUSTSEC-2026-0441",
+    "RUSTSEC-2025-0134",
+    "RUSTSEC-2023-0071",
+    "RUSTSEC-2026-0387",
+]

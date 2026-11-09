@@ -36,8 +36,9 @@ ignore = [
     # atomic-polyfill: unmaintained (no vulnerability). Pulled in by postcard 1.x -> heapless 0.7.
     # Goes away when postcard moves to heapless 0.8+; nothing to do on our side.
     { id = "RUSTSEC-2023-0089", reason = "transitive via postcard/heapless 0.7, unmaintained only" },
-    # pin-utils: unmaintained (no vulnerability). Only reached through the aws-sdk-s3 dev-dependency.
-    { id = "RUSTSEC-2026-0441", reason = "dev-only via aws-smithy-*, unmaintained only" },
+    # pin-utils: unmaintained (no vulnerability). Reached through aws-sdk-s3, which ships in the
+    # binary for S3 backup targets and replication (cairn-blob remote_s3).
+    { id = "RUSTSEC-2026-0441", reason = "via aws-smithy-http (S3 backup client), unmaintained only" },
     # rustls-pemfile: archived; superseded by rustls-pki-types' PemObject. Direct dependency of
     # cairn-server (TLS cert loading); migration tracked for phase 2a (B6 PEM reload).
     { id = "RUSTSEC-2025-0134", reason = "direct dep of cairn-server; migrate to rustls-pki-types PemObject in 2a" },
