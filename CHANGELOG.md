@@ -10,6 +10,12 @@ Release notes, so write entries for operators, not for developers.
 
 ## [Unreleased]
 
+### Added
+- `scripts/start.sh`: one command downloads and verifies the release binary, creates a data
+  directory with fresh credentials, and starts the server (and with `--ui`, the admin UI).
+- Optional local admin UI (`admin-ui/`): status, buckets, users, keys, and one-click restore from
+  the trash. Runs with Python 3 or PHP and needs no packages.
+
 ## [0.1.0-alpha.1] - 2026-11-09
 
 First pre-release. Single node, one data directory, one static binary. On-disk formats may

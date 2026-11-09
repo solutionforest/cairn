@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cairn admin</title>
+<style>
+:root{--bg:#f6f7f4;--card:#fff;--ink:#1d2421;--muted:#6b756f;--line:#e3e7e1;--accent:#2f6b52;--accent-soft:#e6f0ea;--warn:#a5482b;--warn-soft:#f8e9e3;--radius:10px}
+@media (prefers-color-scheme:dark){:root{--bg:#121614;--card:#1a201d;--ink:#e7ece8;--muted:#8f9a93;--line:#2a322e;--accent:#6fbf98;--accent-soft:#1f3229;--warn:#e58c6c;--warn-soft:#3a2420}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+.app{display:grid;grid-template-columns:220px 1fr;min-height:100vh}
+aside{border-right:1px solid var(--line);padding:1.5rem 1rem;display:flex;flex-direction:column;gap:.25rem}
+.brand{font-weight:650;font-size:1.1rem;padding:0 .75rem 1.25rem;letter-spacing:-.01em}
+.brand span{color:var(--muted);font-weight:400}
+aside button{all:unset;cursor:pointer;padding:.55rem .75rem;border-radius:8px;color:var(--muted)}
+aside button:hover{color:var(--ink);background:var(--card)}
+aside button[aria-current=true]{color:var(--accent);background:var(--accent-soft);font-weight:550}
+aside button:focus-visible,.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.who{margin-top:auto;padding:.75rem;font-size:.8rem;color:var(--muted);overflow-wrap:anywhere}
+main{padding:2rem clamp(1rem,4vw,3rem);max-width:1150px;width:100%}
+.head{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-bottom:1.5rem}
+h1{margin:0;font-size:1.5rem;letter-spacing:-.02em}
+.sub{margin:.15rem 0 0;color:var(--muted);font-size:.9rem}
+.btn{font:inherit;font-size:.85rem;cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:.4rem .8rem}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
+.btn.warn:hover{border-color:var(--warn);color:var(--warn)}
+.btn:disabled{opacity:.5;cursor:default}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:1rem}
+.stat,.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius)}
+.stat{padding:1.1rem 1.25rem}
+.stat b{display:block;font-size:1.6rem;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.stat small{color:var(--muted)}
+.card{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:.9rem}
+th{text-align:left;font-weight:550;color:var(--muted);font-size:.78rem;text-transform:uppercase;letter-spacing:.04em}
+th,td{padding:.7rem 1rem;border-bottom:1px solid var(--line);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+td.key{white-space:normal;overflow-wrap:anywhere;max-width:28rem}
+code{font:.85em ui-monospace,SFMono-Regular,Menlo,monospace}
+.pill{display:inline-block;padding:.1rem .55rem;border-radius:99px;font-size:.78rem;background:var(--accent-soft);color:var(--accent)}
+.pill.off{background:var(--warn-soft);color:var(--warn)}
+.pill.muted{background:var(--line);color:var(--muted)}
+.empty,.error{padding:3rem 1rem;text-align:center;color:var(--muted)}
+.error{color:var(--warn)}
+.note{margin-top:1rem;color:var(--muted);font-size:.85rem}
+.toast{position:fixed;bottom:1.25rem;right:1.25rem;background:var(--ink);color:var(--bg);padding:.65rem 1rem;border-radius:8px;font-size:.9rem;opacity:0;transform:translateY(8px);transition:.2s}
+.toast.show{opacity:1;transform:none}
+@media (max-width:720px){.app{grid-template-columns:1fr}aside{flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--line);padding:1rem}.brand{width:100%;padding-bottom:.5rem}.who{display:none}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside aria-label="Sections">
+    <div class="brand">Cairn <span>admin</span></div>
+    <button data-view="overview" aria-current="true">Overview</button>
+    <button data-view="buckets">Buckets</button>
+    <button data-view="users">Users</button>
+    <button data-view="keys">Access keys</button>
+    <button data-view="trash">Trash</button>
+    <div class="who" id="who"></div>
+  </aside>
+  <main>
+    <div class="head">
+      <div><h1 id="title">Overview</h1><p class="sub" id="sub"></p></div>
+      <button class="btn" id="refresh">Refresh</button>
+    </div>
+    <div id="view" aria-live="polite"></div>
+  </main>
+</div>
+<div class="toast" id="toast" role="status"></div>
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const bytes = (n) => { n = Number(n) || 0; const u = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']; let i = 0; while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; } return (i ? n.toFixed(1) : n) + ' ' + u[i]; };
+const num = (n) => Number(n || 0).toLocaleString();
+const when = (t) => t ? new Date(t).toLocaleString() : '—';
+const uptime = (s) => { const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60); return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`; };
+const pill = (on, yes, no, off = 'off') => `<span class="pill${on ? '' : ' ' + off}">${on ? yes : no}</span>`;
+
+async function api(path, body) {
+  const r = await fetch('api/' + path, {
+    method: body ? 'POST' : 'GET',
+    headers: { 'X-Cairn-UI': '1', ...(body ? { 'Content-Type': 'application/json' } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error?.message || data.error || `HTTP ${r.status}`);
+  return data;
+}
+
+function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 2600); }
+function table(head, rows, empty) {
+  if (!rows.length) return `<div class="card"><div class="empty">${empty}</div></div>`;
+  return `<div class="card"><table><thead><tr>${head.map((h) => `<th${h.startsWith('#') ? ' style="text-align:right"' : ''}>${h.replace('#', '')}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
+}
+
+const views = {
+  overview: {
+    title: 'Overview', sub: 'Server status and storage usage.',
+    async render() {
+      const d = await api('info');
+      const s = [['Buckets', num(d.buckets)], ['Objects', num(d.objects)], ['Stored', bytes(d.bytes)], ['Uptime', uptime(d.uptime_secs)], ['Version', esc(d.version)], ['Region', esc(d.region)]];
+      return `<div class="stats">${s.map(([k, v]) => `<div class="stat"><small>${k}</small><b>${v}</b></div>`).join('')}</div>
+        <p class="note">Use any S3 client (rclone, Cyberduck, aws-cli, s3cmd) for uploading and browsing files.</p>`;
+    },
+  },
+  buckets: {
+    title: 'Buckets', sub: 'Live buckets, usage and soft-delete retention.',
+    async render() {
+      const d = await api('buckets');
+      return table(['Name', 'S3 versioning', '#Objects', '#Live', '#History', 'Created'], d.items.map((b) =>
+        `<tr><td><b>${esc(b.name)}</b></td><td>${pill(b.versioning === 'Enabled', 'Enabled', esc(b.versioning), 'muted')}</td><td class="num">${num(b.object_count)}</td><td class="num">${bytes(b.total_bytes)}</td><td class="num">${bytes(b.trash_bytes)}</td><td>${when(b.created_at)}</td></tr>`), 'No buckets yet.');
+    },
+  },
+  users: {
+    title: 'Users', sub: 'IAM users. Disable a user to block all of their keys.',
+    async render() {
+      const d = await api('users');
+      return table(['Name', 'Status', 'Groups', 'Created', ''], d.items.map((u) =>
+        `<tr><td><b>${esc(u.name)}</b></td><td>${pill(!u.disabled, 'Active', 'Disabled')}</td><td>${esc((u.groups || []).join(', ') || '—')}</td><td>${when(u.created_at)}</td>
+        <td><button class="btn${u.disabled ? '' : ' warn'}" data-act="users/${encodeURIComponent(u.name)}/${u.disabled ? 'enable' : 'disable'}">${u.disabled ? 'Enable' : 'Disable'}</button></td></tr>`), 'No users yet. Create them with <code>cairn admin user add</code>.');
+    },
+  },
+  keys: {
+    title: 'Access keys', sub: 'Secrets are never shown here; create keys with the CLI.',
+    async render() {
+      const d = await api('access-keys');
+      return table(['Access key', 'User', 'Status', 'Created', 'Expires', ''], d.items.map((k) =>
+        `<tr><td><code>${esc(k.access_key_id)}</code></td><td>${esc(k.user || 'root')}</td><td>${pill(k.active, 'Active', 'Inactive')}</td><td>${when(k.created_at)}</td><td>${when(k.expires_at)}</td>
+        <td><button class="btn${k.active ? ' warn' : ''}" data-act="access-keys/${encodeURIComponent(k.access_key_id)}/${k.active ? 'deactivate' : 'activate'}">${k.active ? 'Deactivate' : 'Activate'}</button></td></tr>`), 'No access keys.');
+    },
+  },
+  trash: {
+    title: 'Trash', sub: 'Recently deleted versions. Restore puts the object back.',
+    async render() {
+      const d = await api('trash?limit=200');
+      return table(['Object', '#Size', 'Deleted', 'By', 'Purged after', ''], (d.entries || []).map((e) =>
+        `<tr><td class="key"><span style="color:var(--muted)">${esc(e.bucket)} /</span> ${esc(e.key)}</td><td class="num">${bytes(e.size)}</td><td>${when(e.deleted_at)}</td><td>${esc(e.deleted_by)}</td><td>${when(e.expires_at)}</td>
+        <td><button class="btn" data-restore='${esc(JSON.stringify({ bucket: e.bucket, key: e.key, version_id: e.version_id }))}'>Restore</button></td></tr>`), 'Trash is empty.');
+    },
+  },
+};
+
+let current = 'overview';
+async function show(name) {
+  current = name;
+  const v = views[name];
+  document.querySelectorAll('[data-view]').forEach((b) => b.setAttribute('aria-current', String(b.dataset.view === name)));
+  $('#title').textContent = v.title; $('#sub').textContent = v.sub;
+  $('#view').innerHTML = '<div class="card"><div class="empty">Loading…</div></div>';
+  try { $('#view').innerHTML = await v.render(); }
+  catch (e) { $('#view').innerHTML = `<div class="card"><div class="error">${esc(e.message)}</div></div>`; }
+}
+
+document.addEventListener('click', async (ev) => {
+  const nav = ev.target.closest('[data-view]');
+  if (nav) return show(nav.dataset.view);
+  const btn = ev.target.closest('[data-act],[data-restore]');
+  if (!btn) return;
+  btn.disabled = true;
+  try {
+    if (btn.dataset.restore) { const r = JSON.parse(btn.dataset.restore); await api('trash/restore', r); toast(`Restored ${r.key}`); }
+    else { await api(btn.dataset.act, {}); toast('Done'); }
+    await show(current);
+  } catch (e) { toast(e.message); btn.disabled = false; }
+});
+$('#refresh').addEventListener('click', () => show(current));
+api('whoami').then((w) => { $('#who').textContent = 'Signed in as ' + (w.is_root ? 'root' : w.id); }).catch(() => {});
+show(current);
+</script>
+</body>
+</html>

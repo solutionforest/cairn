@@ -507,3 +507,15 @@ Dated (UTC) design and implementation decisions, newest last. Moved out of `BUIL
   (`cargo zigbuild --release`, aarch64 musl): fat peaks at 6.1 GB RSS and gives 13.7 MiB; thin
   peaks at 2.4 GB and gives 16.5 MiB, still under the E2 20 MB budget. `release.yml` sets
   `CARGO_PROFILE_RELEASE_LTO` per target; x86_64 keeps fat, the profile E2 is measured on.
+- **2026-11-09 — Optional admin UI outside the binary.** `admin-ui/` is one HTML page with plain
+  JavaScript plus a one-file backend (Python stdlib or PHP, no packages) that holds the keys and
+  signs admin API calls, so the browser never sees a secret. Both bind to loopback, check Host and
+  Origin, and allow only status, list, enable/disable and trash-restore calls. It serves claim 1
+  (one-click undo) without adding a dashboard to the server; browsing and uploading stay with
+  existing S3 clients. Not in the alpha release archive.
+- **2026-11-09 — `scripts/start.sh` saves quickstart credentials to a file.** `cairn init` keeps
+  the root secret sealed and prints it once, which is right for servers but makes a first run
+  awkward: the admin UI, `cairn admin` and aws-cli all need it in another terminal. The script
+  generates the credentials itself, passes them to `init` through `CAIRN_ROOT_*`, and writes
+  `cairn-data/credentials.env` with mode 0600. The README tells people to delete it once the
+  credentials are stored elsewhere and to use systemd or Docker for long-running installs.

@@ -50,9 +50,13 @@ README and are commitments, not aspirations.
   versioning, soft delete, trash, PITR and `x-cairn-as-of` time travel; content-addressed
   dedup; SSE-S3 at rest; lifecycle expiration + GC; fsck, scrub, backup/restore; healthz,
   readyz, metrics, JSON + audit logs; MCP server under policy; one binary, one TOML, one CLI.
+- **Optional local tool:** `admin-ui/` is a separate admin page (status, buckets, users, access
+  keys, trash restore). The page is plain HTML/JS; a single-file Python or PHP backend keeps
+  the credentials and signs `/_cairn/v1` calls. It accepts loopback clients only and is not
+  part of the Cairn server binary or the alpha release archive.
 - **Shelved (code may exist, nothing ships or is documented as a feature):** replication,
   tiering, events/webhooks/function sinks, OIDC, Object Lock, SSE-C/KMS, rate limiting, TLS hot
-  reload, quotas, CORS, PostObject, admin UI, `ai` feature, Helm, multi-node, erasure coding,
+  reload, quotas, CORS, PostObject, built-in admin UI, `ai` feature, Helm, multi-node, erasure coding,
   compression, search, FUSE, S3 Select. VaultS3 ships most of these; that is the point. A
   shelved feature returns only with a DECISIONS.md entry saying which of the four claims it
   serves.

@@ -59,8 +59,11 @@ Lane 1 is the critical path; 2 and 3 can start now against the existing engine/s
 Replication · blob tiering · events outbox, webhooks, function sinks, SSE stream · OIDC federation ·
 Object Lock · SSE-C / KMS · rate limiting · TLS hot reload · bucket quotas · CORS · PostObject ·
 erasure coding · compression · full-text / vector search · FUSE · S3 Select · bench harness ·
-admin UI · `ai` feature · Helm · multi-node. Each returns only with a DESIGN.md entry saying which
+built-in admin UI · `ai` feature · Helm · multi-node. Each returns only with a DESIGN.md entry saying which
 §0 claim it serves.
+
+An optional local admin UI lives in `admin-ui/`: one HTML/JS page plus a single-file Python or PHP
+backend that holds the keys and signs admin API calls. Nothing is added to the server binary.
 
 ## Working agreements
 - Lane 1 owns `cairn-server`, `cairn-cli`; lane 2 owns `cairn-engine`, `cairn-blob`, tests under

@@ -11,9 +11,9 @@ Raspberry Pi, a homelab, a small team's backup target.
 
 Cairn makes four promises that other S3 servers do not:
 
-1. **You cannot lose data, even if you configured nothing.** Every bucket keeps history
-   internally ("shadow versioning"), so every delete (object, version, or whole bucket) is
-   reversible from the trash. No versioning to remember to turn on.
+1. **Recover from accidental changes.** Every bucket keeps history internally ("shadow
+   versioning"), so deleted objects and buckets can be restored within the retention window.
+   This does not replace an independent backup.
 2. **Any bucket is readable and restorable as of any instant** in its retention window
    (`x-cairn-as-of`, `cairn pitr`). No snapshot to have taken first.
 3. **Identical content costs disk once.** Blobs are content-addressed; copies and restores write
@@ -29,37 +29,159 @@ clustering, OIDC, search or FUSE in one AGPL binary, [VaultS3](https://github.co
 already does that well. If you need a distributed cluster, use [RustFS](https://github.com/rustfs/rustfs)
 or [Garage](https://garagehq.deuxfleurs.fr/).
 
-> **Status: alpha (`v0.1.0-alpha.1`).** The four claims below are proven by integration tests
-> through the server, and every row of [`docs/PRODUCTION-READINESS.md`](docs/PRODUCTION-READINESS.md)
-> names its proof. On-disk formats may still change before 0.1.0; `cairn migrate` handles it,
-> snapshot first. Changes: [`CHANGELOG.md`](CHANGELOG.md).
+> **Status: alpha (`v0.1.0-alpha.1`).** Expect bugs and S3 compatibility gaps; do not rely on
+> Cairn as your only copy of important data. Back up and test restoration. On-disk formats may
+> change before 0.1.0; see [`docs/OPERATIONS.md`](docs/OPERATIONS.md) before upgrading.
+> The repository and release are currently private and require access to download.
 
-## 60-second quickstart
+## Start in one command
 
 ```sh
-# 1. Get the binary (static Linux, x86_64 or aarch64) or the container image
-v=v0.1.0-alpha.1 t=$(uname -m)-unknown-linux-musl
-curl -fsSLO https://github.com/solutionforest/cairn/releases/download/$v/cairn-$v-$t.tar.gz
-tar xzf cairn-$v-$t.tar.gz && sudo install cairn-$v-$t/cairn /usr/local/bin/
-#    or: docker run -p 9000:9000 -v cairn-data:/data \
-#          -e CAIRN_ROOT_ACCESS_KEY=<key> -e CAIRN_ROOT_SECRET=<secret> ghcr.io/solutionforest/cairn:0.1.0-alpha.1
-
-# 2. Initialise a data directory (prints the root access key and secret once) and serve
-cairn init --data-dir ./cairn-data
-cairn serve --config ./cairn-data/cairn.toml   # S3 on http://127.0.0.1:9000
-
-# 3. Use any S3 client
-export AWS_ACCESS_KEY_ID=<printed key> AWS_SECRET_ACCESS_KEY=<printed secret> AWS_REGION=us-east-1
-aws --endpoint-url http://127.0.0.1:9000 s3 mb s3://photos
-aws --endpoint-url http://127.0.0.1:9000 s3 cp ./cat.jpg s3://photos/
-aws --endpoint-url http://127.0.0.1:9000 s3 ls s3://photos/
+gh repo clone solutionforest/cairn && cd cairn    # private for now; later: git clone
+scripts/start.sh --ui
 ```
 
-Configuration: every key with its default is in [`deploy/cairn.example.toml`](deploy/cairn.example.toml);
-any key can be set from the environment as `CAIRN_<SECTION>_<KEY>`. Production deployment
-examples: [`deploy/docker-compose.yml`](deploy/docker-compose.yml) and a hardened systemd unit,
-[`deploy/cairn.service`](deploy/cairn.service). Operations (backup, restore, upgrade, DR):
-[`docs/OPERATIONS.md`](docs/OPERATIONS.md).
+![scripts/start.sh output](docs/images/start.png)
+
+The script finds a `cairn` binary (or downloads the release for your Linux x86-64/ARM64 machine
+and checks its SHA-256), creates `./cairn-data` with fresh random root credentials, starts the
+S3 server on `127.0.0.1:9000` and, with `--ui`, the admin page on `127.0.0.1:9080`. Ctrl-C stops
+both; run it again and it picks up the same data. Credentials are saved to
+`./cairn-data/credentials.env` (readable only by you), so another terminal is one line away:
+
+```sh
+source cairn-data/credentials.env     # sets AWS_* and CAIRN_* for aws-cli, rclone and `cairn admin`
+aws s3 mb s3://photos
+aws s3 cp ./cat.jpg s3://photos/
+aws s3 rm s3://photos/cat.jpg         # oops
+./cairn admin trash ls                # still there
+./cairn admin trash restore --bucket photos --key cat.jpg
+```
+
+Options: `--data-dir`, `--port`, `--ui-port`, `--version`; `CAIRN_BIN=/path/to/cairn` uses your
+own build. The script is for trying Cairn and for single-user boxes. For a server that starts on
+boot, use [systemd](#run-it-as-a-service) or [Docker](#docker), and delete `credentials.env` once
+the credentials are in your password manager.
+
+### Connect your apps
+
+Anything that speaks S3 works: endpoint `http://127.0.0.1:9000`, region `us-east-1`,
+path-style addressing, and the keys from `credentials.env`. For example rclone
+(`rclone config create cairn s3 provider Other endpoint http://127.0.0.1:9000 env_auth true`),
+Cyberduck, restic (`restic -r s3:http://127.0.0.1:9000/backups init`), Nextcloud, Immich, Velero
+or Loki. Per-client notes are in [`docs/COMPAT.md`](docs/COMPAT.md). The listener is local to this
+machine; put TLS and a firewall in front before you open it to a network.
+
+### Admin UI
+
+![Buckets page of the admin UI](docs/images/admin-buckets.png)
+
+![Trash page: deleted objects with a Restore button](docs/images/admin-trash.png)
+
+[`admin-ui/`](admin-ui/) shows server status, buckets, users, access keys and the trash, and
+restores deleted objects in one click. It is deliberately small: one HTML page with plain
+JavaScript, plus a backend in one file that holds your keys and signs requests, so the browser
+never sees them. `start.sh --ui` runs it for you; to run it by hand against any Cairn server:
+
+```sh
+export CAIRN_ENDPOINT=http://127.0.0.1:9000 CAIRN_ACCESS_KEY='<key>' CAIRN_SECRET_KEY='<secret>'
+python3 admin-ui/server.py                    # Python 3.8+, no packages
+php -S 127.0.0.1:9080 admin-ui/server.php     # or PHP 8+
+```
+
+Both backends accept connections from this machine only and have no login of their own; do not
+put them behind a public proxy. Browsing and uploading files is left to the S3 clients above,
+which already do it well.
+
+## How it works
+
+```mermaid
+flowchart LR
+    apps["S3 apps<br/>aws-cli · rclone · restic<br/>Nextcloud · Immich"] -->|"S3 API (SigV4)"| api
+    agents["AI agents"] -->|MCP| api
+    ui["Admin UI / cairn admin"] -->|admin API| api
+    subgraph cairn["cairn (one binary)"]
+        api["IAM policy check<br/>on every request"] --> engine["Engine"]
+        engine --> meta[("metadata + history<br/>redb")]
+        engine --> blobs[("blobs, stored once<br/>by BLAKE3 hash")]
+    end
+    meta -.->|"deleted or overwritten"| trash["Trash: restorable<br/>for 30 days"]
+    meta -.->|"any instant in<br/>the window"| pitr["Point-in-time<br/>read and restore"]
+```
+
+Every write records a new version, whether or not the bucket has S3 versioning on, so deletes and
+overwrites are recoverable for the retention window (`[retention]` in the config, 30 days by
+default). Object bytes are stored once per unique content, which is why history, copies and
+restores cost almost no extra disk. Everything lives in one data directory:
+
+```text
+cairn-data/
+├── cairn.toml          configuration (every key: deploy/cairn.example.toml)
+├── meta/               buckets, versions, users, policies (one redb file)
+├── blobs/              object bytes, content-addressed, optionally encrypted
+├── keys/master.key     encryption master key; back it up separately
+└── audit/              audit log
+```
+
+Undo after a mistake:
+
+```mermaid
+sequenceDiagram
+    participant You
+    participant Cairn
+    You->>Cairn: DELETE photos/cat.jpg (or a whole bucket)
+    Cairn-->>You: 204, object gone from listings
+    Note over Cairn: the version moves to the trash, bytes kept
+    You->>Cairn: cairn admin trash restore (or Restore in the admin UI)
+    Cairn-->>You: cat.jpg is back, byte-identical
+    You->>Cairn: GET with x-cairn-as-of: 2026-11-08T09:00:00Z
+    Cairn-->>You: the bucket exactly as it was at 09:00
+```
+
+## Other ways to run it
+
+### Linux binary
+
+Download the archive for your CPU from the
+[release page](https://github.com/solutionforest/cairn/releases/tag/v0.1.0-alpha.1) (signed in,
+while private), or with the GitHub CLI:
+
+```sh
+v=v0.1.0-alpha.1
+t=$(uname -m)-unknown-linux-musl
+gh release download "$v" --repo solutionforest/cairn --pattern "cairn-$v-$t.tar.gz"
+tar xzf "cairn-$v-$t.tar.gz"
+./cairn-$v-$t/cairn init --data-dir ./cairn-data
+./cairn-$v-$t/cairn serve --config ./cairn-data/cairn.toml
+```
+
+`init` prints the root access key and secret once; save them securely. The binary is static, so
+it runs on any Linux without extra libraries.
+
+### Docker
+
+Set your own strong, unique credentials first. Private GHCR images need an authenticated account
+with access.
+
+```sh
+export CAIRN_ROOT_ACCESS_KEY='<your access key>'
+export CAIRN_ROOT_SECRET='<your strong random secret>'
+docker run -d --name cairn --restart unless-stopped \
+  -p 127.0.0.1:9000:9000 -v cairn-data:/data \
+  -e CAIRN_ROOT_ACCESS_KEY -e CAIRN_ROOT_SECRET \
+  ghcr.io/solutionforest/cairn:0.1.0-alpha.1
+```
+
+The named volume holds the data; removing it deletes the data. The container uses the
+credentials only when it initializes an empty data directory. A compose file is in
+[`deploy/docker-compose.yml`](deploy/docker-compose.yml).
+
+### Run it as a service
+
+[`deploy/cairn.service`](deploy/cairn.service) is a hardened systemd unit. Configuration: every key
+with its default is in [`deploy/cairn.example.toml`](deploy/cairn.example.toml), and any key can be
+set from the environment as `CAIRN_<SECTION>_<KEY>`. Backup, restore, upgrade and disaster recovery
+are in [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
 
 ## Compared with the alternatives
 
@@ -76,7 +198,7 @@ proves it (rows in [`docs/PRODUCTION-READINESS.md`](docs/PRODUCTION-READINESS.md
 | Identical bytes stored once | no | no | no | **yes (BLAKE3 content addressing)**: N identical uploads, copy, trash restore and PITR restore add zero blob bytes, encrypted or not (`crates/cairn-server/tests/dedup.rs`) |
 | MCP for agents | separate server, plain S3 creds | none | none | **in-process, same IAM policies**: a key denied to S3 is denied to MCP `get_object` over HTTP and stdio; `as_of` needs `cairn:TimeTravel` (`crates/cairn-server/tests/auth_wire.rs`, `crates/cairn-cli/tests/mcp_stdio.rs`) |
 
-Cairn is deliberately narrow: no dashboard, erasure coding, clustering, replication, OIDC, search,
+Cairn is deliberately narrow: no built-in dashboard, erasure coding, clustering, replication, OIDC, search,
 FUSE or S3 Select in v0.1 (DESIGN §0 "Shelved"). Idle memory, binary size and 10 GiB-transfer RSS
 are produced by [`scripts/footprint.sh`](scripts/footprint.sh); method and caveats in
 [`docs/OPERATIONS.md`](docs/OPERATIONS.md#footprint):
@@ -111,9 +233,10 @@ per-operation status, known differences and client test results are tracked in
 [`docs/COMPAT.md`](docs/COMPAT.md), Cairn-specific
 headers and actions in [`docs/EXTENSIONS.md`](docs/EXTENSIONS.md), and every push runs the ceph
 `s3-tests` suite and fails if any test in the committed
-[`scripts/s3-tests/expected-pass.txt`](scripts/s3-tests/expected-pass.txt) regresses (317 of 370 executed
-pass, 85.7%, with the 53 ACL-grant tests that S3 itself refuses on default buckets deselected;
-74.9% counting them).
+[`scripts/s3-tests/expected-pass.txt`](scripts/s3-tests/expected-pass.txt) regresses. The latest
+recorded development run passed 322 of 370 executed tests (87.0%); 53 ACL-grant tests were
+excluded, giving 322 of 423 (76.1%) when counted. This measures a selected suite, not complete
+S3 compatibility or code coverage, and is not a test result for the earlier alpha binary.
 
 ## Licence
 
