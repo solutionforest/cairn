@@ -502,3 +502,8 @@ Dated (UTC) design and implementation decisions, newest last. Moved out of `BUIL
   `[s3 alt]` (~28 tests), a lifecycle debug clock, and SigV4 signed with `Date` instead of
   `X-Amz-Date` (s3s rejects the unsigned `x-amz-date` a shim would add, which is the right
   security behaviour).
+- **2026-11-09 — aarch64 release binaries use thin LTO.** The `v0.1.0-alpha.1` aarch64 build was
+  killed twice on the self-hosted runners while linking with fat LTO. Measured locally
+  (`cargo zigbuild --release`, aarch64 musl): fat peaks at 6.1 GB RSS and gives 13.7 MiB; thin
+  peaks at 2.4 GB and gives 16.5 MiB, still under the E2 20 MB budget. `release.yml` sets
+  `CARGO_PROFILE_RELEASE_LTO` per target; x86_64 keeps fat, the profile E2 is measured on.
