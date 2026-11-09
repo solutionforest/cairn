@@ -11,6 +11,18 @@ developers.
 
 ## [Unreleased]
 
+### Changed
+- Smaller binary (14.6 MiB on x86_64, was 17.3 MiB): the AWS SDK and the OIDC/JWT libraries are no
+  longer built into release binaries. Fewer third-party crates in the binary means fewer to
+  patch.
+- TLS certificates and keys are read with `rustls-pki-types` instead of the archived
+  `rustls-pemfile`. PKCS#8, SEC1 and RSA keys load as before.
+
+### Removed
+- **Breaking:** `tidemark backup --to s3://…` and `restore --from s3://…` are not in release
+  binaries. Back up to a directory and copy it off-site with `rclone sync`; OPERATIONS.md
+  "Backup and restore" has a cron example. Builds with `--features remote` keep `s3://`.
+
 ## [0.1.0-alpha.3] - 2026-11-09
 
 The project is renamed from Cairn to **Tidemark**. Only names changed; S3 behaviour is the same.

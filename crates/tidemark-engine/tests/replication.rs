@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use support3b::*;
-use tidemark_blob::remote_s3::S3Endpoint;
+use tidemark_blob::S3Endpoint;
 use tidemark_core::{S3ErrorCode, Ts};
 use tidemark_engine::replication::*;
 use tidemark_engine::tidemark_meta::{MetaStore, Reader, Table, VersionRecord};
@@ -542,7 +542,20 @@ async fn target_registry_seals_secrets() {
         !raw.windows(12).any(|w| w == b"super-secret"),
         "secret sealed at rest"
     );
+    #[cfg(feature = "remote")]
     assert!(reg.resolve("arn:aws:s3:::remote").unwrap().is_some());
+    #[cfg(not(feature = "remote"))]
+    {
+        let err = reg
+            .resolve("arn:aws:s3:::remote")
+            .err()
+            .expect("no remote client");
+        assert!(
+            matches!(err, ReplError::Transient(_)),
+            "retried, never skipped: {err}"
+        );
+        assert!(err.to_string().contains("--features remote"), "{err}");
+    }
     assert!(reg.resolve("arn:aws:s3:::none").unwrap().is_none());
     let other_key = TargetRegistry::new(&e, [4u8; 32]);
     assert!(
@@ -593,6 +606,7 @@ async fn put_replica_rejects_mismatched_data_and_unversioned_bucket() {
 /// engine. Until then it runs against two already-running servers:
 /// `TIDEMARK_REPL_SRC=http://… TIDEMARK_REPL_DST=http://… TIDEMARK_REPL_AK=… TIDEMARK_REPL_SK=…
 /// cargo test -p tidemark-engine --test replication -- --ignored`.
+#[cfg(feature = "remote")]
 #[tokio::test]
 #[ignore = "needs two running Tidemark servers (see doc comment); Agent A moves it to tidemark-server tests"]
 async fn two_server_http_round_trip() {

@@ -325,19 +325,17 @@ fn location(s: &str, r: &Remote) -> anyhow::Result<backup::BackupLocation> {
         Some(rest) => {
             let (bucket, prefix) = rest.split_once('/').unwrap_or((rest, ""));
             anyhow::ensure!(!bucket.is_empty(), "s3:// location needs a bucket");
-            Ok(backup::BackupLocation::S3(
-                tidemark_blob::remote_s3::S3Endpoint {
-                    endpoint: r.endpoint.clone(),
-                    region: r.region.clone(),
-                    bucket: bucket.to_string(),
-                    prefix: prefix.to_string(),
-                    access_key: std::env::var("AWS_ACCESS_KEY_ID")
-                        .context("AWS_ACCESS_KEY_ID is required for s3:// locations")?,
-                    secret_key: std::env::var("AWS_SECRET_ACCESS_KEY")
-                        .context("AWS_SECRET_ACCESS_KEY is required for s3:// locations")?,
-                    path_style: r.endpoint.is_some(),
-                },
-            ))
+            Ok(backup::BackupLocation::S3(tidemark_blob::S3Endpoint {
+                endpoint: r.endpoint.clone(),
+                region: r.region.clone(),
+                bucket: bucket.to_string(),
+                prefix: prefix.to_string(),
+                access_key: std::env::var("AWS_ACCESS_KEY_ID")
+                    .context("AWS_ACCESS_KEY_ID is required for s3:// locations")?,
+                secret_key: std::env::var("AWS_SECRET_ACCESS_KEY")
+                    .context("AWS_SECRET_ACCESS_KEY is required for s3:// locations")?,
+                path_style: r.endpoint.is_some(),
+            }))
         }
         None => Ok(backup::BackupLocation::Dir(PathBuf::from(s))),
     }

@@ -1,3 +1,4 @@
+#![cfg(feature = "remote")]
 //! aws-sdk-s3 code paths over real HTTP against an in-process Tidemark server
 //! (`tidemark_server::test_support::spawn`): [`S3Target`] replication (single-part with metadata and
 //! tags, multipart with the same ETag, delete markers) and the S3 cold tier

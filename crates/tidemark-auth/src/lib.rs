@@ -29,7 +29,9 @@ pub use eval::{
     AuthzRequest, ConditionContext, Decision, PolicySet, PublicAccessBlock, ResourceVerdict,
 };
 pub use meta_backend::MetaCredentialBackend;
-pub use oidc::{OidcError, OidcProviderConfig, OidcVerifier, WebIdentity};
+#[cfg(feature = "oidc")]
+pub use oidc::OidcVerifier;
+pub use oidc::{OidcError, OidcProviderConfig, WebIdentity};
 pub use pattern::VarResolver;
 pub use policy::{PolicyDocument, PolicyKind};
 pub use principal::{Principal, PrincipalKind};

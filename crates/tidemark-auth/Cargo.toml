@@ -37,8 +37,12 @@ tracing.workspace = true
 
 tokio.workspace = true
 # Phase 3c: OIDC federation (JWT verification, JWKS fetch over rustls).
-jsonwebtoken.workspace = true
-reqwest.workspace = true
+jsonwebtoken = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true }
+
+[features]
+# OIDC federation (AssumeRoleWithWebIdentity). Shelved for v0.1 and off in release binaries.
+oidc = ["dep:jsonwebtoken", "dep:reqwest"]
 
 [dev-dependencies]
 tempfile.workspace = true

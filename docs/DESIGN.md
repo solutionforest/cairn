@@ -503,7 +503,8 @@ Admin-only actions are in the `tidemark:` namespace (`tidemark:CreateUser`, `tid
   `tidemark scrub` (re-hash all/sampled blobs, throttled; reports and quarantines corrupt blobs,
   marks affected versions `Damaged` so GET returns a clear error and replication can heal them
   from a replica).
-- **Backup**: `tidemark backup <dest>` where dest is a local path or `s3://…` (any S3 endpoint).
+- **Backup**: `tidemark backup <dest>` where dest is a local path (off-site: `rclone sync` the
+  directory; `s3://…` destinations need a build with `--features remote`, DECISIONS 2026-11-09).
   Takes a consistent redb snapshot (redb `Database::compact` into a copy or savepoint-based
   export) then syncs new blobs (immutable → trivially incremental). `tidemark restore <src>` rebuilds a
   data dir. Backups are encrypted (age-style X25519/ChaCha20-Poly1305) when a recipient key is

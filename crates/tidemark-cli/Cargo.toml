@@ -31,6 +31,10 @@ rand.workspace = true
 toml.workspace = true
 reqwest.workspace = true
 
+[features]
+remote = ["tidemark-server/remote", "tidemark-blob/remote"]
+oidc = ["tidemark-auth/oidc"]
+
 [dev-dependencies]
 tempfile.workspace = true
 aws-sdk-s3.workspace = true

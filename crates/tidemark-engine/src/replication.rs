@@ -35,7 +35,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
-use tidemark_blob::remote_s3::{RemoteS3, S3Endpoint, aws_sdk_s3};
+use tidemark_blob::S3Endpoint;
 use tidemark_blob::{BlobReader, BlobStore, DataKey, FsBlobStore, WriteOpts};
 use tidemark_core::{BucketId, S3Error, S3ErrorCode, S3Result, Ts, VersionId};
 use tidemark_meta::{
@@ -686,192 +686,232 @@ impl ReplicationTarget for EngineTarget {
     }
 }
 
-/// Target on any S3 endpoint via aws-sdk-s3 (rustls). With `tidemark_peer`, every request carries
-/// [`VERSION_ID_HEADER`] so a Tidemark destination keeps the source version id.
-#[derive(Clone)]
-pub struct S3Target {
-    s3: RemoteS3,
-    tidemark_peer: bool,
-    spool: PathBuf,
-}
+#[cfg(feature = "remote")]
+pub use s3_target::S3Target;
 
-impl S3Target {
-    /// Target for `ep` (bucket = destination bucket); parts are spooled under `spool_dir`.
-    pub fn new(ep: &S3Endpoint, tidemark_peer: bool, spool_dir: &Path) -> S3Target {
-        S3Target {
-            s3: RemoteS3::new(ep),
-            tidemark_peer,
-            spool: spool_dir.to_path_buf(),
-        }
+#[cfg(feature = "remote")]
+mod s3_target {
+    use super::*;
+    use tidemark_blob::remote_s3::{RemoteS3, aws_sdk_s3};
+
+    /// Target on any S3 endpoint via aws-sdk-s3 (rustls). With `tidemark_peer`, every request carries
+    /// [`VERSION_ID_HEADER`] so a Tidemark destination keeps the source version id.
+    #[derive(Clone)]
+    pub struct S3Target {
+        s3: RemoteS3,
+        tidemark_peer: bool,
+        spool: PathBuf,
     }
 
-    async fn spool_part(&self, data: &dyn PartSource, i: usize) -> Result<PathBuf, ReplError> {
-        let mut r = data.open_part(i).await?;
-        let p = self.spool.join(format!("repl-{}", uuid::Uuid::new_v4()));
-        let res: Result<(), std::io::Error> = async {
-            let mut f = tokio::fs::File::create(&p).await?;
-            while let Some(c) = r.next().await {
-                f.write_all(&c?).await?;
+    impl S3Target {
+        /// Target for `ep` (bucket = destination bucket); parts are spooled under `spool_dir`.
+        pub fn new(ep: &S3Endpoint, tidemark_peer: bool, spool_dir: &Path) -> S3Target {
+            S3Target {
+                s3: RemoteS3::new(ep),
+                tidemark_peer,
+                spool: spool_dir.to_path_buf(),
             }
-            f.flush().await
         }
-        .await;
-        if let Err(e) = res {
-            let _ = tokio::fs::remove_file(&p).await;
-            return Err(ReplError::Transient(format!("spooling part: {e}")));
-        }
-        Ok(p)
-    }
-}
 
-fn sdk_repl_err<E: std::error::Error + Send + Sync + 'static>(
-    e: aws_sdk_s3::error::SdkError<E, aws_sdk_s3::config::http::HttpResponse>,
-) -> ReplError {
-    let status = e.raw_response().map(|r| r.status().as_u16());
-    let msg = format!("{}", aws_sdk_s3::error::DisplayErrorContext(&e));
-    match status {
-        Some(400 | 405 | 411 | 413 | 501) => ReplError::Permanent(msg),
-        _ => ReplError::Transient(msg),
-    }
-}
-
-fn tagging(tags: &BTreeMap<String, String>) -> Option<String> {
-    if tags.is_empty() {
-        return None;
-    }
-    let enc = |s: &str| {
-        let mut o = String::new();
-        for b in s.bytes() {
-            match b {
-                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                    o.push(b as char)
+        async fn spool_part(&self, data: &dyn PartSource, i: usize) -> Result<PathBuf, ReplError> {
+            let mut r = data.open_part(i).await?;
+            let p = self.spool.join(format!("repl-{}", uuid::Uuid::new_v4()));
+            let res: Result<(), std::io::Error> = async {
+                let mut f = tokio::fs::File::create(&p).await?;
+                while let Some(c) = r.next().await {
+                    f.write_all(&c?).await?;
                 }
-                _ => o.push_str(&format!("%{b:02X}")),
+                f.flush().await
             }
-        }
-        o
-    };
-    Some(
-        tags.iter()
-            .map(|(k, v)| format!("{}={}", enc(k), enc(v)))
-            .collect::<Vec<_>>()
-            .join("&"),
-    )
-}
-
-macro_rules! object_meta {
-    ($req:expr, $body:expr) => {{
-        let b = $body;
-        let mut r = $req
-            .set_content_type(b.content_type.clone())
-            .set_cache_control(b.cache_control.clone())
-            .set_content_disposition(b.content_disposition.clone())
-            .set_content_encoding(b.content_encoding.clone())
-            .set_content_language(b.content_language.clone())
-            .set_website_redirect_location(b.website_redirect.clone())
-            .set_tagging(tagging(&b.tags));
-        for (k, v) in &b.user_metadata {
-            r = r.metadata(k, v);
-        }
-        r
-    }};
-}
-
-#[async_trait]
-impl ReplicationTarget for S3Target {
-    async fn replicate_object(
-        &self,
-        v: &VersionRecord,
-        data: &dyn PartSource,
-    ) -> Result<(), ReplError> {
-        let body = v
-            .body()
-            .ok_or_else(|| ReplError::Permanent("not an object".into()))?;
-        let vid = v.version_id.to_string();
-        let peer = self.tidemark_peer;
-        let client = self.s3.client();
-        let key = self.s3.key(&v.key);
-        if body.parts.len() <= 1 {
-            let path = if body.parts.is_empty() {
-                None
-            } else {
-                Some(self.spool_part(data, 0).await?)
-            };
-            let stream = match &path {
-                Some(p) => aws_sdk_s3::primitives::ByteStream::from_path(p)
-                    .await
-                    .map_err(|e| ReplError::Transient(e.to_string()))?,
-                None => aws_sdk_s3::primitives::ByteStream::from_static(b""),
-            };
-            let req = client
-                .put_object()
-                .bucket(self.s3.bucket())
-                .key(&key)
-                .body(stream);
-            let res = object_meta!(req, body)
-                .customize()
-                .mutate_request(move |r| {
-                    if peer {
-                        r.headers_mut().insert(VERSION_ID_HEADER, vid.clone());
-                    }
-                })
-                .send()
-                .await;
-            if let Some(p) = path {
-                let _ = tokio::fs::remove_file(p).await;
-            }
-            res.map_err(sdk_repl_err)?;
-            return Ok(());
-        }
-        let req = client
-            .create_multipart_upload()
-            .bucket(self.s3.bucket())
-            .key(&key);
-        let up = object_meta!(req, body).send().await.map_err(sdk_repl_err)?;
-        let upload_id = up
-            .upload_id()
-            .ok_or_else(|| ReplError::Transient("no upload id".into()))?
-            .to_string();
-        let res: Result<(), ReplError> = async {
-            let mut done = Vec::new();
-            for (i, _) in body.parts.iter().enumerate() {
-                let p = self.spool_part(data, i).await?;
-                let stream = aws_sdk_s3::primitives::ByteStream::from_path(&p)
-                    .await
-                    .map_err(|e| ReplError::Transient(e.to_string()));
-                let r = match stream {
-                    Ok(s) => client
-                        .upload_part()
-                        .bucket(self.s3.bucket())
-                        .key(&key)
-                        .upload_id(&upload_id)
-                        .part_number(i as i32 + 1)
-                        .body(s)
-                        .send()
-                        .await
-                        .map_err(sdk_repl_err),
-                    Err(e) => Err(e),
-                };
+            .await;
+            if let Err(e) = res {
                 let _ = tokio::fs::remove_file(&p).await;
-                let r = r?;
-                done.push(
-                    aws_sdk_s3::types::CompletedPart::builder()
-                        .part_number(i as i32 + 1)
-                        .set_e_tag(r.e_tag().map(str::to_string))
-                        .build(),
-                );
+                return Err(ReplError::Transient(format!("spooling part: {e}")));
             }
-            let vid = vid.clone();
-            client
-                .complete_multipart_upload()
+            Ok(p)
+        }
+    }
+
+    fn sdk_repl_err<E: std::error::Error + Send + Sync + 'static>(
+        e: aws_sdk_s3::error::SdkError<E, aws_sdk_s3::config::http::HttpResponse>,
+    ) -> ReplError {
+        let status = e.raw_response().map(|r| r.status().as_u16());
+        let msg = format!("{}", aws_sdk_s3::error::DisplayErrorContext(&e));
+        match status {
+            Some(400 | 405 | 411 | 413 | 501) => ReplError::Permanent(msg),
+            _ => ReplError::Transient(msg),
+        }
+    }
+
+    fn tagging(tags: &BTreeMap<String, String>) -> Option<String> {
+        if tags.is_empty() {
+            return None;
+        }
+        let enc = |s: &str| {
+            let mut o = String::new();
+            for b in s.bytes() {
+                match b {
+                    b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                        o.push(b as char)
+                    }
+                    _ => o.push_str(&format!("%{b:02X}")),
+                }
+            }
+            o
+        };
+        Some(
+            tags.iter()
+                .map(|(k, v)| format!("{}={}", enc(k), enc(v)))
+                .collect::<Vec<_>>()
+                .join("&"),
+        )
+    }
+
+    macro_rules! object_meta {
+        ($req:expr, $body:expr) => {{
+            let b = $body;
+            let mut r = $req
+                .set_content_type(b.content_type.clone())
+                .set_cache_control(b.cache_control.clone())
+                .set_content_disposition(b.content_disposition.clone())
+                .set_content_encoding(b.content_encoding.clone())
+                .set_content_language(b.content_language.clone())
+                .set_website_redirect_location(b.website_redirect.clone())
+                .set_tagging(tagging(&b.tags));
+            for (k, v) in &b.user_metadata {
+                r = r.metadata(k, v);
+            }
+            r
+        }};
+    }
+
+    #[async_trait]
+    impl ReplicationTarget for S3Target {
+        async fn replicate_object(
+            &self,
+            v: &VersionRecord,
+            data: &dyn PartSource,
+        ) -> Result<(), ReplError> {
+            let body = v
+                .body()
+                .ok_or_else(|| ReplError::Permanent("not an object".into()))?;
+            let vid = v.version_id.to_string();
+            let peer = self.tidemark_peer;
+            let client = self.s3.client();
+            let key = self.s3.key(&v.key);
+            if body.parts.len() <= 1 {
+                let path = if body.parts.is_empty() {
+                    None
+                } else {
+                    Some(self.spool_part(data, 0).await?)
+                };
+                let stream = match &path {
+                    Some(p) => aws_sdk_s3::primitives::ByteStream::from_path(p)
+                        .await
+                        .map_err(|e| ReplError::Transient(e.to_string()))?,
+                    None => aws_sdk_s3::primitives::ByteStream::from_static(b""),
+                };
+                let req = client
+                    .put_object()
+                    .bucket(self.s3.bucket())
+                    .key(&key)
+                    .body(stream);
+                let res = object_meta!(req, body)
+                    .customize()
+                    .mutate_request(move |r| {
+                        if peer {
+                            r.headers_mut().insert(VERSION_ID_HEADER, vid.clone());
+                        }
+                    })
+                    .send()
+                    .await;
+                if let Some(p) = path {
+                    let _ = tokio::fs::remove_file(p).await;
+                }
+                res.map_err(sdk_repl_err)?;
+                return Ok(());
+            }
+            let req = client
+                .create_multipart_upload()
                 .bucket(self.s3.bucket())
-                .key(&key)
-                .upload_id(&upload_id)
-                .multipart_upload(
-                    aws_sdk_s3::types::CompletedMultipartUpload::builder()
-                        .set_parts(Some(done))
-                        .build(),
-                )
+                .key(&key);
+            let up = object_meta!(req, body).send().await.map_err(sdk_repl_err)?;
+            let upload_id = up
+                .upload_id()
+                .ok_or_else(|| ReplError::Transient("no upload id".into()))?
+                .to_string();
+            let res: Result<(), ReplError> = async {
+                let mut done = Vec::new();
+                for (i, _) in body.parts.iter().enumerate() {
+                    let p = self.spool_part(data, i).await?;
+                    let stream = aws_sdk_s3::primitives::ByteStream::from_path(&p)
+                        .await
+                        .map_err(|e| ReplError::Transient(e.to_string()));
+                    let r = match stream {
+                        Ok(s) => client
+                            .upload_part()
+                            .bucket(self.s3.bucket())
+                            .key(&key)
+                            .upload_id(&upload_id)
+                            .part_number(i as i32 + 1)
+                            .body(s)
+                            .send()
+                            .await
+                            .map_err(sdk_repl_err),
+                        Err(e) => Err(e),
+                    };
+                    let _ = tokio::fs::remove_file(&p).await;
+                    let r = r?;
+                    done.push(
+                        aws_sdk_s3::types::CompletedPart::builder()
+                            .part_number(i as i32 + 1)
+                            .set_e_tag(r.e_tag().map(str::to_string))
+                            .build(),
+                    );
+                }
+                let vid = vid.clone();
+                client
+                    .complete_multipart_upload()
+                    .bucket(self.s3.bucket())
+                    .key(&key)
+                    .upload_id(&upload_id)
+                    .multipart_upload(
+                        aws_sdk_s3::types::CompletedMultipartUpload::builder()
+                            .set_parts(Some(done))
+                            .build(),
+                    )
+                    .customize()
+                    .mutate_request(move |r| {
+                        if peer {
+                            r.headers_mut().insert(VERSION_ID_HEADER, vid.clone());
+                        }
+                    })
+                    .send()
+                    .await
+                    .map_err(sdk_repl_err)?;
+                Ok(())
+            }
+            .await;
+            if res.is_err() {
+                let _ = client
+                    .abort_multipart_upload()
+                    .bucket(self.s3.bucket())
+                    .key(&key)
+                    .upload_id(&upload_id)
+                    .send()
+                    .await;
+            }
+            res
+        }
+
+        async fn replicate_delete_marker(&self, v: &VersionRecord) -> Result<(), ReplError> {
+            let vid = v.version_id.to_string();
+            let peer = self.tidemark_peer;
+            self.s3
+                .client()
+                .delete_object()
+                .bucket(self.s3.bucket())
+                .key(self.s3.key(&v.key))
                 .customize()
                 .mutate_request(move |r| {
                     if peer {
@@ -883,38 +923,32 @@ impl ReplicationTarget for S3Target {
                 .map_err(sdk_repl_err)?;
             Ok(())
         }
-        .await;
-        if res.is_err() {
-            let _ = client
-                .abort_multipart_upload()
-                .bucket(self.s3.bucket())
-                .key(&key)
-                .upload_id(&upload_id)
-                .send()
-                .await;
-        }
-        res
     }
+}
 
-    async fn replicate_delete_marker(&self, v: &VersionRecord) -> Result<(), ReplError> {
-        let vid = v.version_id.to_string();
-        let peer = self.tidemark_peer;
-        self.s3
-            .client()
-            .delete_object()
-            .bucket(self.s3.bucket())
-            .key(self.s3.key(&v.key))
-            .customize()
-            .mutate_request(move |r| {
-                if peer {
-                    r.headers_mut().insert(VERSION_ID_HEADER, vid.clone());
-                }
-            })
-            .send()
-            .await
-            .map_err(sdk_repl_err)?;
-        Ok(())
-    }
+#[cfg(feature = "remote")]
+fn remote_target(
+    _arn: &str,
+    cfg: &TargetConfig,
+    spool: &Path,
+) -> Result<Arc<dyn ReplicationTarget>, ReplError> {
+    Ok(Arc::new(S3Target::new(
+        &cfg.endpoint,
+        cfg.tidemark_peer,
+        spool,
+    )))
+}
+
+#[cfg(not(feature = "remote"))]
+fn remote_target(
+    arn: &str,
+    _cfg: &TargetConfig,
+    _spool: &Path,
+) -> Result<Arc<dyn ReplicationTarget>, ReplError> {
+    Err(ReplError::Transient(format!(
+        "target {arn} is a remote S3 endpoint; this build has no remote S3 client \
+         (build with `--features remote`)"
+    )))
 }
 
 /// Resolves a destination ARN of a bucket's rule to a target.
@@ -1141,8 +1175,7 @@ impl TargetResolver for TargetRegistry {
         let Some(cfg) = self.load(arn)? else {
             return Ok(None);
         };
-        let t: Arc<dyn ReplicationTarget> =
-            Arc::new(S3Target::new(&cfg.endpoint, cfg.tidemark_peer, &self.spool));
+        let t = remote_target(arn, &cfg, &self.spool)?;
         self.cache
             .lock()
             .expect("cache")

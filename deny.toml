@@ -36,16 +36,13 @@ ignore = [
     # atomic-polyfill: unmaintained (no vulnerability). Pulled in by postcard 1.x -> heapless 0.7.
     # Goes away when postcard moves to heapless 0.8+; nothing to do on our side.
     { id = "RUSTSEC-2023-0089", reason = "transitive via postcard/heapless 0.7, unmaintained only" },
-    # pin-utils: unmaintained (no vulnerability). Reached through aws-sdk-s3, which ships in the
-    # binary for S3 backup targets and replication (tidemark-blob remote_s3).
-    { id = "RUSTSEC-2026-0441", reason = "via aws-smithy-http (S3 backup client), unmaintained only" },
-    # rustls-pemfile: archived; superseded by rustls-pki-types' PemObject. Direct dependency of
-    # tidemark-server (TLS cert loading); migration tracked for phase 2a (B6 PEM reload).
-    { id = "RUSTSEC-2025-0134", reason = "direct dep of tidemark-server; migrate to rustls-pki-types PemObject in 2a" },
+    # pin-utils: unmaintained (no vulnerability). Reached through aws-sdk-s3, which is only built
+    # with the off-by-default `remote` feature and in tests; release binaries do not contain it.
+    { id = "RUSTSEC-2026-0441", reason = "via aws-smithy-http, `remote` feature and tests only; unmaintained only" },
     # rsa (Marvin) and crypto-bigint 0.5 (non-constant-time arithmetic): pulled in by
-    # jsonwebtoken's RustCrypto backend for OIDC federation (tidemark-auth, phase 3c). Tidemark only
-    # *verifies* RS*/PS*/ES* signatures with public JWKS keys; no RSA decryption and no
-    # private-key operations happen outside tests, so the secret-timing leaks do not apply.
+    # jsonwebtoken for OIDC federation, which is shelved and only built with the off-by-default
+    # `oidc` feature; release binaries do not contain them. Even then Tidemark only *verifies*
+    # signatures with public JWKS keys (no RSA decryption, no private-key operations).
     # Re-check when jsonwebtoken moves to rsa 0.10 / elliptic-curve 0.14.
     { id = "RUSTSEC-2023-0071", reason = "rsa via jsonwebtoken: public-key verification only" },
     { id = "RUSTSEC-2026-0387", reason = "crypto-bigint 0.5 via p256/p384: public-key verification only" },

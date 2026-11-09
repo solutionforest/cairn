@@ -29,10 +29,15 @@ hex.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 uuid.workspace = true
-aws-sdk-s3.workspace = true
-aws-smithy-http-client.workspace = true
-aws-credential-types.workspace = true
+aws-sdk-s3 = { workspace = true, optional = true }
+aws-smithy-http-client = { workspace = true, optional = true }
+aws-credential-types = { workspace = true, optional = true }
 rustix.workspace = true
+
+[features]
+# S3 client for backups to s3://, replication to remote S3 and the S3 cold tier. Off in release
+# binaries: back up to a directory and sync it with rclone instead (OPERATIONS.md).
+remote = ["dep:aws-sdk-s3", "dep:aws-smithy-http-client", "dep:aws-credential-types"]
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -47,6 +47,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with: { shared-key: ci-linux }
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      # Off-by-default features (`remote` aws-sdk-s3 client, `oidc`) must keep compiling.
+      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
   test:
     name: test
@@ -58,6 +60,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with: { shared-key: ci-linux }
       - run: cargo test --workspace --locked --no-fail-fast
+      - name: off-by-default features (remote S3 client, OIDC)
+        run: >-
+          cargo test -p tidemark-blob -p tidemark-engine -p tidemark-auth --locked --no-fail-fast
+          --features tidemark-engine/remote,tidemark-auth/oidc
 
   # rustdoc warnings as errors. Non-blocking until tidemark-auth's doc warnings are fixed (Agent B);
   # drop `continue-on-error` then to close PRODUCTION-READINESS F1.

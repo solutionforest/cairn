@@ -28,7 +28,9 @@ use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::ops::Bound;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tidemark_blob::remote_s3::{RemoteS3, S3Endpoint, is_not_found};
+use tidemark_blob::S3Endpoint;
+#[cfg(feature = "remote")]
+use tidemark_blob::{is_not_found, remote_s3::RemoteS3};
 use tidemark_core::{BlobId, Ts};
 use tidemark_meta::{
     BlobRef, Flow, MetaError, MetaStore, ReadTxn, Reader, RedbMetaStore, Table, decode,
@@ -523,8 +525,10 @@ impl SetStore for DirSet {
     }
 }
 
+#[cfg(feature = "remote")]
 struct S3Set(RemoteS3);
 
+#[cfg(feature = "remote")]
 #[async_trait::async_trait]
 impl SetStore for S3Set {
     async fn put_file(&self, name: &str, src: &Path) -> Result<()> {
@@ -548,12 +552,19 @@ impl SetStore for S3Set {
     }
 }
 
-fn open_set(loc: &BackupLocation) -> Box<dyn SetStore> {
+fn open_set(loc: &BackupLocation) -> Result<Box<dyn SetStore>> {
     match loc {
-        BackupLocation::Dir(p) => Box::new(DirSet(p.clone())),
-        BackupLocation::S3(ep) => Box::new(S3Set(RemoteS3::new(ep))),
+        BackupLocation::Dir(p) => Ok(Box::new(DirSet(p.clone()))),
+        #[cfg(feature = "remote")]
+        BackupLocation::S3(ep) => Ok(Box::new(S3Set(RemoteS3::new(ep)))),
+        #[cfg(not(feature = "remote"))]
+        BackupLocation::S3(_) => Err(BackupError::Io(io::Error::other(NO_REMOTE))),
     }
 }
+
+/// Why an `s3://` location fails in a build without the `remote` feature (release binaries).
+pub const NO_REMOTE: &str = "s3:// backup locations need a build with `--features remote`; \
+     back up to a directory and copy it with `rclone sync` (OPERATIONS.md \"Backup and restore\")";
 
 /// Load (or, when `create` is set, create) the set descriptor and derive the set key.
 async fn set_key(
@@ -652,7 +663,7 @@ async fn manifest_ids(store: &dyn SetStore) -> Result<Vec<String>> {
 
 /// Manifest ids in a backup set, oldest first.
 pub async fn list_backups(src: &BackupLocation) -> Result<Vec<String>> {
-    manifest_ids(open_set(src).as_ref()).await
+    manifest_ids(open_set(src)?.as_ref()).await
 }
 
 fn table_name(t: Table) -> String {
@@ -768,7 +779,7 @@ pub async fn backup(
             "--include-keys requires an encrypted backup (set a passphrase)".into(),
         ));
     }
-    let store = open_set(dest);
+    let store = open_set(dest)?;
     let key = set_key(store.as_ref(), opts.passphrase.as_ref(), Some(opts.kdf)).await?;
     let prev_id = manifest_ids(store.as_ref()).await?.pop();
     let prev = match (&prev_id, opts.mode) {
@@ -1020,7 +1031,7 @@ pub async fn restore(
     dest_dir: &Path,
     opts: &RestoreOptions,
 ) -> Result<RestoreReport> {
-    let store = open_set(src);
+    let store = open_set(src)?;
     let key = set_key(store.as_ref(), opts.passphrase.as_ref(), None).await?;
     let id = match &opts.manifest {
         Some(id) => id.clone(),

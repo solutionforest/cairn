@@ -10,7 +10,9 @@
 //! so reads bump it (at most once per [`TierPolicy::touch_interval`]).
 
 use crate::crypto::{self, ChunkCipher, HEADER};
-use crate::remote_s3::{RemoteS3, is_not_found};
+use crate::endpoint::is_not_found;
+#[cfg(feature = "remote")]
+use crate::remote_s3::RemoteS3;
 use crate::{BlobError, BlobReader, BlobStore, BlobWriter, DataKey, FsBlobStore, WriteOpts};
 use std::io;
 use std::ops::Range;
@@ -47,10 +49,12 @@ pub trait ColdStore: Send + Sync + 'static {
 
 /// Cold tier on a remote S3 bucket.
 #[derive(Debug, Clone)]
+#[cfg(feature = "remote")]
 pub struct RemoteBlobStore {
     s3: RemoteS3,
 }
 
+#[cfg(feature = "remote")]
 impl RemoteBlobStore {
     /// Cold tier on `s3` (bucket + prefix).
     pub fn new(s3: RemoteS3) -> RemoteBlobStore {
@@ -63,6 +67,7 @@ impl RemoteBlobStore {
     }
 }
 
+#[cfg(feature = "remote")]
 impl ColdStore for RemoteBlobStore {
     async fn put_file(&self, name: &str, path: &Path) -> Result<(), BlobError> {
         self.s3.put_path(name, path).await

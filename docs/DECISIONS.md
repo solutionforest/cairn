@@ -555,3 +555,17 @@ Dated (UTC) design and implementation decisions, newest last. Moved out of `BUIL
   domain labels, because only two pre-releases exist and carrying `cairn` strings in the formats
   forever costs more than one re-init for alpha users. Entries above this one keep the old name
   as written at the time.
+- **2026-11-09 — Shelved features leave the release binary (BUILD-PLAN 1.4).** The AWS SDK
+  (`aws-sdk-s3`, for `s3://` backups, replication to remote S3 and the S3 cold tier) now sits
+  behind an off-by-default `remote` feature, and OIDC federation (`jsonwebtoken`, `reqwest` in
+  `tidemark-auth`, pulling `rsa` and `crypto-bigint` 0.5) behind an off-by-default `oidc`
+  feature. `rustls-pemfile` (archived) is replaced by `rustls-pki-types`' `PemObject`.
+  Effect on the static x86_64 binary: 17.3 MiB → 14.6 MiB, and none of the four advisory-carrying
+  crates is in it; RUSTSEC-2025-0134 is no longer ignored. The other ignores stay because
+  `cargo audit` reads the lockfile, which still holds the optional and test dependencies.
+  Breaking for release binaries: `tidemark backup --to s3://…` now fails with a pointer to
+  backing up to a directory and copying it with `rclone sync` (OPERATIONS.md "Backup and
+  restore"). Rejected: a hand-written SigV4 client to keep `s3://` backups, which would be new
+  auth code to maintain for something rclone already does well. CI lints with `--all-features`
+  and runs the feature-gated tests, so the gated code keeps compiling. OPERATIONS.md lost its
+  OIDC, replication and tiering sections, which documented shelved features.

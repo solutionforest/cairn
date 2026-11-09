@@ -32,25 +32,22 @@ Crate API contracts are documented in each crate's `lib.rs` rustdoc.
 
 ## Where we are (2026-11-09)
 
-Every row in `docs/PRODUCTION-READINESS.md` is checked. `v0.1.0-alpha.2` is public; the rename
-to Tidemark is committed but **`v0.1.0-alpha.3` is not tagged**, and the README quickstart and
-`scripts/start.sh` already download it, so the quickstart 404s today. Numbers: 292 workspace tests,
-322/370 ceph s3-tests (87.0%), binary 17.3 MiB x86_64, idle 10.4 MiB, all CI green on
-GitHub-hosted runners.
+Every row in `docs/PRODUCTION-READINESS.md` is checked. `v0.1.0-alpha.3` (first release named
+Tidemark) is public: binaries, SBOMs, checksums and an anonymously pullable image. Numbers: ~290
+workspace tests, 322/370 ceph s3-tests (87.0%), binary 14.6 MiB x86_64, idle 10.4 MiB, all CI
+green on GitHub-hosted runners.
 
 ## Remaining work
 
 Ordered. Each step lands only when the one before it is green; nothing from a later block starts
 early unless it is blocked on nothing and someone has spare time.
 
-### Block 0 — unbreak the quickstart (today)
+### Block 0 — unbreak the quickstart ✅ 2026-11-09
 
-| # | Work | Proof |
-|---|------|-------|
-| 0.1 | Tag `v0.1.0-alpha.3` on `master`; the CHANGELOG section is already dated. | release run green: two binaries, SBOMs, SHA256SUMS, GHCR image |
-| 0.2 | Make the new GHCR package `solutionforest/tidemark` public (package visibility does not follow the repo; the CLI token lacks `packages` scope, so this is a one-time UI step). Leave `cairn` as is; its last tag is alpha.2 and the old README pins it. | `docker pull ghcr.io/solutionforest/tidemark:v0.1.0-alpha.3` anonymously |
-| 0.3 | Re-run the README quickstart and `scripts/start.sh` from an empty directory against the published tarball; run `compose` once. | the three commands in README "Start" succeed; `compose` workflow run green |
-| 0.4 | This file. BUILD-PLAN described lanes that finished a day ago. | this section |
+`v0.1.0-alpha.3` tagged and released (run 42653905651, all six jobs green); the GHCR package was
+already public. README "Linux binary" and "Quick start" (clone, `scripts/start.sh`, delete,
+`trash restore`, byte-identical) re-run anonymously from empty directories; the post-release
+`compose` run is green.
 
 ### Block 1 — alpha → beta: the data directory becomes a promise
 
@@ -62,7 +59,7 @@ breaks alpha.2 directories and the CHANGELOG says so. From `beta.1` on that is f
 | 1.1 | Freeze the on-disk formats: `meta` schema version, `postcard` record schema bytes, blob layout, credential-store labels, backup format. Write them down in DESIGN §4 as "frozen at beta.1; changes go through `migrate`". | DESIGN §4 table; DECISIONS entry |
 | 1.2 | Upgrade test in CI: download the previous release binary, `init` + write a mixed workload (versions, multipart, tags, policy, trash, encrypted store), stop; open with the current build, `migrate --dry-run` then `serve`; every byte and every version id identical, `fsck` clean. Runs on every push once beta.1 exists. | `.github/workflows/upgrade.yml`; `scripts/upgrade-test.sh` |
 | 1.3 | Soak: 24 h under `rclone` + `warp` mixed load with a kill -9 every 10 min and a disk-full window; `fsck --verify` clean at the end, RSS flat. One scheduled workflow (weekly) on a GitHub-hosted runner, shorter (2 h) with the same shape. | `.github/workflows/soak.yml`; numbers in OPERATIONS.md |
-| 1.4 | Drop `aws-sdk-s3` from `tidemark-blob` and `tidemark-server` (only tiering used it; tiering is shelved). Keep it as a dev-dependency for tests. Expect a smaller binary and fewer `cargo audit` ignores. | `deny.toml` / `.cargo/audit.toml` ignore list shrinks; footprint job prints the new size |
+| 1.4 ✅ | Drop `aws-sdk-s3` from `tidemark-blob` and `tidemark-server` (only tiering used it; tiering is shelved). Keep it as a dev-dependency for tests. Expect a smaller binary and fewer `cargo audit` ignores. | done 2026-11-09: AWS SDK behind `remote`, OIDC/JWT behind `oidc`, `rustls-pemfile` replaced; 17.3 → 14.6 MiB; one advisory ignore removed (DECISIONS) |
 | 1.5 | Fuzz targets promised in DESIGN §14 but never written: SigV4 header/query parsing reaching our code, policy JSON, lifecycle/tagging XML, key → blob path. Nightly 10-minute run. | `fuzz/` with 4 targets; `.github/workflows/fuzz.yml` |
 | 1.6 | Security self-review of the auth boundary before anyone else looks: presign edge cases, policy evaluator condition keys, admin API, STS, admin-ui backends. Findings become tests or DECISIONS entries. | `docs/SECURITY-REVIEW-<date>.md` with each finding and its test |
 | 1.7 | Performance numbers. DESIGN §13 states targets nobody has measured. Run `warp` on one fixed machine, publish the real numbers in OPERATIONS.md, and either keep or lower the §13 targets to match. No bench harness beyond one script. | `scripts/bench.sh`; OPERATIONS.md "Throughput" |

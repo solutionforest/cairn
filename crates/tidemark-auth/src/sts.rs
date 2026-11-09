@@ -8,7 +8,9 @@
 
 use crate::error::AuthError;
 use crate::eval::ConditionContext;
-use crate::oidc::{OidcError, OidcVerifier};
+use crate::oidc::OidcError;
+#[cfg(feature = "oidc")]
+use crate::oidc::OidcVerifier;
 use crate::principal::Principal;
 use crate::s3s_bridge::RequestMeta;
 use crate::sigv4::{self, HttpParts, SigV4Error};
@@ -31,6 +33,7 @@ pub const MAX_BODY: usize = 64 * 1024;
 #[derive(Clone)]
 pub struct StsState {
     store: Arc<CredentialStore>,
+    #[cfg(feature = "oidc")]
     oidc: Option<Arc<OidcVerifier>>,
 }
 
@@ -43,10 +46,15 @@ impl std::fmt::Debug for StsState {
 impl StsState {
     /// State over a credential store.
     pub fn new(store: Arc<CredentialStore>) -> Self {
-        Self { store, oidc: None }
+        Self {
+            store,
+            #[cfg(feature = "oidc")]
+            oidc: None,
+        }
     }
 
     /// Enable `AssumeRoleWithWebIdentity` with these trusted identity providers.
+    #[cfg(feature = "oidc")]
     pub fn with_oidc(mut self, verifier: Arc<OidcVerifier>) -> Self {
         self.oidc = Some(verifier);
         self
@@ -403,6 +411,18 @@ fn oidc_error(e: OidcError) -> StsError {
     }
 }
 
+/// Without the `oidc` feature every web identity exchange is refused as "not configured".
+#[cfg(not(feature = "oidc"))]
+async fn assume_role_with_web_identity(
+    _st: &StsState,
+    _params: &[(String, String)],
+    _meta: Option<&RequestMeta>,
+    _rid: &str,
+) -> Result<String, StsError> {
+    Err(oidc_error(OidcError::NotConfigured))
+}
+
+#[cfg(feature = "oidc")]
 async fn assume_role_with_web_identity(
     st: &StsState,
     params: &[(String, String)],

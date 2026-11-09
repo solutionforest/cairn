@@ -5,7 +5,9 @@
 //! chunked AES-256-GCM at rest. Reference counts live in `tidemark-meta`, not here.
 
 pub mod crypto;
+pub mod endpoint;
 pub mod hash;
+#[cfg(feature = "remote")]
 pub mod remote_s3;
 pub mod space;
 pub mod tiered;
@@ -13,6 +15,7 @@ pub mod tiered;
 use bytes::Bytes;
 pub use crypto::DataKey;
 use crypto::{CHUNK, ChunkCipher, HEADER, TAG};
+pub use endpoint::{S3Endpoint, is_not_found};
 use futures::Stream;
 use hash::MultiHasher;
 use std::io::{self, SeekFrom};

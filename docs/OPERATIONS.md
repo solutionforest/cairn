@@ -33,6 +33,10 @@ release build, aarch64-unknown-linux-musl, 4 vCPU, Linux 7.0.14. Binary 14379056
 (13.7 MiB, static; the x86_64 build is 17.3 MiB), RSS 10.3 MiB at ready, **10.4 MiB idle after
 110 s**.
 
+Since 2026-11-09 the release binary no longer contains the AWS SDK or the OIDC libraries
+(DECISIONS "Shelved features leave the release binary"): x86_64 is 15323528 bytes (14.6 MiB).
+The tables above predate that; the CI `footprint` job re-measures size and idle RSS on every push.
+
 **Size profile cost.** Server CPU per GiB, measured with `aws s3 cp` on this host for opt-level
 3 / `s` / `z`: put 2.6 / 2.4–2.6 / 2.5–2.6 s, get 4.9–5.3 / 5.5 / 5.2 s, i.e. inside run-to-run
 noise. Hashing (BLAKE3, SHA-2, CRC) runs on SIMD/assembly paths whatever the opt-level.
@@ -72,7 +76,7 @@ carries a leading schema byte, so a migration can rewrite records lazily or in b
 ```sh
 tidemark migrate --dry-run --data-dir /srv/tidemark   # prints from/to and the planned steps; writes nothing
 systemctl stop tidemark
-tidemark backup --data-dir /srv/tidemark ...           # optional extra copy (phase 3b)
+tidemark backup --data-dir /srv/tidemark ...           # optional extra copy
 # install the new binary
 systemctl start tidemark                            # runs the migration, writes meta/tidemark.redb.pre-vN.bak
 ```
@@ -90,226 +94,31 @@ are lost (blobs they created become orphans that `tidemark fsck --repair` / GC r
 Add a test that copies `crates/tidemark-meta/tests/fixtures/meta-v1.redb` (the committed v1 fixture)
 and migrates it; never edit an existing fixture, add `meta-vN.redb` instead.
 
-## OIDC federation (`AssumeRoleWithWebIdentity`)
-
-*(Agent B, phase 3c.)* Workloads that already hold an OIDC ID token — GitHub Actions, GitLab CI,
-Kubernetes service-account tokens, Google / Azure AD / Keycloak / Dex users — can exchange it for
-temporary Tidemark credentials without any long-lived key, exactly like AWS STS
-`AssumeRoleWithWebIdentity`.
-
-**1. Trust the identity provider** (server config; one block per issuer — the TOML keys map 1:1
-onto `tidemark_auth::OidcProviderConfig`; until `tidemark serve` reads them, embedders build an
-`OidcVerifier` and call `StsState::with_oidc`):
-
-```toml
-[[auth.oidc_providers]]
-issuer    = "https://token.actions.githubusercontent.com"   # must equal the token's `iss`
-audiences = ["tidemark"]                                        # accepted `aud` values (≥ 1)
-jwks_url  = "https://token.actions.githubusercontent.com/.well-known/jwks"
-# jwks    = '{"keys":[...]}'          # inline JWKS instead of jwks_url (air-gapped IdPs)
-[auth.oidc_providers.claim_tags]      # optional: claim -> session tag (aws:PrincipalTag/<tag>)
-repository_owner = "org"
-environment      = "env"
-```
-
-Rules: `issuer` and `jwks_url` must be `https://` (plain `http://` only on loopback, for
-development); no OIDC discovery — give the JWKS URL. Only asymmetric algorithms are accepted
-(RS256/384/512, PS256/384/512, ES256/384); `HS*` and `none` are rejected, as are symmetric or
-encryption JWKs. The token must carry `iss`, `aud`, `sub` and `exp`; `exp`/`nbf` get 60 s of clock
-leeway. The JWKS is fetched over rustls (no redirects, 5 s timeout, ≤ 1 MiB), cached for 1 h; a
-token with an unknown `kid` triggers at most one refetch per provider every 10 s (key rotation
-without a restart, without letting unauthenticated callers hammer the IdP). If a refetch fails,
-cached keys keep working.
-
-The **provider id** is the issuer without scheme (`token.actions.githubusercontent.com`). It
-prefixes the trust-policy condition keys and may be used as the `Federated` principal.
-
-**2. Create a role whose trust policy names the provider:**
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [{
-    "Effect": "Allow",
-    "Principal": {"Federated": "token.actions.githubusercontent.com"},
-    "Action": "sts:AssumeRoleWithWebIdentity",
-    "Condition": {
-      "StringEquals": {"token.actions.githubusercontent.com:aud": "tidemark"},
-      "StringLike":   {"token.actions.githubusercontent.com:sub": "repo:acme/website:ref:refs/heads/main"}
-    }
-  }]
-}
-```
-
-```sh
-tidemark admin role create ci-deploy --trust trust.json --max-session 3600
-tidemark admin role policy put ci-deploy write-site site-write.json
-```
-
-`Federated` accepts the issuer URL, the provider id or
-`arn:aws:iam::000000000000:oidc-provider/<provider id>`. **Always constrain `sub`** (and `aud`):
-without a condition every identity the IdP can mint may assume the role. `Principal: "*"` never
-admits a web identity; an explicit `Deny` (federated or `*`) always wins.
-
-Condition keys available in the trust policy: `<provider>:sub`, `<provider>:aud` (multi-valued),
-`<provider>:iss`, `<provider>:azp`, `<provider>:email`, `<provider>:amr`,
-`aws:FederatedProvider`, `aws:RequestTag/<tag>` and `aws:TagKeys` (from `claim_tags`),
-`aws:SourceIp`, `aws:SecureTransport`, `aws:CurrentTime`, `aws:EpochTime`. Mapped tags stay on
-the session as `aws:PrincipalTag/<tag>`, so one role can scope access per team, e.g.
-`"Resource": "arn:aws:s3:::builds/${aws:PrincipalTag/org}/*"`.
-
-**3. Exchange the token** (unsigned STS call, `POST /` form or `GET /?Action=…`):
-
-```sh
-aws sts assume-role-with-web-identity --endpoint-url https://tidemark.example.com \
-  --role-arn arn:aws:iam::000000000000:role/ci-deploy \
-  --role-session-name "gha-$GITHUB_RUN_ID" \
-  --web-identity-token "$ID_TOKEN" --duration-seconds 900
-```
-
-SDKs pick this up automatically with `AWS_ROLE_ARN`, `AWS_WEB_IDENTITY_TOKEN_FILE` and
-`AWS_ENDPOINT_URL_STS=https://tidemark.example.com`. Duration: 15 min to the role's max session
-(≤ 12 h). An optional `Policy` session policy narrows the session further.
-
-Errors (AWS codes): `InvalidIdentityToken` (bad signature, wrong issuer / audience, unknown
-`kid`, unsupported algorithm, federation not configured), `ExpiredTokenException`,
-`IDPCommunicationError` (JWKS unreachable and nothing cached), `AccessDenied` (trust policy did
-not allow it, or the role does not exist — the two are indistinguishable on purpose).
-
-**Operating it.** Sessions show up in `tidemark admin session ls` with source
-`oidc:<provider>/<sub>`; revoke one with `tidemark admin session revoke <access-key-id>`, or all of a role's by
-deleting the role (`tidemark admin role rm`). Removing a provider from the
-config stops new exchanges immediately; already issued sessions run until they expire unless
-revoked. The token itself is never logged or stored; the audit line is
-`sts assume-role-with-web-identity role=… provider=… subject=… access_key_id=…`.
-
-## Replication
-
-*(Agent D, phase 3b. Library: `tidemark_engine::replication`. The `tidemark replicate …` subcommands
-and the S3 bucket-replication operations are wired by Agent A; the semantics below are final.)*
-
-Tidemark replicates buckets asynchronously to another Tidemark server or to any S3 endpoint (AWS,
-Backblaze B2, MinIO, R2, …). This is the v1 HA story: active-passive, RPO = replication lag.
-
-**1. Register the destination** (credentials never go into the bucket configuration; secrets are
-stored sealed with ChaCha20-Poly1305 under a key derived from the server master key):
-
-```sh
-tidemark replicate target add arn:aws:s3:::photos-dr \
-  --endpoint https://dr.example.com --region us-east-1 --bucket photos-dr \
-  --access-key AKIA… --secret-key-file /run/secrets/dr-secret \
-  --tidemark-peer                 # destination is Tidemark: keep version ids (x-tidemark-version-id)
-tidemark replicate target ls      # ARN, endpoint, bucket, access key (never the secret)
-tidemark replicate target rm arn:aws:s3:::photos-dr
-```
-
-The ARN is the name rules refer to; it does not have to match the remote bucket name.
-
-**2. Enable versioning on both buckets and put a standard S3 replication configuration:**
-
-```sh
-aws s3api put-bucket-versioning --bucket photos --versioning-configuration Status=Enabled
-aws s3api put-bucket-replication --bucket photos --replication-configuration '{
-  "Role": "arn:aws:iam::000000000000:role/unused",
-  "Rules": [{"ID": "all", "Priority": 1, "Status": "Enabled", "Filter": {"Prefix": ""},
-             "DeleteMarkerReplication": {"Status": "Enabled"},
-             "Destination": {"Bucket": "arn:aws:s3:::photos-dr"},
-             "ExistingObjectReplication": {"Status": "Enabled"}}]}'
-```
-
-Supported rule elements: `ID`, `Priority`, `Status`, `Filter` (`Prefix`, `Tag`, `And`), the V1
-`Prefix` form, `DeleteMarkerReplication`, `ExistingObjectReplication`, `Destination` (`Bucket`,
-`Account`, `StorageClass`). `Role` is accepted and echoed but unused. Validation follows AWS
-(filter rules need `Priority` and `DeleteMarkerReplication`; no delete-marker replication on
-tag-filtered rules; unique IDs and priorities). The source bucket must have versioning
-`Enabled` (`InvalidRequest` otherwise).
-
-**What is replicated.** Every new object version and (when enabled) delete marker selected by a
-rule, in creation order, with key, content, `Content-*` headers, `x-amz-meta-*`, tags and the
-**multipart part layout** (so the ETag is identical). With `--tidemark-peer` the destination also
-keeps the source **version id** and timestamps, and re-delivery is idempotent. Not replicated
-(same as AWS): version-specific deletes, Object Lock retention / legal hold, trash purges. Trash
-restores and PITR restores are ordinary new versions and replicate normally. Without
-`ExistingObjectReplication` only versions written after the configuration was put are sent.
-
-**Delivery.** A background worker scans each replicated bucket every 2 s and keeps a durable
-cursor per (bucket, destination) in the `repl_cursor` table, so restarts resume where they
-stopped. Delivery is at-least-once: after a crash the last ≤ 32 versions may be sent again
-(no-ops on Tidemark peers; on plain S3 targets they become duplicate versions with identical
-content). Transient failures (network, 5xx, throttling, 403/404 config errors, unknown target)
-back off exponentially from 1 s to 5 min per destination; permanent failures (400-class) skip
-the version, count it in `failed` and keep the message in `last_error`.
-
-**Monitoring.** `tidemark replicate status [--bucket b] [--json]` and `/metrics` show per
-destination: `pending`, `lag` (age of the oldest unsent version), `delivered`, `failed`,
-`last_error`, `backing_off`. HEAD/GET on the source return `x-amz-replication-status:
-PENDING|COMPLETED`. `tidemark replicate retry` clears backoff after fixing a target. Alert on lag
-growing for more than a few minutes.
-
-**Failover / failback runbook.** (1) Point clients at the replica (DNS or load balancer).
-(2) On the replica, put a replication configuration back to the old primary with
-`ExistingObjectReplication` enabled once it is reachable again; with `--tidemark-peer` versions that
-already exist on the old primary are skipped by id. (3) When caught up (`pending = 0`), switch
-clients back and remove the reverse rule. Bidirectional rules are safe from loops between Tidemark
-peers (a replica write of an existing version id is a no-op) but double the scan work.
-
-**Limits.** Each tick reads every version row of a replicated bucket (fine up to a few million
-versions per bucket on NVMe; an engine change index can replace the scan later without changing
-the cursor). `null` versions written before versioning was enabled replicate as regular versions.
-
-## Tiering
-
-*(Agent D, phase 3b. Library: `tidemark_blob::tiered`; server config and the background task are
-wired by Agent A.)*
-
-Blob tiering keeps metadata and hot blobs on local disk and moves cold blobs to a remote S3
-bucket, so capacity can exceed the host. The S3 API and the write path are unchanged.
-
-```toml
-[storage.tiering]
-enabled            = true
-min_idle           = "30d"      # not read or written for this long (file mtime = last access)
-min_size           = "1MiB"     # optional: only move blobs at least this large
-rehydrate_on_read  = false      # true: the first GET moves a cold blob back to local disk
-interval           = "1h"       # how often the mover runs
-[storage.tiering.remote]
-endpoint = "https://s3.eu-central-1.amazonaws.com"
-region = "eu-central-1"
-bucket = "tidemark-cold"
-prefix = "node-1/"
-access_key = "AKIA…"
-secret_key_file = "/run/secrets/cold"
-```
-
-**How it works.** The mover uploads the blob file as stored (encrypted blobs stay encrypted on
-the remote) to `<prefix><hex>` / `<prefix><hex>.enc`, writes a stub `blobs/ab/cd/<hex>.cold`
-(`tidemark-cold 1 <size> <encrypted>`), then removes the local file. Reads of a cold blob are
-transparent: plaintext blobs are fetched with ranged GETs, encrypted blobs are fetched whole into
-`tmp/` and decrypted locally; the remote copy is verified (BLAKE3) on rehydration. Hot reads bump
-the file's mtime at most once an hour. Deleting a blob (GC) removes the local file, the stub and
-the remote object.
-
-**Operational notes.** If the remote is unreachable, GETs of cold blobs fail with 500 while hot
-data and all writes keep working. `tidemark scrub` skips cold blobs (re-hashing would download
-them); verify the remote bucket with its own tooling or `rehydrate_on_read`. `tidemark backup`
-copies stubs, not cold data: protect the cold bucket with its own versioning / replication.
-Never point two Tidemark nodes at the same bucket + prefix.
-
 ## Backup and restore
 
-*(Agent D, phase 3b. Library: `tidemark_engine::backup::{backup, restore, list_backups}`; CLI wiring
-by Agent A.)*
-
 ```sh
-tidemark backup  --data-dir /srv/tidemark --to /mnt/backup/tidemark            # incremental by default
-tidemark backup  --data-dir /srv/tidemark --to s3://backups/tidemark/ --endpoint https://… \
-              --passphrase-file /root/backup.pass [--include-keys] [--full]
-tidemark backup ls --from /mnt/backup/tidemark                               # manifest ids, oldest first
+tidemark backup  --data-dir /srv/tidemark --to /mnt/backup/tidemark \
+                 --passphrase-file /root/backup.pass [--include-keys] [--full]   # incremental by default
+tidemark backup ls --from /mnt/backup/tidemark                                   # manifest ids, oldest first
 tidemark restore --from /mnt/backup/tidemark --data-dir /srv/tidemark-restored [--id <manifest>] \
-              [--passphrase-file /root/backup.pass]
+                 [--passphrase-file /root/backup.pass]
 ```
 
-**What a backup contains.** A backup *set* (directory or S3 prefix) holds `tidemark-backup.json`
+**Off-site copy.** Release binaries back up to a directory only. Copy that directory anywhere
+`rclone` reaches (another Tidemark, S3, B2, SFTP). A set only ever gains files, and an encrypted
+set is ciphertext except `tidemark-backup.json`, so a plain sync is safe:
+
+```sh
+# /etc/cron.d/tidemark-backup: hourly incremental, then mirror off-site
+0 * * * * root tidemark backup --data-dir /srv/tidemark --to /mnt/backup/tidemark \
+  --passphrase-file /root/backup.pass && rclone sync /mnt/backup/tidemark offsite:tidemark-backup
+```
+
+To restore from off-site, `rclone sync` the set back to a local directory first. A build with
+`--features remote` can also use `--to s3://bucket/prefix --endpoint https://…` directly
+(credentials from `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`).
+
+**What a backup contains.** A backup *set* (a directory) holds `tidemark-backup.json`
 (format, KDF salt and parameters, key check), one manifest per backup, one metadata dump per
 backup and a shared, content-addressed `blobs/` area. The metadata dump is every table read from
 **one redb read transaction**, and the blob list comes from the same snapshot, so a backup is the
@@ -338,9 +147,6 @@ makes that backup fail with a clear error; just run it again.
 
 ## fsck and scrub
 
-*(Agent D, phase 3b. Library: `TidemarkEngine::fsck`, `tidemark_engine::scrub::Scrubber`; CLI and the
-background task are wired by Agent A.)*
-
 ```sh
 tidemark fsck --data-dir /srv/tidemark [--verify none|sample:1000|full] [--repair] [--json]
 tidemark scrub --data-dir /srv/tidemark [--rate 50MiB] [--concurrency 2] [--once]
@@ -362,7 +168,7 @@ reported):
   orphan that turns out to be needed can still be recovered from disk until then;
 - versions whose blobs are missing or corrupt are **flagged damaged**, never deleted: GET/HEAD
   answer `500 InternalError` with `x-tidemark-damaged: true`. Heal them by restoring the blob (from a
-  backup or a replica, e.g. re-replicate with `ExistingObjectReplication`) and re-run
+  backup) and re-run
   `fsck --repair`, which clears flags of blobs that verify again;
 - dangling uploads are aborted and `latest` rows recomputed.
 
@@ -384,8 +190,6 @@ idle_between_passes = "24h"
 
 ## Disk full
 
-*(Agent D, phase 3b. Library: `tidemark_blob::space`; put-path wiring by Agent A.)*
-
 Tidemark keeps a free-space **reserve** on the data volume (default 1 GiB, `[storage] min_free`).
 Before a PUT, UploadPart, UploadPartCopy, CopyObject or CompleteMultipartUpload writes blob data,
 the engine checks `statvfs` on the data directory; if free space minus the declared length would
@@ -396,6 +200,6 @@ for metadata commits, so reads, deletes, trash purges, lifecycle and GC keep wor
 server stays up and ready. Response bodies never include disk figures.
 
 To recover: free space (purge trash with `tidemark admin trash purge`, lower retention, run
-`tidemark gc`, add capacity or enable tiering), then writes resume automatically. Run `tidemark fsck`
+`tidemark gc` or add capacity), then writes resume automatically. Run `tidemark fsck`
 afterwards if the disk filled completely (a crash at ENOSPC can leave orphan blobs, which fsck
 indexes for GC). Alert well before the reserve is reached (`/metrics` free bytes).
