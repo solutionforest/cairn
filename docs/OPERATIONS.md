@@ -28,6 +28,11 @@ varying between 6 and 16 MiB from the first second on. The E2 budget is therefor
 regular Linux kernel by `.github/workflows/footprint.yml` (self-hosted runner, size + idle,
 fails over budget); the step summary of the latest run is the number to quote.
 
+Regular-kernel run 2026-11-09T04:15Z (CI `footprint` job, run 42560176403): cairn 0.1.0 @ eb04188,
+release build, aarch64-unknown-linux-musl, 4 vCPU, Linux 7.0.14. Binary 14379056 bytes
+(13.7 MiB, static; the x86_64 build is 17.3 MiB), RSS 10.3 MiB at ready, **10.4 MiB idle after
+110 s**.
+
 **Size profile cost.** Server CPU per GiB, measured with `aws s3 cp` on this host for opt-level
 3 / `s` / `z`: put 2.6 / 2.4–2.6 / 2.5–2.6 s, get 4.9–5.3 / 5.5 / 5.2 s, i.e. inside run-to-run
 noise. Hashing (BLAKE3, SHA-2, CRC) runs on SIMD/assembly paths whatever the opt-level.

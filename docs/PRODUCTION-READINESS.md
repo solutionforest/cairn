@@ -46,7 +46,7 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done.
 
 ## E. Limits
 - [x] E1 A 10 GiB upload and download complete with RSS under 256 MiB (streaming end to end); number recorded in OPERATIONS.md and README. (scripts/footprint.sh on a static musl release build with the size-optimised profile @ f922680+, 2026-11-08: peak sampled VmRSS 58.3 MiB over a 10 GiB `aws s3 cp -` round trip, sha256 match; docs/OPERATIONS.md "Footprint", README)
-- [~] E2 Idle RSS ≤ 25 MiB (container working set after a 110 s settle, same method VaultS3 publishes) and static binary ≤ 20 MB; `scripts/footprint.sh` produces both, numbers in README next to the competitor table. (binary: 17.3 MiB static musl with `opt-level = "z"` + fat LTO, no measurable CPU cost per GiB, DECISIONS 2026-11-08. Idle: the gVisor dev host cannot measure it (whole binary resident, anonymous memory 6–16 MiB between identical starts; 25.4–34.3 MiB total), see OPERATIONS.md "Footprint"; .github/workflows/footprint.yml now builds the static binary on the self-hosted runner and fails over 20 MB / 25 MiB. Done when that job is green and its number is in README)
+- [x] E2 Idle RSS ≤ 25 MiB (container working set after a 110 s settle, same method VaultS3 publishes) and static binary ≤ 20 MB; `scripts/footprint.sh` produces both, numbers in README next to the competitor table. (binary 17.3 MiB x86_64 / 13.7 MiB aarch64, static musl, `opt-level = "z"` + fat LTO, DECISIONS 2026-11-08; idle 10.4 MiB after 110 s on Linux 7.0.14 aarch64, CI `footprint` run 42560176403 @ eb04188, which now gates every push at 20 MB / 25 MiB; gVisor caveat in OPERATIONS.md "Footprint")
 
 ## F. Release
 - [x] F1 fmt, clippy `-D warnings`, tests, docs green on every push. (.github/workflows/ci.yml, self-hosted while private)
