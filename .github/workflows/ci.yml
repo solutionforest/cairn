@@ -27,6 +27,15 @@ jobs:
         with: { components: rustfmt }
       - run: cargo fmt --all --check
 
+  scripts:
+    name: scripts + admin UI
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: php --version && python3 --version
+      - run: scripts/tests/run.sh
+
   clippy:
     name: clippy
     runs-on: ubuntu-latest

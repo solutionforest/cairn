@@ -6,3 +6,4 @@ __pycache__/
 /tidemark-data
 /tidemark
 /.env
+!crates/*/tests/fixtures/**
