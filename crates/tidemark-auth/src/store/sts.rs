@@ -166,7 +166,11 @@ impl CredentialStore {
             },
             req.duration,
             session_policy,
-            Vec::new(),
+            caller
+                .allowed_source_cidrs
+                .iter()
+                .map(|n| n.to_string())
+                .collect(),
         )?;
         tracing::info!(role = role_name, session = sn, caller = %caller.id, access_key_id = %rec.access_key_id, "sts assume-role");
         Ok(StsCredentials {

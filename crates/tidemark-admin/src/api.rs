@@ -854,6 +854,13 @@ async fn authenticate(State(s): S, req: Request, next: Next) -> Response {
 
 async fn auth_inner(s: &AdminState, req: Request) -> R<Request> {
     let (parts, body) = req.into_parts();
+    if !parts.headers.contains_key(http::header::AUTHORIZATION) {
+        return Err(AdminError::new(
+            StatusCode::UNAUTHORIZED,
+            "MissingAuthenticationToken",
+            "the admin API takes header-signed SigV4 requests only; presigned URLs are refused",
+        ));
+    }
     let bytes = axum::body::to_bytes(body, MAX_BODY).await.map_err(|_| {
         AdminError::new(
             StatusCode::PAYLOAD_TOO_LARGE,

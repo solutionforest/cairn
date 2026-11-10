@@ -25,6 +25,22 @@ developers.
 - TLS certificates and keys are read with `rustls-pki-types` instead of the archived
   `rustls-pemfile`. PKCS#8, SEC1 and RSA keys load as before.
 
+### Security
+Found in an internal review of the auth code (docs/SECURITY-REVIEW-2026-11-10.md). All five affect
+0.1.0-alpha.1 to alpha.3.
+- A bucket policy that denies plain-HTTP access (`aws:SecureTransport` = `false`) could be
+  bypassed over plain HTTP by writing the request line as `GET https://host/bucket/key`. Only the
+  real connection, or a trusted proxy's `X-Forwarded-Proto`, now counts.
+- Policy conditions on `s3:prefix`, `s3:delimiter`, `s3:max-keys` and `s3:VersionId` could be
+  satisfied with a differently capitalised parameter (`?Prefix=allowed/&prefix=`) while the
+  listing used the other one, exposing the whole bucket to a prefix-restricted user.
+- `GetObjectAttributes` with `x-tidemark-as-of` now needs `tidemark:TimeTravel`, like
+  `GetObject`. Before, a user denied time travel could read sizes and checksums of old versions.
+- `AssumeRole` sessions now keep the source-IP limits (`allowed_source_cidrs`) of the key that
+  created them, so a limited key can no longer be used from anywhere through a role.
+- The admin API refuses presigned URLs; it needs a signed `Authorization` header. A leaked
+  presigned admin URL used to work for up to 7 days.
+
 ### Removed
 - **Breaking:** `tidemark backup --to s3://…` and `restore --from s3://…` are not in release
   binaries. Back up to a directory and copy it off-site with `rclone sync`; OPERATIONS.md

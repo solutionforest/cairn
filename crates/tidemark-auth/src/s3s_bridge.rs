@@ -120,10 +120,10 @@ fn header<'h>(h: &'h HeaderMap, name: &str) -> Option<&'h str> {
     h.get(name).and_then(|v| v.to_str().ok())
 }
 
+/// Exact-case lookup: s3s matches query names case-sensitively, so a condition key must read the
+/// same parameter s3s acts on (`?Prefix=a&prefix=b` lists `b`; s3s rejects true duplicates).
 fn query<'q>(q: &'q [(String, String)], name: &str) -> Option<&'q str> {
-    q.iter()
-        .find(|(k, _)| k.eq_ignore_ascii_case(name))
-        .map(|(_, v)| v.as_str())
+    q.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
 }
 
 /// Canned ACLs that grant access beyond the owner.
@@ -161,7 +161,9 @@ pub fn condition_context(v: &S3RequestView<'_>) -> ConditionContext {
     if let Some(ip) = v.meta.and_then(|m| m.source_ip) {
         c.insert("aws:SourceIp", ip.to_string());
     }
-    let secure = v.meta.map(|m| m.secure).unwrap_or(false) || v.uri.scheme_str() == Some("https");
+    // Only the connection (or a trusted proxy) decides this; the request URI's scheme is client
+    // input (`GET https://host/b/k HTTP/1.1` over plain HTTP).
+    let secure = v.meta.is_some_and(|m| m.secure);
     c.insert("aws:SecureTransport", secure.to_string());
     if let Some(ua) = header(h, "user-agent") {
         c.insert("aws:UserAgent", ua);
@@ -371,7 +373,7 @@ impl TidemarkS3Access {
             return Ok(caller);
         }
         let q = query_pairs(v.uri);
-        let has_version = query(&q, "versionId").is_some();
+        let has_version = q.iter().any(|(k, _)| k.eq_ignore_ascii_case("versionId"));
         let Some(action) = actions::for_s3_operation_versioned(v.op, has_version) else {
             if caller.principal.as_ref().is_some_and(|p| p.is_root) {
                 return Ok(caller);
@@ -405,7 +407,7 @@ impl TidemarkS3Access {
         }
         if matches!(
             v.op,
-            "GetObject" | "HeadObject" | "ListObjects" | "ListObjectsV2"
+            "GetObject" | "HeadObject" | "GetObjectAttributes" | "ListObjects" | "ListObjectsV2"
         ) && !has_version
             && header(v.headers, "x-tidemark-as-of").is_some()
         {

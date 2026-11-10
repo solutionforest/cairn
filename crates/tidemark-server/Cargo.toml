@@ -52,6 +52,7 @@ aws-smithy-http-client.workspace = true
 aws-credential-types.workspace = true
 tempfile.workspace = true
 reqwest.workspace = true
+url.workspace = true
 serde_json.workspace = true
 futures.workspace = true
 md-5.workspace = true

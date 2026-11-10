@@ -771,3 +771,69 @@ async fn authenticate_secret_checks_secret_and_session_token() {
             .is_none()
     );
 }
+
+#[tokio::test]
+async fn assume_role_session_keeps_the_callers_source_cidrs() {
+    // SEC-4: a CIDR-restricted key must not launder itself into an unrestricted role session.
+    let f = fx();
+    f.store.create_user("alice").await.unwrap();
+    let k = f
+        .store
+        .create_access_key(
+            "alice",
+            AccessKeyOptions {
+                expires_at: None,
+                allowed_source_cidrs: vec!["10.0.0.0/8".into()],
+            },
+        )
+        .await
+        .unwrap();
+    f.store.create_role("app", TRUST_ALICE, None).await.unwrap();
+    f.store.put_role_policy("app", "all", ALL_S3).await.unwrap();
+    let alice = f
+        .store
+        .lookup(&k.access_key_id)
+        .await
+        .unwrap()
+        .unwrap()
+        .principal;
+    let inside = ConditionContext::new().with("aws:SourceIp", "10.1.2.3");
+    let s = f
+        .store
+        .assume_role(
+            &alice,
+            AssumeRoleRequest {
+                role: "app",
+                session_name: "job-1",
+                duration: Duration::from_secs(900),
+                session_policy: None,
+                context: &inside,
+            },
+        )
+        .await
+        .unwrap();
+    let c = f.store.lookup(&s.access_key_id).await.unwrap().unwrap();
+    assert_eq!(c.principal.allowed_source_cidrs.len(), 1);
+    let e = engine(&f);
+    let outside = ConditionContext::new().with("aws:SourceIp", "203.0.113.9");
+    assert_eq!(
+        e.authorize(
+            Some(&c.principal),
+            "s3:GetObject",
+            "arn:aws:s3:::photos/a",
+            &outside,
+            None
+        ),
+        Decision::Deny
+    );
+    assert_eq!(
+        e.authorize(
+            Some(&c.principal),
+            "s3:GetObject",
+            "arn:aws:s3:::photos/a",
+            &inside,
+            None
+        ),
+        Decision::Allow
+    );
+}

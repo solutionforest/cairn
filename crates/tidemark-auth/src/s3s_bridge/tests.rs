@@ -1076,7 +1076,8 @@ fn condition_context_keys() {
     });
     let one = |k: &str| c.get(k).map(|v| v.join(","));
     assert_eq!(one("aws:SourceIp").as_deref(), Some("1.2.3.4"));
-    assert_eq!(one("aws:SecureTransport").as_deref(), Some("true"));
+    // SEC-1: an `https://` request URI over a plain connection is not secure transport.
+    assert_eq!(one("aws:SecureTransport").as_deref(), Some("false"));
     assert_eq!(one("aws:UserAgent").as_deref(), Some("aws-cli/2"));
     assert_eq!(one("s3:prefix").as_deref(), Some("a/b"));
     assert_eq!(one("s3:delimiter").as_deref(), Some("/"));
@@ -1162,4 +1163,36 @@ async fn time_travel_requires_tidemark_time_travel() {
         code(f.check(Some("ROOTAK"), "GetObject", "/docs/a", &asof).await),
         "OK"
     );
+}
+
+#[test]
+fn condition_keys_read_the_parameter_s3s_reads() {
+    // SEC-2: s3s matches query names case-sensitively; `Prefix` must not feed `s3:prefix`.
+    let uri: Uri = "http://h/b?list-type=2&Prefix=home%2Falice%2F&prefix="
+        .parse()
+        .unwrap();
+    let h = HeaderMap::new();
+    let c = condition_context(&S3RequestView {
+        op: "ListObjectsV2",
+        access_key: Some("AK"),
+        bucket: Some("b"),
+        key: None,
+        uri: &uri,
+        headers: &h,
+        meta: None,
+    });
+    assert_eq!(c.get("s3:prefix").map(|v| v.join(",")).as_deref(), Some(""));
+    let uri: Uri = "http://h/b?list-type=2&Prefix=home%2Falice%2F"
+        .parse()
+        .unwrap();
+    let c = condition_context(&S3RequestView {
+        op: "ListObjectsV2",
+        access_key: Some("AK"),
+        bucket: Some("b"),
+        key: None,
+        uri: &uri,
+        headers: &h,
+        meta: None,
+    });
+    assert_eq!(c.get("s3:prefix").map(|v| v.join(",")).as_deref(), Some(""));
 }
