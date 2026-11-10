@@ -607,3 +607,11 @@ Dated (UTC) design and implementation decisions, newest last. Moved out of `BUIL
   (> 5 000 ops/s at p99 < 10 ms; saturate 10 GbE). §13 now states the measured numbers as the
   floor a release must not fall below. Cloud SSD, not local NVMe: faster disks may do better, but
   we only claim what we measured.
+- **2026-11-10 — All CI back on the org's self-hosted runners.** Every workflow, including
+  `release.yml`, runs on `runs-on: self-hosted` (maintainer decision; reverses the 2026-11-09
+  move to GitHub-hosted). The repo is public, so any job a `pull_request` event can start is
+  guarded with `head.repo.full_name == github.repository`: a fork's PR never runs its code on
+  our machines. `pr-policy.yml` (`pull_request_target`) runs there too; it checks out nothing.
+  The pool mixes x86_64 and arm64, so the upgrade, fuzz, bench and soak jobs pick their target
+  triple and warp asset from `uname -m`. Published bench numbers stay labelled with the
+  GitHub-hosted machine they came from.

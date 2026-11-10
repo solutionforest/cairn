@@ -1,7 +1,8 @@
 name: bench
 
-# BUILD-PLAN 1.7: scripts/bench.sh (warp: 4 KiB and 64 MiB PUT/GET, LIST) on a GitHub-hosted
-# runner, the fixed machine class the numbers in OPERATIONS.md "Throughput" come from. Manual only:
+# BUILD-PLAN 1.7: scripts/bench.sh (warp: 4 KiB and 64 MiB PUT/GET, LIST) on the org's
+# self-hosted runners. The OPERATIONS.md "Throughput" numbers came from GitHub-hosted 4 vCPU
+# (2026-11-10), so rerun and republish before comparing against them. Manual only:
 # shared runners are noisy, so run it three times and publish the median.
 on:
   workflow_dispatch:
@@ -19,7 +20,7 @@ env:
 
 jobs:
   bench:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -32,7 +33,7 @@ jobs:
       - name: tools
         run: |
           sudo -n apt-get update && sudo -n apt-get install -y musl-tools
-          curl -fsSL -o /tmp/warp.tgz "https://github.com/minio/warp/releases/download/$WARP_VERSION/warp_Linux_x86_64.tar.gz"
+          curl -fsSL -o /tmp/warp.tgz "https://github.com/minio/warp/releases/download/$WARP_VERSION/warp_Linux_$(uname -m | sed s/aarch64/arm64/).tar.gz"
           echo "$WARP_SHA256  /tmp/warp.tgz" | sha256sum -c -
           mkdir -p /tmp/warp && tar -xzf /tmp/warp.tgz -C /tmp/warp && sudo -n install /tmp/warp/warp /usr/local/bin/warp
       - uses: Swatinem/rust-cache@v2

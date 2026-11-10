@@ -26,7 +26,8 @@ env:
 jobs:
   upgrade:
     name: every release -> this commit
-    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: self-hosted
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -39,7 +40,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p old
-          t=x86_64-unknown-linux-musl
+          t="$(uname -m)-unknown-linux-musl"
           for v in $(gh release list -R "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '.[].tagName'); do
             asset="tidemark-$v-$t.tar.gz"
             gh release view "$v" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -qx "$asset" || continue
@@ -51,7 +52,7 @@ jobs:
           cat old/versions
       - name: upgrade test
         run: |
-          t=x86_64-unknown-linux-musl
+          t="$(uname -m)-unknown-linux-musl"
           while read -r v; do
             echo "::group::$v -> $(git rev-parse --short HEAD)"
             scripts/upgrade-test.sh "old/$v/tidemark-$v-$t/tidemark" target/debug/tidemark "work/$v"

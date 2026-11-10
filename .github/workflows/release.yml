@@ -4,8 +4,8 @@
 # The first job fails the run unless CHANGELOG.md has a dated section and link for the tag.
 #
 # Decisions (see docs/BUILD-PLAN.md decisions log, 2026-11-08 Agent C):
-# - runs-on: ubuntu-latest (GitHub-hosted) since the repo went public on 2026-11-09; it ran on the
-#   org's self-hosted runners while private. Nothing here depends on the host arch (zig
+# - runs-on: self-hosted (the org's runners, x86_64 and arm64) since 2026-11-10; GitHub-hosted
+#   2026-11-09..10. Nothing here depends on the host arch (zig
 #   cross-compiles both targets, and the image stages that run commands use $BUILDPLATFORM).
 # - cargo-zigbuild, not cross: zig's bundled musl/libc headers and linker cross-compile `ring`'s C
 #   and assembly to aarch64 without a Docker daemon or per-target images. cross would need
@@ -44,7 +44,7 @@ env:
 jobs:
   changelog:
     name: Changelog entry
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -63,7 +63,7 @@ jobs:
   build:
     name: build ${{ matrix.target }}
     needs: changelog
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 90
     strategy:
       fail-fast: true
@@ -150,7 +150,7 @@ jobs:
   github-release:
     name: GitHub Release
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 15
     permissions:
       contents: write
@@ -183,7 +183,7 @@ jobs:
   image:
     name: Container image
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 30
     permissions:
       contents: read
