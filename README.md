@@ -141,12 +141,12 @@ flowchart LR
 | Security | 🟡 Alpha | [Self-review of the auth code](docs/SECURITY-REVIEW-2026-11-10.md) (5 fixes, each with a test), nightly fuzzing, `cargo audit` and `cargo deny` in CI; no external audit yet |
 | Crash safety | 🟡 Alpha | `kill -9` mid-write tests, weekly 2 h [soak](docs/OPERATIONS.md#soak) with a kill every 10 min and a disk-full window, `fsck` clean after; 24 h soak in progress |
 | Performance | 🟡 Alpha | [Measured](docs/OPERATIONS.md#throughput) on 4 vCPU cloud disk: ~2 100 small PUT/s, ~5 000 small GET/s, 200–1 100 MiB/s large objects |
-| Backups and monitoring | 🧪 New | Live-server backups, 11 alert rules with unit tests and a Grafana dashboard, all run against a real server and Prometheus in CI; not in a release yet |
-| Malware scanning | 🧪 New | ClamAV + EICAR tested end to end; not in a release yet |
+| Backups and monitoring | 🧪 New | Live-server backups, 11 alert rules with unit tests and a Grafana dashboard, all run against a real server and Prometheus in CI; new in beta.1 |
+| Malware scanning | 🧪 New | ClamAV + EICAR tested end to end; new in beta.1 |
 | Clustering, erasure coding, replication, OIDC, Object Lock | ⛔ Not in v0.1 | Single node by design |
 
-**Road to stable:** `beta.1` after the 24 h soak passes; from then on the data format is frozen
-and every upgrade is tested. `v0.1.0` after two betas at least two weeks apart with no
+**Road to stable:** `beta.1` passed the 24 h soak; the data format is frozen and every upgrade
+is tested. `v0.1.0` after two betas at least two weeks apart with no
 data-affecting bug open. Full checklist: [PRODUCTION-READINESS.md](docs/PRODUCTION-READINESS.md).
 
 ### When to pick something else
