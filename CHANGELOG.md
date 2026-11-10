@@ -50,6 +50,8 @@ Found in an internal review of the auth code (docs/SECURITY-REVIEW-2026-11-10.md
 - **Breaking:** `tidemark backup --to s3://…` and `restore --from s3://…` are not in release
   binaries. Back up to a directory and copy it off-site with `rclone sync`; OPERATIONS.md
   "Backup and restore" has a cron example. Builds with `--features remote` keep `s3://`.
+- The old `ghcr.io/solutionforest/cairn` image (0.1.0-alpha.1 and alpha.2) is deleted. Use
+  `ghcr.io/solutionforest/tidemark`.
 
 ## [0.1.0-alpha.3] - 2026-11-09
 

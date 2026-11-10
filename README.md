@@ -138,9 +138,14 @@ flowchart LR
 | Trash, time travel, dedupe | 🟡 Alpha | Integration tests; restores checked byte-identical |
 | Upgrades | 🟡 Alpha | Data from `0.1.0-alpha.3` on opens in every later release; CI checks it |
 | Security | 🟡 Alpha | [Self-review of the auth code](docs/SECURITY-REVIEW-2026-11-10.md) (5 fixes, each with a test), nightly fuzzing, `cargo audit` and `cargo deny` in CI; no external audit yet |
+| Crash safety | 🟡 Alpha | `kill -9` mid-write tests, weekly 2 h [soak](docs/OPERATIONS.md#soak) with a kill every 10 min and a disk-full window, `fsck` clean after; 24 h soak in progress |
+| Performance | 🟡 Alpha | [Measured](docs/OPERATIONS.md#throughput) on 4 vCPU cloud disk: ~2 100 small PUT/s, ~5 000 small GET/s, 200–1 100 MiB/s large objects |
+| Malware scanning | 🧪 New | ClamAV + EICAR tested end to end; not in a release yet |
 | Clustering, erasure coding, replication, OIDC, Object Lock | ⛔ Not in v0.1 | Single node by design |
 
-Full checklist: [PRODUCTION-READINESS.md](docs/PRODUCTION-READINESS.md).
+**Road to stable:** `beta.1` after the 24 h soak passes; from then on the data format is frozen
+and every upgrade is tested. `v0.1.0` after two betas at least two weeks apart with no
+data-affecting bug open. Full checklist: [PRODUCTION-READINESS.md](docs/PRODUCTION-READINESS.md).
 
 ### When to pick something else
 
