@@ -65,13 +65,10 @@ jobs:
           cargo test -p tidemark-blob -p tidemark-engine -p tidemark-auth --locked --no-fail-fast
           --features tidemark-engine/remote,tidemark-auth/oidc
 
-  # rustdoc warnings as errors. Non-blocking until tidemark-auth's doc warnings are fixed (Agent B);
-  # drop `continue-on-error` then to close PRODUCTION-READINESS F1.
   docs:
-    name: docs (rustdoc -D warnings, non-blocking)
+    name: docs (rustdoc -D warnings)
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    continue-on-error: true
     env:
       RUSTDOCFLAGS: -D warnings
     steps:
