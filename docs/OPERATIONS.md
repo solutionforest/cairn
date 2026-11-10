@@ -208,3 +208,41 @@ To recover: free space (purge trash with `tidemark admin trash purge`, lower ret
 `tidemark gc` or add capacity), then writes resume automatically. Run `tidemark fsck`
 afterwards if the disk filled completely (a crash at ENOSPC can leave orphan blobs, which fsck
 indexes for GC). Alert well before the reserve is reached (`/metrics` free bytes).
+
+## Throughput
+
+`scripts/bench.sh` (warp 1.3.0, 60 s per workload, fresh data dir) on GitHub-hosted
+`ubuntu-latest`: 4 vCPU, 16 GiB, cloud SSD (not local NVMe), x86_64 musl release build of
+tidemark 0.1.0 @ 6f111fd, 2026-11-10. Three runs; two on AMD EPYC 7763, one on EPYC 9V74.
+Shown as the range across the three runs.
+
+| Workload | Concurrency | Throughput | ops/s | p50 | p99 |
+|---|---|---|---|---|---|
+| PUT 4 KiB | 16 | 8.1–9.2 MiB/s | 2 070–2 340 | 6.1–7.5 ms | 13.5–34.4 ms |
+| GET 4 KiB | 16 | 19.1–24.8 MiB/s | 4 900–6 360 | 2.4–3.1 ms | 8.1–11.2 ms |
+| PUT 64 MiB | 4 | 215–391 MiB/s | 3.4–6.1 | 650–1 230 ms | 980–1 460 ms |
+| GET 64 MiB | 4 | 727–1 105 MiB/s | 11.4–17.3 | 231–352 ms | 242–369 ms |
+| LIST (10 000 keys, 1 000/page) | 4 | 81 000–109 000 keys/s | – | 92–122 ms | 121–157 ms |
+
+Small PUT is bound by the metadata commit (one fsync per batch) on network-attached disk; local
+NVMe should do better, but that has not been measured. Re-run on your own hardware with
+`scripts/bench.sh path/to/tidemark` before sizing anything; the targets in DESIGN §13 are these
+measured numbers, not hopes.
+
+## Soak
+
+`scripts/soak.sh` runs warp mixed load plus an rclone ledger (files copied in, then checked
+byte-for-byte after every restart), `kill -9` at the end of every segment, one disk-full window
+(a ballast file brings free space under the reserve), then `fsck --verify full`.
+
+First run 2026-11-10 (soak workflow run 42779819852, GitHub-hosted, 3 × 10 min):
+
+| Segment | Phase | Requests | MiB in / out | 5xx (507) | Ledger batches verified | RSS at kill |
+|---|---|---|---|---|---|---|
+| 1 | load | 1 141 148 | 42 941 / 213 899 | 0 (0) | 1 | 163.1 MiB |
+| 2 | disk-full | 198 | 65 / 24 | 51 (51) | 2 | 32.8 MiB |
+| 3 | load | 1 113 713 | 41 915 / 208 756 | 0 (0) | 3 | 180.4 MiB |
+
+`fsck --verify full` clean; max RSS 180.4 MiB (budget 256 MiB); every 5xx was the intended 507
+during the disk-full window. The weekly workflow runs 2 h with the same shape. A 24 h run needs a
+long-lived machine (GitHub-hosted jobs stop at 6 h) and has not been done yet.

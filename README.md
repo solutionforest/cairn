@@ -136,7 +136,7 @@ flowchart LR
 | S3 API, single node | 🟡 Alpha | 322 of 370 ceph `s3-tests` (87%) gate every push; aws-cli, rclone, mc and aws-sdk-s3 tested |
 | Trash, time travel, dedupe | 🟡 Alpha | Integration tests; restores checked byte-identical |
 | Upgrades | 🟡 Alpha | Data from `0.1.0-alpha.3` on opens in every later release; CI checks it |
-| Security | 🟡 Alpha | Nightly fuzzing, `cargo audit` and `cargo deny` in CI; no external audit yet |
+| Security | 🟡 Alpha | [Self-review of the auth code](docs/SECURITY-REVIEW-2026-11-10.md) (5 fixes, each with a test), nightly fuzzing, `cargo audit` and `cargo deny` in CI; no external audit yet |
 | Clustering, erasure coding, replication, OIDC, Object Lock | ⛔ Not in v0.1 | Single node by design |
 
 Full checklist: [PRODUCTION-READINESS.md](docs/PRODUCTION-READINESS.md).

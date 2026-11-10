@@ -652,11 +652,15 @@ function sinks (§10).
 
 ---
 
-## 13. Performance targets (single node, NVMe, 4 cores)
-- Small-object PUT/GET: > 5 000 req/s each at p99 < 10 ms (metadata-bound; group commit matters).
-- Large-object streaming: saturate 10 GbE with 4 concurrent 1 GiB PUTs; zero-copy `sendfile`-ish via
-  `tokio::fs` + large buffers; hashing is the CPU cost (BLAKE3 + MD5 ≈ 1.5 GB/s per core).
-- ListObjectsV2 on 10 M keys with a delimiter: < 50 ms per page thanks to prefix skipping.
+## 13. Performance targets (single node, 4 vCPU, measured)
+Targets are the numbers `scripts/bench.sh` measured on a GitHub-hosted 4 vCPU runner with cloud
+SSD (OPERATIONS.md "Throughput", 2026-11-10); a release must not fall below them. The earlier
+unmeasured targets (> 5 000 small PUT/s at p99 < 10 ms, saturating 10 GbE) were lowered to match.
+- Small-object (4 KiB, 16 clients): PUT ≥ 2 000 ops/s, GET ≥ 4 500 ops/s, GET p99 ≤ 15 ms.
+  Small PUT is metadata-commit bound; group commit is the lever.
+- Large-object (64 MiB, 4 clients): PUT ≥ 200 MiB/s, GET ≥ 700 MiB/s. Hashing (BLAKE3 + MD5) is
+  the CPU cost.
+- ListObjectsV2: ≥ 80 000 keys/s at 1 000-key pages on a 10 000-key bucket.
 - Memory: no per-object in-memory index; redb page cache is the only cache (configurable).
 - Footprint (published, not assumed): idle RSS ≤ 25 MiB, RSS under a 10 GiB upload/download
   ≤ 256 MiB, static binary ≤ 20 MB. `scripts/footprint.sh` measures all three the same way on

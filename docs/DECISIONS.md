@@ -601,3 +601,9 @@ Dated (UTC) design and implementation decisions, newest last. Moved out of `BUIL
   a kill -9 must still match after every later restart, byte-compared at the end, and
   `fsck --verify full` must be clean. The weekly 2 h run is `soak.yml`; a 24 h run needs a
   machine outside GitHub-hosted runners (6 h job limit) and uses the same script.
+- **2026-11-10 — Performance targets lowered to measured numbers (BUILD-PLAN 1.7).** Three
+  `scripts/bench.sh` runs on GitHub-hosted 4 vCPU runners measured small PUT at ~2 100 ops/s
+  (p99 14–34 ms) and 64 MiB PUT at 215–391 MiB/s, below the unmeasured DESIGN §13 targets
+  (> 5 000 ops/s at p99 < 10 ms; saturate 10 GbE). §13 now states the measured numbers as the
+  floor a release must not fall below. Cloud SSD, not local NVMe: faster disks may do better, but
+  we only claim what we measured.
