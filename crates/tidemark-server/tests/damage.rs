@@ -125,6 +125,7 @@ async fn serve_spawns_scrub_which_marks_damage() {
     let mut cfg = tidemark_server::test_support::test_config(dir.path());
     cfg.storage.scrub = true;
     cfg.storage.scrub_bytes_per_sec = 0;
+    cfg.metrics.stats_interval = Duration::from_millis(100);
     let (addr, creds, h) = tidemark_server::test_support::spawn_with(cfg).await;
     let c = client(addr, &creds);
     let mut damaged = false;
@@ -139,5 +140,29 @@ async fn serve_spawns_scrub_which_marks_damage() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     assert!(damaged, "the background scrubber did not record the damage");
+    // The damage shows up on /metrics, which the TidemarkDamagedBlobs alert watches.
+    let mut gauge = 0.0;
+    for _ in 0..50 {
+        let t = reqwest::get(format!("http://{addr}/metrics"))
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        gauge = t
+            .lines()
+            .find_map(|l| {
+                l.strip_prefix("tidemark_damaged_blobs ")?
+                    .trim()
+                    .parse()
+                    .ok()
+            })
+            .unwrap_or(0.0);
+        if gauge >= 1.0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(gauge >= 1.0, "tidemark_damaged_blobs = {gauge}, want >= 1");
     h.shutdown().await.unwrap();
 }

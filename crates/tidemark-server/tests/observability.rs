@@ -59,9 +59,36 @@ async fn metrics_minimal_set() {
         "tidemark_blob_bytes",
         "tidemark_trash_bytes",
         "tidemark_gc_runs_total",
+        "tidemark_disk_free_bytes",
+        "tidemark_disk_reserve_bytes",
+        "tidemark_damaged_blobs",
+        "tidemark_gc_last_success_timestamp_seconds",
     ] {
         assert!(sample(&text, gauge).is_some(), "missing {gauge}:\n{text}");
     }
+    // The startup refresh fills the disk gauge; the alert rules in deploy/ depend on it.
+    let mut free = 0.0;
+    for _ in 0..50 {
+        let t = reqwest::get(env.url("/metrics"))
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        free = sample(&t, "tidemark_disk_free_bytes").unwrap_or(0.0);
+        if free > 0.0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(free > 0.0, "tidemark_disk_free_bytes never set");
+    assert_eq!(sample(&text, "tidemark_damaged_blobs"), Some(0.0));
+    // Before the first GC pass the GC gauge holds the start time, so TidemarkGcStalled stays quiet.
+    let gc = sample(&text, "tidemark_gc_last_success_timestamp_seconds").unwrap();
+    assert!(
+        gc > 1.7e9,
+        "tidemark_gc_last_success_timestamp_seconds = {gc}"
+    );
     env.stop().await;
 }
 

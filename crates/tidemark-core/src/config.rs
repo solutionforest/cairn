@@ -54,6 +54,8 @@ pub struct Config {
     pub audit: AuditConfig,
     /// `[scan]`
     pub scan: ScanConfig,
+    /// `[backup]`
+    pub backup: BackupConfig,
 }
 
 /// `[server]` section.
@@ -387,6 +389,29 @@ impl Default for ScanConfig {
     }
 }
 
+/// `[backup]` section: backups the running server makes on request
+/// (`POST /_tidemark/v1/backup`, `tidemark admin backup`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct BackupConfig {
+    /// Directory holding backup sets (one subdirectory per set); unset disables server backups.
+    pub dir: Option<PathBuf>,
+    /// File with the passphrase that encrypts every set; unset = plaintext sets.
+    pub passphrase_file: Option<PathBuf>,
+    /// Also save `<data_dir>/keys/` in encrypted sets (ignored for plaintext sets).
+    pub include_keys: bool,
+}
+
+impl Default for BackupConfig {
+    fn default() -> Self {
+        BackupConfig {
+            dir: None,
+            passphrase_file: None,
+            include_keys: true,
+        }
+    }
+}
+
 /// `[log]` section.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
@@ -598,6 +623,14 @@ impl Config {
         if self.limits.max_parts == 0 || self.limits.max_parts > 10_000 {
             out.push("limits.max_parts must be 1..=10000".into());
         }
+        if let Some(d) = &self.backup.dir
+            && !d.is_absolute()
+        {
+            out.push(format!(
+                "backup.dir {} must be an absolute path",
+                d.display()
+            ));
+        }
         if let Some(ep) = self.scan.endpoint() {
             let ok = ["clamd://", "http://"]
                 .iter()
@@ -661,6 +694,7 @@ fn known_optional(section: &str, field: &str) -> bool {
             | ("auth", "root_access_key" | "root_secret_key")
             | ("audit", "path")
             | ("scan", "endpoint")
+            | ("backup", "dir" | "passphrase_file")
     )
 }
 
@@ -936,6 +970,18 @@ pub const KEY_DOCS: &[(&str, &str)] = &[
         r#"`reject` (400 EntityTooLarge) or `allow` (store unscanned) for objects over `max_size`."#,
     ),
     ("scan.timeout", r#"Per-object scan timeout."#),
+    (
+        "backup.dir",
+        r#"Absolute directory for backup sets made by the running server (`tidemark admin backup`); unset = off."#,
+    ),
+    (
+        "backup.passphrase_file",
+        r#"File holding the passphrase that encrypts server-made backup sets; unset = plaintext sets."#,
+    ),
+    (
+        "backup.include_keys",
+        r#"Also save `<data_dir>/keys/` (the at-rest master key) in encrypted sets."#,
+    ),
 ];
 
 fn flatten(prefix: &str, v: &toml::Value, out: &mut Vec<(String, String)>) {

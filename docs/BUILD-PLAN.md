@@ -77,8 +77,8 @@ Exit: `v0.1.0-beta.1` tagged with the upgrade test green from alpha.3 → beta.1
 | # | Work | Proof |
 |---|------|-------|
 | 2.1 | Two beta releases at least two weeks apart with the upgrade test passing between them and no data-affecting bug open. | release history |
-| 2.2 | Operations kit: Prometheus alert rules (disk, trash growth, scrub damage, gc stalls), one Grafana dashboard JSON, a backup-to-remote cron example using `tidemark backup` + `rclone`. Small files under `deploy/`. | `deploy/prometheus/`, `deploy/grafana/`, OPERATIONS.md links |
-| 2.3 | s3-tests: decide the `[s3 alt]` question for good. A second account means multi-account IAM, which v0.1 does not have; write the decision down and stop re-triaging those ~28 tests. Anything else that fails is a bug or a documented AWS-vs-Ceph difference. | DECISIONS entry; `expected-pass.txt` |
+| 2.2 ✅ | Operations kit: Prometheus alert rules (disk, trash growth, scrub damage, gc stalls), one Grafana dashboard JSON, a backup-to-remote cron example using `tidemark backup` + `rclone`. Small files under `deploy/`. | `deploy/prometheus/`, `deploy/grafana/`, `deploy/backup/`, OPERATIONS.md "Monitoring"; done 2026-11-10: 11 promtool-tested rules, 23-panel dashboard, `scripts/deploy-kit-test.sh` in CI; found and fixed: live servers could not be backed up (now `tidemark admin backup`) |
+| 2.3 ✅ | s3-tests: decide the `[s3 alt]` question for good. A second account means multi-account IAM, which v0.1 does not have; write the decision down and stop re-triaging those ~28 tests. Anything else that fails is a bug or a documented AWS-vs-Ceph difference. | DECISIONS entry; `expected-pass.txt`; done 2026-11-10: 20 alt-identity tests stay failing by decision; 1 bug fixed (Complete checksum); root-deny deviation documented |
 | 2.4 | Issue flow: respond to every issue within a week; each bug fixed carries a regression test; each `s3-compat` issue adds its test name to `expected-pass.txt` when fixed. | issue templates (exist); labels (exist) |
 | 2.5 | Announce once: release notes for v0.1.0, one post (r/selfhosted or HN), README comparison table re-verified on that day. | CHANGELOG `[0.1.0]` |
 

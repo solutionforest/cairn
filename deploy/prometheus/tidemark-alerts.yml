@@ -1,0 +1,96 @@
+# Prometheus alert rules for Tidemark. Load with `rule_files: [tidemark-alerts.yml]`.
+# Assumes the scrape job is named `tidemark` (see scrape.yml). Storage gauges refresh every
+# `metrics.stats_interval` (default 5 min), so disk and trash alerts react on that timescale.
+# Tested by `promtool test rules tidemark-alerts.test.yml`.
+groups:
+  - name: tidemark
+    rules:
+      - alert: TidemarkDown
+        expr: up{job="tidemark"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Tidemark {{ $labels.instance }} is not answering /metrics"
+
+      - alert: TidemarkDiskNearReserve
+        # Less than 50% headroom above the reserve (or under 2 GiB free with the reserve off).
+        expr: >
+          tidemark_disk_free_bytes
+            < 1.5 * clamp_min(tidemark_disk_reserve_bytes, 1342177280)
+        for: 10m
+        labels: { severity: critical }
+        annotations:
+          summary: "Tidemark {{ $labels.instance }}: {{ $value | humanize1024 }}B free, writes stop at the reserve"
+          runbook: "OPERATIONS.md#disk-full"
+
+      - alert: TidemarkDiskFillingUp
+        expr: >
+          predict_linear(tidemark_disk_free_bytes[6h], 86400)
+            < tidemark_disk_reserve_bytes
+          and tidemark_disk_free_bytes > 1.5 * clamp_min(tidemark_disk_reserve_bytes, 1342177280)
+        for: 1h
+        labels: { severity: warning }
+        annotations:
+          summary: "Tidemark {{ $labels.instance }} reaches its free-space reserve within 24 h at the current rate"
+
+      - alert: TidemarkStorageFull
+        expr: increase(tidemark_requests_total{status="507"}[10m]) > 0
+        labels: { severity: critical }
+        annotations:
+          summary: "Tidemark {{ $labels.instance }} is rejecting writes with 507 (free space below reserve)"
+          runbook: "OPERATIONS.md#disk-full"
+
+      - alert: TidemarkDamagedBlobs
+        expr: tidemark_damaged_blobs > 0
+        labels: { severity: critical }
+        annotations:
+          summary: "Tidemark {{ $labels.instance }}: {{ $value }} damaged blob(s); run `tidemark fsck` and restore from backup"
+          runbook: "OPERATIONS.md#fsck-and-scrub"
+
+      - alert: TidemarkTrashLargerThanData
+        # Soft-deleted and shadow history bytes exceed live bytes for 6 h: usually a mass delete
+        # or a retention window longer than intended. Not data loss, but it is disk.
+        expr: tidemark_trash_bytes > tidemark_live_bytes and tidemark_trash_bytes > 1073741824
+        for: 6h
+        labels: { severity: warning }
+        annotations:
+          summary: "Tidemark {{ $labels.instance }}: trash ({{ $value | humanize1024 }}B) is larger than live data"
+
+      - alert: TidemarkGcStalled
+        # GC runs every `retention.gc_interval` (default 60 s). No success for an hour means
+        # trash is not being purged and blobs are not being freed.
+        expr: time() - tidemark_gc_last_success_timestamp_seconds > 3600
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "Tidemark {{ $labels.instance }}: no successful GC pass for over an hour (check logs for `gc tick failed`)"
+
+      - alert: TidemarkHighErrorRate
+        expr: >
+          sum by (instance) (rate(tidemark_requests_total{status=~"5.."}[5m]))
+            / sum by (instance) (rate(tidemark_requests_total[5m])) > 0.05
+          and sum by (instance) (rate(tidemark_requests_total[5m])) > 0.1
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Tidemark {{ $labels.instance }}: {{ $value | humanizePercentage }} of requests fail with 5xx"
+
+      - alert: TidemarkEventsDeadLettered
+        expr: increase(tidemark_events_dead_lettered_total[1h]) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: "Tidemark {{ $labels.instance }}: events to sink {{ $labels.sink }} were dead-lettered"
+
+      - alert: TidemarkAuditDropped
+        expr: increase(tidemark_audit_dropped_total[15m]) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: "Tidemark {{ $labels.instance }}: audit records dropped (writer behind)"
+
+      - alert: TidemarkBackupStale
+        # Exported by the server when backup.dir is set (newest manifest; survives restarts).
+        expr: time() - tidemark_backup_last_success_timestamp_seconds > 2 * 3600
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "No successful Tidemark backup on {{ $labels.instance }} for over 2 h"

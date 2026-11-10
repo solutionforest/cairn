@@ -1,0 +1,3 @@
+# /etc/cron.d/tidemark-backup — hourly backup at :17 (settings in /etc/default/tidemark-backup).
+# Copy deploy/backup/tidemark-backup.sh to /usr/local/bin/ first.
+17 * * * * root /usr/local/bin/tidemark-backup.sh >> /var/log/tidemark-backup.log 2>&1

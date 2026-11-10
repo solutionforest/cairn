@@ -1,0 +1,6 @@
+# Add under `scrape_configs:` in prometheus.yml. /metrics is unauthenticated; keep the port
+# reachable only from Prometheus (firewall, private network, or the compose network).
+- job_name: tidemark
+  scrape_interval: 30s
+  static_configs:
+    - targets: ["tidemark.internal:9000"]

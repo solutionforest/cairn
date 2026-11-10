@@ -102,6 +102,9 @@ pub enum Cmd {
     /// Point-in-time recovery.
     #[command(subcommand)]
     Pitr(PitrCmd),
+    /// Backups made by the running server into `backup.dir`.
+    #[command(subcommand)]
+    Backup(BackupCmd),
 }
 
 /// Inline policy and attachment commands shared by users, groups and roles.
@@ -528,6 +531,25 @@ pub enum PitrCmd {
     },
 }
 
+/// Backup commands.
+#[derive(Debug, Subcommand)]
+pub enum BackupCmd {
+    /// Start a backup into `<backup.dir>/<set>` (incremental unless the set is new or --full).
+    Start {
+        /// Set name, e.g. `2026-W46`.
+        #[arg(long)]
+        set: String,
+        /// Upload every blob again.
+        #[arg(long)]
+        full: bool,
+        /// Wait for it to finish; exit non-zero if it fails.
+        #[arg(long)]
+        wait: bool,
+    },
+    /// The running or most recent backup.
+    Status,
+}
+
 /// The `admin` subcommand for tidemark-cli to mount.
 pub fn cli() -> clap::Command {
     AdminArgs::command()
@@ -876,6 +898,22 @@ pub async fn run_to(m: &ArgMatches, c: &AdminClient, out: &mut String) -> Result
                 c.call("GET", "/pitr/diff", &q, None).await?
             }
         },
+        Cmd::Backup(BackupCmd::Status) => c.call("GET", "/backup", none, None).await?,
+        Cmd::Backup(BackupCmd::Start { set, full, wait }) => {
+            let body = json!({ "set": set, "full": full });
+            let mut v = c.call("POST", "/backup", none, Some(&body)).await?;
+            while *wait && v["state"] == "running" {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                v = c.call("GET", "/backup", none, None).await?;
+            }
+            if v["state"] == "failed" {
+                anyhow::bail!(
+                    "backup into set {set} failed: {}",
+                    v["error"].as_str().unwrap_or("unknown error")
+                );
+            }
+            v
+        }
     };
     if a.json {
         writeln!(out, "{}", serde_json::to_string_pretty(&v)?)?;

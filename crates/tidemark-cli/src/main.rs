@@ -572,7 +572,17 @@ fn run(cli: Cli) -> anyhow::Result<i32> {
                 ..Default::default()
             };
             let rep = runtime()?.block_on(async move {
-                let e = open_offline(&cfg).await?;
+                let e = open_offline(&cfg).await.map_err(|e| {
+                    if format!("{e:#}").contains("Database already open") {
+                        e.context(
+                            "the data directory is in use by a running server; back up a live \
+                             server with `tidemark admin backup start --set <name>` (needs \
+                             backup.dir, see OPERATIONS.md \"Backup and restore\")",
+                        )
+                    } else {
+                        e
+                    }
+                })?;
                 let r = backup::backup(&e, &loc, &opts).await;
                 e.shutdown();
                 Ok::<_, anyhow::Error>(r?)

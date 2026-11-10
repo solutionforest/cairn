@@ -19,6 +19,7 @@ pub struct EngineAdmin {
     engine: TidemarkEngine,
     region: String,
     started: Instant,
+    backup: Option<std::sync::Arc<crate::backup::BackupRunner>>,
 }
 
 impl EngineAdmin {
@@ -28,7 +29,14 @@ impl EngineAdmin {
             engine,
             region,
             started: Instant::now(),
+            backup: None,
         }
+    }
+
+    /// Serve `POST/GET /backup` with this runner (`backup.dir` set).
+    pub fn with_backup(mut self, r: Option<std::sync::Arc<crate::backup::BackupRunner>>) -> Self {
+        self.backup = r;
+        self
     }
 
     fn summary(&self, b: &BucketRecord) -> Result<BucketSummary, AdminError> {
@@ -166,6 +174,21 @@ impl EngineAdmin {
 
 #[async_trait::async_trait]
 impl AdminEngine for EngineAdmin {
+    async fn start_backup(&self, r: BackupRequest) -> Result<BackupJob, AdminError> {
+        match &self.backup {
+            Some(b) => b.start(r),
+            None => Err(AdminError::new(
+                http::StatusCode::CONFLICT,
+                "BackupNotConfigured",
+                "server backups are off; set backup.dir in tidemark.toml",
+            )),
+        }
+    }
+
+    async fn backup_status(&self) -> Result<Option<BackupJob>, AdminError> {
+        Ok(self.backup.as_ref().and_then(|b| b.status()))
+    }
+
     async fn server_info(&self) -> Result<ServerInfo, AdminError> {
         let buckets = self.engine.list_buckets().map_err(map)?;
         let (mut objects, mut bytes) = (0, 0);

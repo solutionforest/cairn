@@ -6,6 +6,7 @@
 
 pub mod admin_engine;
 pub mod audit;
+mod backup;
 pub mod clock;
 mod http_layer;
 pub mod metrics;
@@ -347,12 +348,18 @@ impl Server {
             .events
             .sse
             .then(|| SseBroadcast::new(config.events.sse_buffer));
+        let metrics = Arc::new(Metrics::new());
+        metrics.gc_last_success.set(tidemark_core::Ts::now().secs());
+        let backups = backup::BackupRunner::new(engine.clone(), &config.backup, metrics.clone());
+        if let Some(b) = &backups {
+            b.load_last_success().await;
+        }
         let admin_state = tidemark_admin::AdminState::new(
             store.clone(),
-            Arc::new(admin_engine::EngineAdmin::new(
-                engine.clone(),
-                config.server.region.clone(),
-            )),
+            Arc::new(
+                admin_engine::EngineAdmin::new(engine.clone(), config.server.region.clone())
+                    .with_backup(backups),
+            ),
         );
         let extra = sse.as_ref().map(|b| workers::sse_routes(b.clone()));
         let mut tidemark =
@@ -369,7 +376,6 @@ impl Server {
             );
         }
         let sts = tidemark_auth::sts::router(tidemark_auth::sts::StsState::new(store.clone()));
-        let metrics = Arc::new(Metrics::new());
         let audit = if config.audit.enabled {
             let path = config
                 .audit

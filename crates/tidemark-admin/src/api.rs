@@ -3,8 +3,8 @@
 //! (root is always allowed). Secrets are returned only when a key is created or rotated.
 
 use crate::engine::{
-    AdminEngine, PitrDiffQuery, PitrRequest, PurgeRequest, RestoreBucketRequest, RestoreRequest,
-    RetentionSettings, TrashQuery,
+    AdminEngine, BackupRequest, PitrDiffQuery, PitrRequest, PurgeRequest, RestoreBucketRequest,
+    RestoreRequest, RetentionSettings, TrashQuery,
 };
 use crate::error::{AdminError, REQUEST_ID, REQUEST_ID_HEADER};
 use axum::extract::{FromRequest, FromRequestParts, Path, Request, State};
@@ -826,6 +826,27 @@ async fn pitr_diff(
     Ok(Json(json!({ "items": s.engine.pitr_diff(q).await? })))
 }
 
+async fn start_backup(
+    State(s): S,
+    Extension(c): C,
+    JsonBody(r): JsonBody<BackupRequest>,
+) -> R<Response> {
+    s.allow(&c, "tidemark:Backup", None)?;
+    r.validate()?;
+    let job = s.engine.start_backup(r).await?;
+    Ok((StatusCode::ACCEPTED, Json(json!(job))).into_response())
+}
+
+async fn backup_status(State(s): S, Extension(c): C) -> R<Json<Value>> {
+    s.allow(&c, "tidemark:GetServerInfo", None)?;
+    match s.engine.backup_status().await? {
+        Some(job) => Ok(Json(json!(job))),
+        None => Err(AdminError::not_found(
+            "no backup has run since the server started",
+        )),
+    }
+}
+
 async fn not_found() -> AdminError {
     AdminError::not_found("no such admin endpoint")
 }
@@ -1005,6 +1026,7 @@ pub fn router_with_extra(state: AdminState, extra: Option<Router>, action: &'sta
         .route("/trash/purge", post(purge))
         .route("/pitr/restore", post(pitr_restore))
         .route("/pitr/diff", get(pitr_diff))
+        .route("/backup", get(backup_status).post(start_backup))
         .fallback(not_found)
         .method_not_allowed_fallback(|| async {
             AdminError::new(

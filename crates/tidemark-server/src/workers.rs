@@ -68,6 +68,16 @@ pub(crate) fn refresh_storage_gauges(st: &State) -> anyhow::Result<()> {
     }
     st.metrics.live_bytes.set(live as i64);
     st.metrics.trash_bytes.set(trash as i64);
+    let damaged = tidemark_engine::fsck::damaged_blobs(&r)?.len();
+    st.metrics.damaged_blobs.set(damaged as i64);
+    st.metrics
+        .disk_reserve
+        .set(st.engine.space_reserve() as i64);
+    use tidemark_blob::space::SpaceProbe as _;
+    match tidemark_blob::space::StatvfsProbe.available(st.engine.data_dir()) {
+        Ok(free) => st.metrics.disk_free.set(free as i64),
+        Err(e) => tracing::warn!(error = %e, "free-space probe failed"),
+    }
     Ok(())
 }
 
@@ -107,6 +117,7 @@ impl Workers {
                             m.gc_runs.inc();
                             m.gc_versions_purged.inc_by(s.versions_purged);
                             m.gc_blobs_deleted.inc_by(s.blobs_deleted);
+                            m.gc_last_success.set(tidemark_core::Ts::now().secs());
                         }
                         Err(e) => tracing::warn!(error = %e, "gc tick failed"),
                     }

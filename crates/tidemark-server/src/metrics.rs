@@ -49,6 +49,19 @@ pub struct Metrics {
     pub replication_pending: IntGaugeVec,
     /// Audit records dropped because the writer fell behind.
     pub audit_dropped: IntCounter,
+    /// Bytes available to the server on the data directory's filesystem.
+    pub disk_free: IntGauge,
+    /// Configured free-space reserve (`storage.min_free`); writes fail with 507 below it.
+    pub disk_reserve: IntGauge,
+    /// Blobs flagged damaged by scrub or fsck and not yet repaired.
+    pub damaged_blobs: IntGauge,
+    /// Unix time of the last successful GC pass (server start until the first pass, so a fresh
+    /// server does not look stalled).
+    pub gc_last_success: IntGauge,
+    /// Unix time of the newest manifest in `backup.dir` (set at startup and after each backup).
+    pub backup_last_success: IntGauge,
+    /// Server-made backups by result (`succeeded` / `failed`).
+    pub backup_runs: IntCounterVec,
 }
 
 macro_rules! reg {
@@ -180,6 +193,51 @@ impl Metrics {
                         "Versions waiting to replicate"
                     ),
                     &["bucket", "destination"]
+                )
+            ),
+            disk_free: reg!(
+                r,
+                g(
+                    "tidemark_disk_free_bytes",
+                    "Bytes available on the data directory filesystem"
+                )
+            ),
+            disk_reserve: reg!(
+                r,
+                g(
+                    "tidemark_disk_reserve_bytes",
+                    "Free-space reserve; writes return 507 below it"
+                )
+            ),
+            damaged_blobs: reg!(
+                r,
+                g(
+                    "tidemark_damaged_blobs",
+                    "Blobs flagged damaged by scrub or fsck"
+                )
+            ),
+            gc_last_success: reg!(
+                r,
+                g(
+                    "tidemark_gc_last_success_timestamp_seconds",
+                    "Unix time of the last successful GC pass (server start before the first)"
+                )
+            ),
+            backup_last_success: reg!(
+                r,
+                g(
+                    "tidemark_backup_last_success_timestamp_seconds",
+                    "Unix time of the newest backup in backup.dir"
+                )
+            ),
+            backup_runs: reg!(
+                r,
+                IntCounterVec::new(
+                    Opts::new(
+                        "tidemark_backup_runs_total",
+                        "Server-made backups by result"
+                    ),
+                    &["result"]
                 )
             ),
             audit_dropped: reg!(

@@ -67,6 +67,27 @@ jobs:
           cargo test -p tidemark-blob -p tidemark-engine -p tidemark-auth --locked --no-fail-fast
           --features tidemark-engine/remote,tidemark-auth/oidc
 
+  deploy-kit:
+    name: deploy kit (Prometheus rules, dashboard, backup job)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PROMETHEUS_VERSION: "3.16.0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with: { shared-key: ci-linux }
+      - run: cargo build -p tidemark-cli --bin tidemark --locked
+      - name: Prometheus ${{ env.PROMETHEUS_VERSION }} (checksum-verified)
+        run: |
+          base=https://github.com/prometheus/prometheus/releases/download/v$PROMETHEUS_VERSION
+          tarball=prometheus-$PROMETHEUS_VERSION.linux-amd64.tar.gz
+          curl -fsSLO "$base/$tarball"
+          curl -fsSL "$base/sha256sums.txt" | grep " $tarball\$" | sha256sum -c
+          tar xzf "$tarball"
+      - run: scripts/deploy-kit-test.sh target/debug/tidemark prometheus-$PROMETHEUS_VERSION.linux-amd64 "$RUNNER_TEMP/kit"
+
   docs:
     name: docs (rustdoc -D warnings)
     runs-on: ubuntu-latest

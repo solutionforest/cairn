@@ -154,6 +154,11 @@ impl TidemarkEngine {
         &self.inner.data_dir
     }
 
+    /// Free-space reserve in bytes (0 when the guard is off).
+    pub fn space_reserve(&self) -> u64 {
+        self.inner.space.as_ref().map_or(0, |g| g.reserve())
+    }
+
     /// Stop the metadata writer after draining queued jobs and mark the shutdown clean.
     /// Idempotent; the database file is closed once every engine handle is dropped.
     pub fn shutdown(&self) {

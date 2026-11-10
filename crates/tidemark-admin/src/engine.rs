@@ -253,6 +253,51 @@ pub struct ServerInfo {
     pub schema_version: u32,
 }
 
+/// Body of `POST /backup`: back up into `<backup.dir>/<set>`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BackupRequest {
+    /// Set name (subdirectory of `backup.dir`): 1-64 of `A-Z a-z 0-9 . _ -`, not starting with `.`.
+    pub set: String,
+    /// Upload every blob instead of only blobs the set's newest manifest lacks.
+    #[serde(default)]
+    pub full: bool,
+}
+
+/// A backup the server runs in the background; one at a time.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BackupJob {
+    /// Set name.
+    pub set: String,
+    /// `running`, `succeeded` or `failed`.
+    pub state: String,
+    /// Start time (RFC 3339).
+    pub started_at: String,
+    /// End time (RFC 3339), once finished.
+    pub finished_at: Option<String>,
+    /// The backup report (manifest id, blobs and bytes uploaded) on success.
+    pub report: Option<serde_json::Value>,
+    /// Why it failed.
+    pub error: Option<String>,
+}
+
+impl BackupRequest {
+    /// Reject set names that are not a single plain directory name.
+    pub fn validate(&self) -> Result<(), AdminError> {
+        let s = &self.set;
+        let ok = (1..=64).contains(&s.len())
+            && !s.starts_with('.')
+            && s.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'));
+        if ok {
+            Ok(())
+        } else {
+            Err(AdminError::invalid(
+                "set must be 1-64 characters of A-Z a-z 0-9 . _ - and not start with '.'",
+            ))
+        }
+    }
+}
+
 /// Storage operations behind the admin API (implemented by tidemark-engine).
 #[async_trait::async_trait]
 pub trait AdminEngine: Send + Sync {
@@ -278,6 +323,16 @@ pub trait AdminEngine: Send + Sync {
     async fn pitr_restore(&self, r: PitrRequest) -> Result<PitrResult, AdminError>;
     /// Diff between two points in time.
     async fn pitr_diff(&self, q: PitrDiffQuery) -> Result<Vec<PitrChange>, AdminError>;
+    /// Start a backup in the background (409 while one is running).
+    async fn start_backup(&self, _r: BackupRequest) -> Result<BackupJob, AdminError> {
+        Err(AdminError::not_implemented(
+            "this server does not make backups",
+        ))
+    }
+    /// The running or most recent backup since the server started.
+    async fn backup_status(&self) -> Result<Option<BackupJob>, AdminError> {
+        Ok(None)
+    }
 }
 
 /// In-memory [`AdminEngine`] for tests and for running the admin API without storage.

@@ -22,6 +22,17 @@ developers.
   identically, including deleted objects, deleted buckets and time-travel reads.
 - Nightly fuzzing of request signature checks, policy documents, Tidemark's own S3 header
   parsers and the metadata key layout (`fuzz/`).
+- Backups of a running server: set `[backup] dir` (and optionally `passphrase_file`), then
+  `tidemark admin backup start --set <name> --wait`. Writes keep being served while it runs.
+  Before this, `tidemark backup` only worked with the server stopped, so the hourly cron example
+  in OPERATIONS.md failed on every live server.
+- Operations kit in `deploy/`: Prometheus scrape job and 11 alert rules (disk near the reserve or
+  filling up, writes refused, damaged blobs, trash larger than data, GC stalled, 5xx rate, event
+  dead letters, audit drops, stale backups), a Grafana dashboard, and an hourly backup job with
+  weekly set rotation and an `rclone` mirror, run as a backup-only user.
+- Metrics: `tidemark_disk_free_bytes`, `tidemark_disk_reserve_bytes`, `tidemark_damaged_blobs`,
+  `tidemark_gc_last_success_timestamp_seconds`, `tidemark_backup_last_success_timestamp_seconds`,
+  `tidemark_backup_runs_total`.
 
 ### Changed
 - Smaller binary (14.6 MiB on x86_64, was 17.3 MiB): the AWS SDK and the OIDC/JWT libraries are no
@@ -30,7 +41,18 @@ developers.
 - TLS certificates and keys are read with `rustls-pki-types` instead of the archived
   `rustls-pemfile`. PKCS#8, SEC1 and RSA keys load as before.
 
+### Fixed
+- CompleteMultipartUpload ignored a whole-object checksum sent by the client
+  (`x-amz-checksum-sha256` and friends). A mismatch now fails with `400 BadDigest` and nothing is
+  written; the upload stays open for a retry.
+- A signed but empty `Content-MD5` header was treated as absent; it is now `400 InvalidDigest`,
+  as on AWS.
+
 ### Security
+- Now documented (behaviour unchanged): the root key is never denied by a policy, not even by an
+  explicit `Deny` in a bucket policy, whereas AWS applies such denies to the account root. Use IAM
+  users for day-to-day access and keep the root key for administration.
+
 Found in an internal review of the auth code (docs/SECURITY-REVIEW-2026-11-10.md). All five affect
 0.1.0-alpha.1 to alpha.3.
 - A bucket policy that denies plain-HTTP access (`aws:SecureTransport` = `false`) could be

@@ -632,3 +632,46 @@ Dated (UTC) design and implementation decisions, newest last. Moved out of `BUIL
   third party and its free API allows ~4 requests/minute, so it belongs behind a user's own
   endpoint. Plain `http://` only (keeps TLS client roots out of the binary). Restores from trash
   and time travel are not rescanned: they bring back bytes that were already stored.
+- **2026-11-10 — A running server makes its own backups (BUILD-PLAN 2.2).** Found while testing
+  the hourly cron example: `tidemark backup` opens the metadata database, which a running
+  server holds, so every scheduled backup of a live server failed with `Database already open`,
+  although OPERATIONS.md said backups run "while the server keeps serving traffic" (true only
+  inside the server process). The server now runs the existing in-process backup on
+  `POST /_tidemark/v1/backup` (`tidemark:Backup`), one background job at a time, into
+  `<backup.dir>/<set>`. The destination root and passphrase come from `[backup]` in the config,
+  never from the request, and the set must be a plain directory name, so an admin credential
+  cannot make the server write anywhere else. `GET /backup` reports the job; the offline CLI
+  stays for stopped servers and now names the live command when it hits the lock.
+  `tidemark_backup_last_success_timestamp_seconds` is re-read from the newest manifest at
+  startup so a restart does not look like a missed backup. No new on-disk format. Tests:
+  `crates/tidemark-server/tests/backup_live.rs` (backup while serving, incremental, restore,
+  restart, set-name validation, IAM, wrong passphrase); `scripts/deploy-kit-test.sh`.
+- **2026-11-10 — Operations kit is tested, not just shipped (BUILD-PLAN 2.2).** `deploy/` has
+  11 alert rules with promtool unit tests (fires / stays quiet; three weakened rules were checked
+  to fail them), a 23-panel Grafana dashboard whose every query runs against a real Prometheus
+  scraping a real server in `scripts/deploy-kit-test.sh`, and the backup cron job. Four gauges
+  were added because the rules need them: `tidemark_disk_free_bytes`,
+  `tidemark_disk_reserve_bytes`, `tidemark_damaged_blobs` (from the damage records, so it
+  survives restarts) and `tidemark_gc_last_success_timestamp_seconds` (set to the start time
+  before the first pass; the kit test caught `TidemarkGcStalled` going pending on every restart
+  otherwise).
+- **2026-11-10 — `[s3 alt]` stays a second user in one account; those tests stay failing
+  (BUILD-PLAN 2.3).** Of the 48 tests failing the gate (322/370), 20 use the alt identity: 18
+  expect alt to be denied as another account (it holds `s3:*` in ours, so it is allowed), 2 use
+  RGW `tenant:bucket` names. A second account means multi-account IAM, which v0.1 does not have
+  and DESIGN §0 does not promise. They stay in the denominator and are not re-triaged. The other
+  28: 2 real bugs, fixed here (a whole-object checksum on CompleteMultipartUpload was ignored,
+  `multipart.rs::complete_verifies_the_whole_object_checksum`; a signed empty `Content-MD5` was
+  treated as absent, `security_review.rs::empty_content_md5_is_invalid_digest`), now 324/370; 2 refuse `arn:aws:s3:::*` as a
+  bucket-policy resource (strict on purpose, AWS behaviour not verified); the rest are the
+  AWS-vs-Ceph differences and missing debug hooks listed in the 2026-11-09 triage entry, plus
+  five suite tests that remove or blank `Authorization` or `Content-Length` in a botocore
+  `before-call` hook, which runs before SigV4 signing and before the length is set, so the request
+  arrives valid (unsigned requests
+  are refused: `auth_wire.rs::unsigned_and_badly_signed_requests_are_rejected`).
+- **2026-11-10 — The root key cannot be denied; now documented.** Found in the same triage
+  (`test_get_public_block_deny_bucket_policy`): root bypasses every policy, including an explicit
+  `Deny` in a bucket policy (`eval.rs`, unit case "root explicit deny ignored"). AWS applies
+  bucket-policy denies to the account root except for the bucket-policy calls themselves. Kept
+  for v0.1 because it is the break-glass path and cannot lock an owner out; written down in
+  COMPAT.md so nobody relies on a Deny to restrict root. Open for the owner: match AWS before 1.0.

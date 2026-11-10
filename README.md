@@ -10,7 +10,7 @@
   <a href="https://github.com/solutionforest/tidemark/actions/workflows/security.yml"><img src="https://github.com/solutionforest/tidemark/actions/workflows/security.yml/badge.svg" alt="security"></a>
   <a href="https://github.com/solutionforest/tidemark/releases"><img src="https://img.shields.io/github/v/release/solutionforest/tidemark?include_prereleases" alt="release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/licence-AGPL--3.0--only-4F46E5" alt="licence"></a>
-  <img src="https://img.shields.io/badge/ceph_s3--tests-87%25-10B981" alt="s3-tests 87%">
+  <img src="https://img.shields.io/badge/ceph_s3--tests-88%25-10B981" alt="s3-tests 88%">
 </p>
 
 <p align="center">
@@ -116,7 +116,7 @@ python3 admin-ui/server.py        # or: php -S 127.0.0.1:9080 admin-ui/server.ph
 | **Encryption** | SSE-S3 (`AES256`) and bucket default encryption, master key sealed at rest. [Config](docs/CONFIG.md) |
 | **Malware scanning** | Uploads are streamed to ClamAV or your own HTTP endpoint before they are stored; infected files land in a quarantine bucket. [Guide](docs/OPERATIONS.md#malware-scanning) |
 | **AI agents** | MCP over stdio or HTTP; every tool call is an IAM-checked request. [Guide](docs/MCP.md) |
-| **Operations** | Backup and restore, `fsck` and scrub, disk-full handling, Prometheus metrics, health endpoints. [Guide](docs/OPERATIONS.md) |
+| **Operations** | Backups of the running server, restore, `fsck` and scrub, disk-full handling, Prometheus metrics with tested alert rules and a Grafana dashboard ([`deploy/`](deploy/)), health endpoints. [Guide](docs/OPERATIONS.md) |
 
 ```mermaid
 flowchart LR
@@ -134,12 +134,13 @@ flowchart LR
 
 | Area | State | Evidence |
 |---|---|---|
-| S3 API, single node | 🟡 Alpha | 322 of 370 ceph `s3-tests` (87%) gate every push; aws-cli, rclone, mc and aws-sdk-s3 tested |
+| S3 API, single node | 🟡 Alpha | 324 of 370 ceph `s3-tests` (88%) gate every push; aws-cli, rclone, mc and aws-sdk-s3 tested |
 | Trash, time travel, dedupe | 🟡 Alpha | Integration tests; restores checked byte-identical |
 | Upgrades | 🟡 Alpha | Data from `0.1.0-alpha.3` on opens in every later release; CI checks it |
 | Security | 🟡 Alpha | [Self-review of the auth code](docs/SECURITY-REVIEW-2026-11-10.md) (5 fixes, each with a test), nightly fuzzing, `cargo audit` and `cargo deny` in CI; no external audit yet |
 | Crash safety | 🟡 Alpha | `kill -9` mid-write tests, weekly 2 h [soak](docs/OPERATIONS.md#soak) with a kill every 10 min and a disk-full window, `fsck` clean after; 24 h soak in progress |
 | Performance | 🟡 Alpha | [Measured](docs/OPERATIONS.md#throughput) on 4 vCPU cloud disk: ~2 100 small PUT/s, ~5 000 small GET/s, 200–1 100 MiB/s large objects |
+| Backups and monitoring | 🧪 New | Live-server backups, 11 alert rules with unit tests and a Grafana dashboard, all run against a real server and Prometheus in CI; not in a release yet |
 | Malware scanning | 🧪 New | ClamAV + EICAR tested end to end; not in a release yet |
 | Clustering, erasure coding, replication, OIDC, Object Lock | ⛔ Not in v0.1 | Single node by design |
 

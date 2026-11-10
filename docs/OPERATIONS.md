@@ -101,26 +101,41 @@ and migrates it; never edit an existing fixture, add `meta-vN.redb` instead.
 
 ## Backup and restore
 
-```sh
-tidemark backup  --data-dir /srv/tidemark --to /mnt/backup/tidemark \
-                 --passphrase-file /root/backup.pass [--include-keys] [--full]   # incremental by default
-tidemark backup ls --from /mnt/backup/tidemark                                   # manifest ids, oldest first
-tidemark restore --from /mnt/backup/tidemark --data-dir /srv/tidemark-restored [--id <manifest>] \
-                 [--passphrase-file /root/backup.pass]
+**A running server backs itself up.** `tidemark backup` opens the metadata database directly,
+which a running server holds, so on a live server it refuses with a pointer to the command below.
+Set a backup directory and let the server do it:
+
+```toml
+[backup]
+dir = "/var/backups/tidemark"               # one subdirectory per set
+passphrase_file = "/root/tidemark-backup.pass"  # optional; encrypts every set, includes keys/
 ```
 
-**Off-site copy.** Release binaries back up to a directory only. Copy that directory anywhere
-`rclone` reaches (another Tidemark, S3, B2, SFTP). A set only ever gains files, and an encrypted
-set is ciphertext except `tidemark-backup.json`, so a plain sync is safe:
-
 ```sh
-# /etc/cron.d/tidemark-backup: hourly incremental, then mirror off-site
-0 * * * * root tidemark backup --data-dir /srv/tidemark --to /mnt/backup/tidemark \
-  --passphrase-file /root/backup.pass && rclone sync /mnt/backup/tidemark offsite:tidemark-backup
+tidemark admin backup start --set 2026-W46 --wait   # incremental; the first run of a set is full
+tidemark admin backup status                        # running / succeeded / failed + report
+tidemark backup ls --from /var/backups/tidemark/2026-W46
+tidemark restore --from /var/backups/tidemark/2026-W46 --data-dir /srv/tidemark-restored \
+                 [--id <manifest>] [--passphrase-file /root/tidemark-backup.pass]
 ```
 
-To restore from off-site, `rclone sync` the set back to a local directory first. A build with
-`--features remote` can also use `--to s3://bucket/prefix --endpoint https://…` directly
+`POST /_tidemark/v1/backup` (`tidemark:Backup`) starts one job in the background, 409 while one
+runs; `GET /_tidemark/v1/backup` (`tidemark:GetServerInfo`) reports it. Set names are a single
+plain directory name, so the API can only write under `backup.dir`. Writes keep being served
+while it runs. The server exports `tidemark_backup_last_success_timestamp_seconds` (read back
+from the newest manifest at startup) and `tidemark_backup_runs_total{result}`.
+
+**Schedule, rotation, off-site.** [`deploy/backup/`](../deploy/backup/) has an hourly cron job:
+it backs up into the current ISO week's set, keeps the newest `KEEP_SETS` weekly sets (pruning
+inside a set is not implemented, so whole sets rotate) and mirrors `backup.dir` to any `rclone`
+remote. A set only ever gains files and an encrypted set is ciphertext except
+`tidemark-backup.json`, so a plain sync is safe. Run it as a dedicated user that may only back
+up (`backup-user-policy.json`), not with the root key. To restore from off-site, `rclone sync`
+the set back to a local directory first.
+
+**Offline.** With the server stopped, `tidemark backup --data-dir /srv/tidemark --to <dir>
+[--passphrase-file f] [--include-keys] [--full]` does the same thing from the CLI. A build with
+`--features remote` can also use `--to s3://bucket/prefix --endpoint https://…`
 (credentials from `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`).
 
 **What a backup contains.** A backup *set* (a directory) holds `tidemark-backup.json`
@@ -145,10 +160,8 @@ file (size + BLAKE3 from the manifest; plaintext blobs must also hash to their i
 metadata dump into a fresh redb file. Start `tidemark serve` on the restored directory as usual; run
 `tidemark fsck --verify full` once as a drill.
 
-**Schedule and retention.** Run `tidemark backup` from cron/systemd timers (e.g. hourly incremental,
-weekly `--full` into a new set). Pruning inside a set is not implemented yet (blobs are shared
-between manifests); rotate whole sets instead. A blob that GC deletes while a backup is running
-makes that backup fail with a clear error; just run it again.
+A blob that GC deletes while a backup is running makes that backup fail with a clear error; run
+it again.
 
 ## fsck and scrub
 
@@ -207,7 +220,34 @@ server stays up and ready. Response bodies never include disk figures.
 To recover: free space (purge trash with `tidemark admin trash purge`, lower retention, run
 `tidemark gc` or add capacity), then writes resume automatically. Run `tidemark fsck`
 afterwards if the disk filled completely (a crash at ENOSPC can leave orphan blobs, which fsck
-indexes for GC). Alert well before the reserve is reached (`/metrics` free bytes).
+indexes for GC). Alert well before the reserve is reached: `tidemark_disk_free_bytes` against
+`tidemark_disk_reserve_bytes`, as the `TidemarkDiskNearReserve` and `TidemarkDiskFillingUp` rules in
+[`deploy/prometheus/`](../deploy/prometheus/) do.
+
+## Monitoring
+
+[`deploy/`](../deploy/) has a Prometheus scrape job and alert rules, a Grafana dashboard, and the
+backup cron job above. `scripts/deploy-kit-test.sh` runs all of it against a real server and a
+real Prometheus in CI.
+
+![Grafana dashboard](images/grafana-dashboard.png)
+
+`GET /metrics` is unauthenticated; expose it only to Prometheus. Storage gauges refresh every
+`metrics.stats_interval` (default 5 min).
+
+| Alert | Fires when | Severity |
+|-------|-----------|----------|
+| `TidemarkDown` | the scrape fails for 2 min | critical |
+| `TidemarkDiskNearReserve` | free space < 1.5 × the reserve (2 GiB floor with the reserve off) for 10 min | critical |
+| `TidemarkDiskFillingUp` | at the 6 h trend, free space reaches the reserve within 24 h | warning |
+| `TidemarkStorageFull` | any 507 in 10 min (writes are being refused) | critical |
+| `TidemarkDamagedBlobs` | scrub or fsck flagged a blob (`tidemark_damaged_blobs > 0`) | critical |
+| `TidemarkTrashLargerThanData` | trash + history > live bytes (and > 1 GiB) for 6 h | warning |
+| `TidemarkGcStalled` | no successful GC pass for 1 h | warning |
+| `TidemarkHighErrorRate` | > 5% of requests are 5xx for 10 min | warning |
+| `TidemarkEventsDeadLettered` | an event sink dead-lettered events in the last hour | warning |
+| `TidemarkAuditDropped` | the audit writer fell behind and dropped records | warning |
+| `TidemarkBackupStale` | the newest backup in `backup.dir` is older than 2 h | warning |
 
 ## Throughput
 

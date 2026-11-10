@@ -114,3 +114,11 @@ Aliases: `TIDEMARK_ROOT_ACCESS_KEY`, `TIDEMARK_ROOT_SECRET`, `TIDEMARK_DATA_DIR`
 | `on_error` | `"reject"` | `reject` (503) or `allow` (store unscanned) when the scanner is down or times out. |
 | `on_oversize` | `"allow"` | `reject` (400 EntityTooLarge) or `allow` (store unscanned) for objects over `max_size`. |
 | `timeout` | `"1m"` | Per-object scan timeout. |
+
+## `[backup]`
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `dir` | unset | Absolute directory for backup sets made by the running server (`tidemark admin backup`); unset = off. |
+| `passphrase_file` | unset | File holding the passphrase that encrypts server-made backup sets; unset = plaintext sets. |
+| `include_keys` | `true` | Also save `<data_dir>/keys/` (the at-rest master key) in encrypted sets. |
