@@ -1,0 +1,74 @@
+name: soak
+
+# BUILD-PLAN 1.3: scripts/soak.sh on a GitHub-hosted runner (regular kernel, local SSD), weekly.
+# warp mixed load + an rclone ledger, kill -9 every 10 min, one disk-full window (a ballast file
+# on the runner's real filesystem), fsck --verify full at the end, RSS budget 256 MiB.
+# The 24 h run uses the same script on a long-lived machine (GitHub-hosted jobs stop at 6 h).
+on:
+  schedule:
+    - cron: "17 3 * * 0"
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: "Total soak time (s/m/h)"
+        default: "2h"
+      segment:
+        description: "Time between kill -9 (s/m/h)"
+        default: "10m"
+
+concurrency:
+  group: soak
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+  WARP_VERSION: v1.3.0
+  WARP_SHA256: e406bf04136ac1545b2a61d8d2b01823ec6e5f039d1af1b762a585e210a1b245
+
+jobs:
+  soak:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: host musl target
+        run: |
+          t="$(uname -m)-unknown-linux-musl"
+          rustup target add "$t"
+          echo "MUSL_TARGET=$t" >> "$GITHUB_ENV"
+      - name: tools
+        run: |
+          sudo -n apt-get update && sudo -n apt-get install -y musl-tools rclone
+          curl -fsSL -o /tmp/warp.tgz "https://github.com/minio/warp/releases/download/$WARP_VERSION/warp_Linux_x86_64.tar.gz"
+          echo "$WARP_SHA256  /tmp/warp.tgz" | sha256sum -c -
+          mkdir -p /tmp/warp && tar -xzf /tmp/warp.tgz -C /tmp/warp && sudo -n install /tmp/warp/warp /usr/local/bin/warp
+          warp --version && rclone version | head -1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: footprint-musl-${{ runner.arch }}
+      - run: cargo build --release --locked -p tidemark-cli --target "$MUSL_TARGET"
+      - name: soak
+        env:
+          SOAK_DURATION: ${{ inputs.duration || '2h' }}
+          SOAK_SEGMENT: ${{ inputs.segment || '10m' }}
+          SOAK_DIR: ${{ runner.temp }}/soak
+          SOAK_KEEP: "1"
+        run: |
+          set -o pipefail
+          scripts/soak.sh "target/$MUSL_TARGET/release/tidemark" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: logs
+        if: always()
+        run: |
+          d="${{ runner.temp }}/soak"
+          [ -d "$d" ] || exit 0
+          rm -rf "$d/data/blobs" "$d/ledger" "$d/data/ballast"
+          tar -czf "${{ runner.temp }}/soak-logs.tgz" -C "$d" .
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: soak-logs
+          path: ${{ runner.temp }}/soak-logs.tgz
+          if-no-files-found: ignore

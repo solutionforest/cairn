@@ -96,7 +96,7 @@ backend that holds the keys and signs admin API calls. Nothing is added to the s
 
 ## Working agreements
 - Lane 1 owns `tidemark-server`, `tidemark-cli`; lane 2 owns `tidemark-engine`, `tidemark-blob`, tests under
-  `crates/tidemark-server/tests/`; lane 3 owns `scripts/`, `.github/`, `deploy/`, `docs/`, `bench/`,
+  `crates/tidemark-server/tests/`; lane 3 owns `scripts/`, `.github/`, `deploy/`, `docs/`,
   `README.md`, `CONTRIBUTING.md`. Touching another lane's files: additive only, say so in the
   commit message.
 - `docs/COMPAT.md` and `docs/EXTENSIONS.md` are updated in the same commit as the behaviour.

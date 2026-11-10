@@ -579,3 +579,25 @@ Dated (UTC) design and implementation decisions, newest last. Moved out of `BUIL
   upgrade workflow instead downloads every published release, writes a mixed workload with it
   and diffs a full snapshot against the new build. Proven to bite: changing `CRNB` to `TDMB`
   in a debug build made the encrypted case fail at `fsck` ("bad encrypted blob header").
+- **2026-11-10 — Auth boundary self-review (BUILD-PLAN 1.6).** Five fixes, each with a test that
+  fails on the old code: `aws:SecureTransport` comes only from the connection or a trusted proxy,
+  never the request URI's scheme; query-string condition keys use exact-case names because s3s
+  does; `GetObjectAttributes` with `x-tidemark-as-of` needs `tidemark:TimeTravel`; role sessions
+  inherit the caller key's source CIDRs; the admin API refuses presigned (query-string) SigV4.
+  Accepted, not changed: identity-management admin actions are authorised on the server ARN, so
+  any of them is admin-equivalent (as in AWS IAM); the Python admin UI backend relies on a
+  loopback bind (compose publishes it on 127.0.0.1 only); the admin API and STS do not pin the
+  SigV4 scope's region and service, since the signature still binds the whole request. Full list
+  with evidence: `docs/SECURITY-REVIEW-2026-11-10.md`.
+- **2026-11-10 — One benchmark script, one soak script (BUILD-PLAN 1.7, 1.3).** `scripts/bench.sh`
+  replaces `bench/run.sh`, which was never run: the new script starts its own server on a fresh
+  data dir and prints a markdown table, so a run is one command and comparable across machines.
+  warp is pinned to v1.3.0 by SHA-256, the last release with a plain Linux tarball (later ones
+  ship RDMA builds only). Published numbers come from GitHub-hosted runners (`bench.yml`, manual,
+  median of three), a fixed machine class anyone can rerun; the 1-vCPU gVisor dev host is too
+  slow and noisy to stand for anything. `scripts/soak.sh` fills the real filesystem with a
+  ballast file for the disk-full window instead of raising `min_free`, so `statvfs` sees a
+  genuinely full disk. Its correctness check is an rclone ledger: every batch acknowledged before
+  a kill -9 must still match after every later restart, byte-compared at the end, and
+  `fsck --verify full` must be clean. The weekly 2 h run is `soak.yml`; a 24 h run needs a
+  machine outside GitHub-hosted runners (6 h job limit) and uses the same script.

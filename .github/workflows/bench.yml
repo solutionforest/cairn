@@ -1,0 +1,49 @@
+name: bench
+
+# BUILD-PLAN 1.7: scripts/bench.sh (warp: 4 KiB and 64 MiB PUT/GET, LIST) on a GitHub-hosted
+# runner, the fixed machine class the numbers in OPERATIONS.md "Throughput" come from. Manual only:
+# shared runners are noisy, so run it three times and publish the median.
+on:
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: "Duration per workload"
+        default: "60s"
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+  WARP_VERSION: v1.3.0
+  WARP_SHA256: e406bf04136ac1545b2a61d8d2b01823ec6e5f039d1af1b762a585e210a1b245
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: host musl target
+        run: |
+          t="$(uname -m)-unknown-linux-musl"
+          rustup target add "$t"
+          echo "MUSL_TARGET=$t" >> "$GITHUB_ENV"
+      - name: tools
+        run: |
+          sudo -n apt-get update && sudo -n apt-get install -y musl-tools
+          curl -fsSL -o /tmp/warp.tgz "https://github.com/minio/warp/releases/download/$WARP_VERSION/warp_Linux_x86_64.tar.gz"
+          echo "$WARP_SHA256  /tmp/warp.tgz" | sha256sum -c -
+          mkdir -p /tmp/warp && tar -xzf /tmp/warp.tgz -C /tmp/warp && sudo -n install /tmp/warp/warp /usr/local/bin/warp
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: footprint-musl-${{ runner.arch }}
+      - run: cargo build --release --locked -p tidemark-cli --target "$MUSL_TARGET"
+      - name: bench
+        env:
+          BENCH_DURATION: ${{ inputs.duration }}
+          BENCH_DIR: ${{ runner.temp }}/bench
+        run: |
+          set -o pipefail
+          lscpu | grep -E "Model name|^CPU\(s\)" | tee -a "$GITHUB_STEP_SUMMARY"
+          scripts/bench.sh "target/$MUSL_TARGET/release/tidemark" | tee -a "$GITHUB_STEP_SUMMARY"
