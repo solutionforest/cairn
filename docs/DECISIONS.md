@@ -675,3 +675,9 @@ Dated (UTC) design and implementation decisions, newest last. Moved out of `BUIL
   bucket-policy denies to the account root except for the bucket-policy calls themselves. Kept
   for v0.1 because it is the break-glass path and cannot lock an owner out; written down in
   COMPAT.md so nobody relies on a Deny to restrict root. Open for the owner: match AWS before 1.0.
+- **2026-11-10 — The beta.1 format freeze needs nothing reserved for erasure coding.** Checked
+  against a v0.2 multi-disk sketch (`docs/DESIGN-v0.2-MULTI-DISK.md`, proposal only). Metadata
+  refers to content by `BlobId` alone, so placement lives in a new shard layout inside the blob
+  store; degraded and damage tracking use `kv` key prefixes; a separate metadata directory would
+  be configuration, not a new on-disk name. v0.1 stays single-disk; erasure coding stays shelved
+  until v0.1.0 ships and an issue asks for it.

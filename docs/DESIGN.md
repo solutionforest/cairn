@@ -645,6 +645,9 @@ the MCP server never change — only `MetaStore` / `BlobStore` implementations d
 | v1.x | **Blob tiering**: `BlobStore` that keeps hot blobs local and moves cold blobs to remote S3 by age/size rule, metadata stays local | Capacity beyond the host; unchanged write path | Phase 3 |
 | v2 | Multi-node: `openraft` replicated metadata, consistent-hash blob placement, optional local erasure coding (`reed-solomon-simd`) | Active-active, automatic failover | Post-v1, only if demand is real |
 
+Single-node erasure coding across disks (survive losing whole drives without a cluster) is
+sketched for v0.2 in `docs/DESIGN-v0.2-MULTI-DISK.md`; it is additive to the §4.5 frozen formats.
+
 Running Tidemark *as* a serverless function is a non-goal: it owns local disk and a single metadata
 writer. It runs well in any container platform with a persistent volume (Fly.io, Railway,
 Kubernetes StatefulSet with one replica). Tidemark *calling* serverless functions is first-class via

@@ -82,6 +82,9 @@ Exit: `v0.1.0-beta.1` tagged with the upgrade test green from alpha.3 → beta.1
 | 2.4 | Issue flow: respond to every issue within a week; each bug fixed carries a regression test; each `s3-compat` issue adds its test name to `expected-pass.txt` when fixed. | issue templates (exist); labels (exist) |
 | 2.5 | Announce once: release notes for v0.1.0, one post (r/selfhosted or HN), README comparison table re-verified on that day. | CHANGELOG `[0.1.0]` |
 
+After v0.1.0: single-node erasure coding across disks, sketched in
+`docs/DESIGN-v0.2-MULTI-DISK.md` (3–4 weeks; starts only on a real issue).
+
 ### Not planned
 
 The shelved list below stays shelved. Likely requests, in the order we expect them: OIDC login,
