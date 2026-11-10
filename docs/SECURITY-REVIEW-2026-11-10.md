@@ -3,8 +3,8 @@
 BUILD-PLAN 1.6. An internal review before anyone else looks, not an audit. Every finding below
 has a test that fails on the code before the fix (checked by reverting the fix) and passes after.
 
-**Affected releases:** SEC-1 to SEC-5 are present in `v0.1.0-alpha.1` to `alpha.3` and fixed in
-the next release.
+**Affected releases:** SEC-1 to SEC-5 are present in `v0.1.0-alpha.1` to `alpha.3` and fixed in `v0.1.0-beta.1`.
+Upgrade to it from any alpha.
 
 ## Scope
 

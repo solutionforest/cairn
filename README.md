@@ -27,7 +27,8 @@
 </p>
 
 > [!WARNING]
-> **Alpha (`v0.1.0-alpha.3`).** Single node, tested but young. Keep an independent backup.
+> **Beta (`v0.1.0-beta.1`).** Single node, tested but young. The on-disk format is frozen: data
+> written by this release opens in every later one. Keep an independent backup.
 > Formerly named **Cairn**.
 
 ## Why Tidemark
@@ -82,7 +83,7 @@ the `tidemark-data` volume.
 <summary><b>Plain Linux binary</b></summary>
 
 ```sh
-v=v0.1.0-alpha.3; t=$(uname -m)-unknown-linux-musl
+v=v0.1.0-beta.1; t=$(uname -m)-unknown-linux-musl
 base=https://github.com/solutionforest/tidemark/releases/download/$v
 curl -fLO "$base/tidemark-$v-$t.tar.gz" -fLO "$base/SHA256SUMS"
 grep " tidemark-$v-$t.tar.gz\$" SHA256SUMS | sha256sum -c - && tar xzf "tidemark-$v-$t.tar.gz"
@@ -136,7 +137,7 @@ flowchart LR
 |---|---|---|
 | S3 API, single node | 🟡 Alpha | 324 of 370 ceph `s3-tests` (88%) gate every push; aws-cli, rclone, mc and aws-sdk-s3 tested |
 | Trash, time travel, dedupe | 🟡 Alpha | Integration tests; restores checked byte-identical |
-| Upgrades | 🟡 Alpha | Data from `0.1.0-alpha.3` on opens in every later release; CI checks it |
+| Upgrades | 🟢 Beta | On-disk format frozen at beta.1; data from `0.1.0-alpha.3` on opens in every later release, checked in CI on every push |
 | Security | 🟡 Alpha | [Self-review of the auth code](docs/SECURITY-REVIEW-2026-11-10.md) (5 fixes, each with a test), nightly fuzzing, `cargo audit` and `cargo deny` in CI; no external audit yet |
 | Crash safety | 🟡 Alpha | `kill -9` mid-write tests, weekly 2 h [soak](docs/OPERATIONS.md#soak) with a kill every 10 min and a disk-full window, `fsck` clean after; 24 h soak in progress |
 | Performance | 🟡 Alpha | [Measured](docs/OPERATIONS.md#throughput) on 4 vCPU cloud disk: ~2 100 small PUT/s, ~5 000 small GET/s, 200–1 100 MiB/s large objects |

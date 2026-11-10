@@ -12,7 +12,7 @@ body:
     attributes:
       label: Tidemark version
       description: Output of `tidemark --version`, or the image tag.
-      placeholder: tidemark 0.1.0-alpha.3
+      placeholder: tidemark 0.1.0-beta.1
     validations: { required: true }
   - type: dropdown
     id: install

@@ -11,6 +11,15 @@ developers.
 
 ## [Unreleased]
 
+## [0.1.0-beta.1] - 2026-11-11
+
+First beta. The on-disk format is now frozen (DESIGN §4.5): a data directory or backup written by
+this release, or by 0.1.0-alpha.3, opens in every later release. Upgrading from alpha.3 is
+replacing the binary and restarting; data from the Cairn-named alpha.1 and alpha.2 is not covered
+(see the alpha.3 entry). Five security fixes below affect every alpha, so upgrade.
+This release passed a 24-hour soak under mixed load with a `kill -9` every 10 minutes and a
+disk-full window (numbers in OPERATIONS.md "Soak").
+
 ### Added
 - Malware scanning (`[scan]`): new objects (PUT, completed multipart uploads, copies) are streamed
   to ClamAV (`clamd://`) or your own HTTP endpoint before they are stored. Infected uploads are
@@ -147,7 +156,8 @@ Replication, tiering, event notifications, OIDC, Object Lock, SSE-C / SSE-KMS, C
 PostObject, quotas and rate limiting are not supported; `docs/COMPAT.md` lists how each
 related request is answered.
 
-[Unreleased]: https://github.com/solutionforest/tidemark/compare/v0.1.0-alpha.3...master
+[Unreleased]: https://github.com/solutionforest/tidemark/compare/v0.1.0-beta.1...master
+[0.1.0-beta.1]: https://github.com/solutionforest/tidemark/releases/tag/v0.1.0-beta.1
 [0.1.0-alpha.3]: https://github.com/solutionforest/tidemark/releases/tag/v0.1.0-alpha.3
 [0.1.0-alpha.2]: https://github.com/solutionforest/tidemark/releases/tag/v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/solutionforest/tidemark/releases/tag/v0.1.0-alpha.1
