@@ -407,3 +407,86 @@ fn hex_decode(s: &str) -> Vec<u8> {
         .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
         .collect()
 }
+
+/// A whole-object checksum sent with CompleteMultipartUpload is verified before anything is
+/// written (ceph s3-tests `test_multipart_checksum_sha256`).
+#[tokio::test]
+async fn complete_verifies_the_whole_object_checksum() {
+    let env = Env::new().await;
+    env.bucket("mpck").await;
+    let s3 = &env.s3;
+    let start = |key: &'static str| async move {
+        let up = s3
+            .create_multipart_upload()
+            .bucket("mpck")
+            .key(key)
+            .checksum_algorithm(ChecksumAlgorithm::Sha256)
+            .send()
+            .await
+            .unwrap();
+        let uid = up.upload_id().unwrap().to_string();
+        let p = s3
+            .upload_part()
+            .bucket("mpck")
+            .key(key)
+            .upload_id(&uid)
+            .part_number(1)
+            .checksum_algorithm(ChecksumAlgorithm::Sha256)
+            .body(ByteStream::from(vec![b'A'; 1024]))
+            .send()
+            .await
+            .unwrap();
+        let part = CompletedPart::builder()
+            .part_number(1)
+            .e_tag(p.e_tag().unwrap())
+            .checksum_sha256(p.checksum_sha256().unwrap())
+            .build();
+        (uid, CompletedMultipartUpload::builder().parts(part).build())
+    };
+
+    let (uid, parts) = start("bad").await;
+    let r = s3
+        .complete_multipart_upload()
+        .bucket("mpck")
+        .key("bad")
+        .upload_id(&uid)
+        .checksum_sha256("bm90IHRoZSByaWdodCBzdW0gYXQgYWxs")
+        .multipart_upload(parts.clone())
+        .send()
+        .await;
+    assert_eq!(code(r), "BadDigest");
+    assert_eq!(
+        status(s3.head_object().bucket("mpck").key("bad").send().await),
+        404,
+        "a refused complete must not create the object"
+    );
+    // The upload is still open, so the client can retry with the right parts.
+    let ok = s3
+        .complete_multipart_upload()
+        .bucket("mpck")
+        .key("bad")
+        .upload_id(&uid)
+        .multipart_upload(parts)
+        .send()
+        .await
+        .unwrap();
+    let composite = ok.checksum_sha256().unwrap().to_string();
+
+    // The composite value we return (with or without its `-N` suffix) is accepted.
+    for sent in [
+        composite.clone(),
+        composite.split('-').next().unwrap().to_string(),
+    ] {
+        let (uid, parts) = start("good").await;
+        s3.complete_multipart_upload()
+            .bucket("mpck")
+            .key("good")
+            .upload_id(&uid)
+            .checksum_sha256(&sent)
+            .multipart_upload(parts)
+            .send()
+            .await
+            .unwrap_or_else(|e| panic!("checksum {sent} refused: {e:?}"));
+    }
+    env.stop().await;
+}

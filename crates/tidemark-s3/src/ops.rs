@@ -405,7 +405,7 @@ impl TidemarkS3 {
             key: i.key,
             body: body_in(i.body),
             content_length: i.content_length.and_then(|n| u64::try_from(n).ok()),
-            content_md5: i.content_md5,
+            content_md5: md5_header(i.content_md5, &req.headers),
             checksum,
             meta,
             tags: parse_tagging(i.tagging.as_deref())?,
@@ -1059,7 +1059,7 @@ impl TidemarkS3 {
                 part_number,
                 body: body_in(i.body),
                 content_length: i.content_length.and_then(|n| u64::try_from(n).ok()),
-                content_md5: i.content_md5,
+                content_md5: md5_header(i.content_md5, &req.headers),
                 checksum,
             })
             .await?;
@@ -1170,6 +1170,12 @@ impl TidemarkS3 {
             parts,
             conditions: write_conditions(i.if_match.as_ref(), i.if_none_match.as_ref()),
             owner: who,
+            expected_checksum: i
+                .checksum_crc32
+                .or(i.checksum_crc32c)
+                .or(i.checksum_crc64nvme)
+                .or(i.checksum_sha1)
+                .or(i.checksum_sha256),
         };
         let r = match replica {
             Some(vid) => {
@@ -1701,4 +1707,9 @@ forward! {
     put_bucket_replication => do_put_bucket_replication: PutBucketReplicationInput => PutBucketReplicationOutput;
     get_bucket_replication => do_get_bucket_replication: GetBucketReplicationInput => GetBucketReplicationOutput;
     delete_bucket_replication => do_delete_bucket_replication: DeleteBucketReplicationInput => DeleteBucketReplicationOutput;
+}
+
+/// `Content-MD5` as sent: s3s drops an empty header, which must still be `InvalidDigest`.
+fn md5_header(parsed: Option<String>, headers: &http::HeaderMap) -> Option<String> {
+    parsed.or_else(|| headers.contains_key("content-md5").then(String::new))
 }

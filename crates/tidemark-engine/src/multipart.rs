@@ -386,6 +386,19 @@ impl TidemarkEngine {
             }),
             _ => None,
         };
+        if let Some(want) = req.expected_checksum.as_deref().map(str::trim) {
+            let have = body.checksum.as_ref().map(|c| c.value.as_str());
+            let base = |v: &str| v.split_once('-').map_or(v, |(b, _)| b).to_string();
+            if have.map(base) != Some(base(want)) {
+                return Err(S3Error::new(
+                    S3ErrorCode::BadDigest,
+                    match have {
+                        Some(_) => "The checksum of the object does not match the checksum sent",
+                        None => "A checksum was sent but the upload has no checksum algorithm",
+                    },
+                ));
+            }
+        }
         let outcome = if replica.is_none() {
             self.scan_upload(&req.bucket, &req.key, &body).await?
         } else {

@@ -420,6 +420,9 @@ pub struct CompleteReq {
     pub conditions: WriteConditions,
     /// Caller.
     pub owner: PrincipalId,
+    /// Whole-object checksum the client sent (`x-amz-checksum-*` on the Complete request);
+    /// a mismatch is `BadDigest` and nothing is written.
+    pub expected_checksum: Option<String>,
 }
 
 /// ListParts result.

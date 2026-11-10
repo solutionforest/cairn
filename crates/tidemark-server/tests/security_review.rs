@@ -1,4 +1,5 @@
-//! Regression tests for docs/SECURITY-REVIEW-2026-11-10.md. Each test names its finding.
+//! Regression tests for docs/SECURITY-REVIEW-2026-11-10.md (each test names its finding), plus
+//! raw-request cases from the 2026-11-10 s3-tests triage that an SDK cannot send.
 
 mod common;
 use common::*;
@@ -71,8 +72,13 @@ fn signed(
     hs
 }
 
-/// Send a raw HTTP/1.1 request with `target` as the request-target; returns the status code.
-async fn raw(env: &Env, method: &str, target: &str, headers: &[(String, String)]) -> u16 {
+/// Send a raw HTTP/1.1 request with `target` as the request-target; returns the whole response.
+async fn raw_response(
+    env: &Env,
+    method: &str,
+    target: &str,
+    headers: &[(String, String)],
+) -> String {
     let mut s = tokio::net::TcpStream::connect(env.addr).await.unwrap();
     let mut req = format!("{method} {target} HTTP/1.1\r\n");
     for (k, v) in headers {
@@ -82,8 +88,13 @@ async fn raw(env: &Env, method: &str, target: &str, headers: &[(String, String)]
     s.write_all(req.as_bytes()).await.unwrap();
     let mut buf = Vec::new();
     s.read_to_end(&mut buf).await.unwrap();
-    let head = String::from_utf8_lossy(&buf);
-    head.split_whitespace().nth(1).unwrap().parse().unwrap()
+    String::from_utf8_lossy(&buf).into_owned()
+}
+
+/// [`raw_response`], returning only the status code.
+async fn raw(env: &Env, method: &str, target: &str, headers: &[(String, String)]) -> u16 {
+    let r = raw_response(env, method, target, headers).await;
+    r.split_whitespace().nth(1).unwrap().parse().unwrap()
 }
 
 #[tokio::test]
@@ -237,5 +248,40 @@ async fn sec5_admin_api_refuses_presigned_urls() {
         tidemark_auth::Ts::now(),
     );
     assert_eq!(c.get(&url).send().await.unwrap().status().as_u16(), 401);
+    env.stop().await;
+}
+
+/// A signed but empty `Content-MD5` is `400 InvalidDigest`, as on AWS (s3s drops the empty
+/// header, so it used to be ignored; ceph s3-tests `test_object_create_bad_md5_empty`).
+#[tokio::test]
+async fn empty_content_md5_is_invalid_digest() {
+    let env = Env::new().await;
+    env.bucket("md5e").await;
+    let key = Key {
+        ak: env.creds.access_key.clone(),
+        sk: env.creds.secret_key.clone(),
+    };
+    let base = [("content-length", "0")];
+    let with_md5 = [base[0], ("content-md5", "")];
+    for (path, extra, want) in [
+        ("/md5e/plain", &base[..], 200),
+        ("/md5e/empty-md5", &with_md5[..], 400),
+    ] {
+        let hs = signed(&env, &key, "PUT", path, "", extra);
+        let resp = raw_response(&env, "PUT", path, &hs).await;
+        let got: u16 = resp.split_whitespace().nth(1).unwrap().parse().unwrap();
+        assert_eq!(got, want, "{path}: {resp}");
+    }
+    assert_eq!(
+        status(
+            env.s3
+                .head_object()
+                .bucket("md5e")
+                .key("empty-md5")
+                .send()
+                .await
+        ),
+        404
+    );
     env.stop().await;
 }
