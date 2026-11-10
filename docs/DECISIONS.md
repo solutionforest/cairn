@@ -615,3 +615,9 @@ Dated (UTC) design and implementation decisions, newest last. Moved out of `BUIL
   The pool mixes x86_64 and arm64, so the upgrade, fuzz, bench and soak jobs pick their target
   triple and warp asset from `uname -m`. Published bench numbers stay labelled with the
   GitHub-hosted machine they came from.
+- **2026-11-10 — All CI on GitHub-hosted runners again.** Every workflow runs on
+  `runs-on: ubuntu-latest` (maintainer decision; reverses the same-day move to self-hosted).
+  Standard GitHub-hosted runners are free with no minute cap for public repos, and outside code
+  from fork PRs then runs on GitHub's throwaway VMs, not our machines, so the fork-PR `if:`
+  guards are gone. The `uname -m` target/asset derivation stays (harmless on x86_64). The 24 h
+  soak still needs a long-lived machine: GitHub-hosted jobs stop at 6 h.

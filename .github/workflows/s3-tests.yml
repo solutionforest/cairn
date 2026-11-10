@@ -27,8 +27,7 @@ concurrency:
 
 jobs:
   s3-tests:
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
       S3_TESTS_FULL: ${{ (github.event_name == 'schedule' || inputs.full) && '1' || '0' }}

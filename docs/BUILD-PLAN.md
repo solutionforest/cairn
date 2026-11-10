@@ -35,7 +35,7 @@ Crate API contracts are documented in each crate's `lib.rs` rustdoc.
 Every row in `docs/PRODUCTION-READINESS.md` is checked. `v0.1.0-alpha.3` (first release named
 Tidemark) is public: binaries, SBOMs, checksums and an anonymously pullable image. Numbers: ~290
 workspace tests, 322/370 ceph s3-tests (87.0%), binary 14.6 MiB x86_64, idle 10.4 MiB, all CI
-green (on the org's self-hosted runners since 2026-11-10).
+green (on GitHub-hosted runners).
 
 ## Remaining work
 

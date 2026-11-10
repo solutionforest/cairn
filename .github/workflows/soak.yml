@@ -1,9 +1,9 @@
 name: soak
 
-# BUILD-PLAN 1.3: scripts/soak.sh on the org's self-hosted runners (regular kernel), weekly.
+# BUILD-PLAN 1.3: scripts/soak.sh on a GitHub-hosted runner (regular kernel), weekly.
 # warp mixed load + an rclone ledger, kill -9 every 10 min, one disk-full window (a ballast file
 # on the runner's real filesystem), fsck --verify full at the end, RSS budget 256 MiB.
-# The 24 h run uses the same script on a long-lived machine (a weekly CI job should not hold a runner for a day).
+# The 24 h run uses the same script on a long-lived machine (GitHub-hosted jobs stop at 6 h).
 on:
   schedule:
     - cron: "17 3 * * 0"
@@ -29,7 +29,7 @@ env:
 
 jobs:
   soak:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 330
     steps:
       - uses: actions/checkout@v4

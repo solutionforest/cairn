@@ -1,8 +1,7 @@
 name: bench
 
-# BUILD-PLAN 1.7: scripts/bench.sh (warp: 4 KiB and 64 MiB PUT/GET, LIST) on the org's
-# self-hosted runners. The OPERATIONS.md "Throughput" numbers came from GitHub-hosted 4 vCPU
-# (2026-11-10), so rerun and republish before comparing against them. Manual only:
+# BUILD-PLAN 1.7: scripts/bench.sh (warp: 4 KiB and 64 MiB PUT/GET, LIST) on a GitHub-hosted
+# runner, the fixed machine class the OPERATIONS.md "Throughput" numbers come from. Manual only:
 # shared runners are noisy, so run it three times and publish the median.
 on:
   workflow_dispatch:
@@ -20,7 +19,7 @@ env:
 
 jobs:
   bench:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
