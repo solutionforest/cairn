@@ -565,7 +565,7 @@ Admin-only actions are in the `tidemark:` namespace (`tidemark:CreateUser`, `tid
 - Bucket notification configuration (`PutBucketNotificationConfiguration`) maps `TopicArn`/
   `QueueArn` to named Tidemark sinks (`arn:tidemark:sink::webhook-1`).
 - Extension model: "sidecars", not in-process plugins. A sidecar subscribes to the SSE stream with
-  a scoped credential, reacts (thumbnailing, virus scan, indexing, embedding) and writes results
+  a scoped credential, reacts (thumbnailing, indexing, embedding; malware scanning is built in, see `[scan]`) and writes results
   back through the S3/admin API. Keeps the core small and the ABI stable. WASM in-process hooks
   are a Phase 4 experiment (wasmtime, feature `wasm`), not a commitment.
 

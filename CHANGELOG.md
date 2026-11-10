@@ -12,6 +12,11 @@ developers.
 ## [Unreleased]
 
 ### Added
+- Malware scanning (`[scan]`): new objects (PUT, completed multipart uploads, copies) are streamed
+  to ClamAV (`clamd://`) or your own HTTP endpoint before they are stored. Infected uploads are
+  stored in a quarantine bucket as `<bucket>/<key>` instead, and the client gets
+  `400 VirusDetected`. Fails closed (503) when the scanner is down unless `on_error = "allow"`.
+  Docker Compose has a `scan` profile that runs ClamAV. See OPERATIONS.md "Malware scanning".
 - Upgrade promise: data directories and backups from 0.1.0-alpha.3 on open in every later
   release. CI writes data with every published release and checks the new build reads it back
   identically, including deleted objects, deleted buckets and time-travel reads.

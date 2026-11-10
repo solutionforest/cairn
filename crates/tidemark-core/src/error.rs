@@ -128,6 +128,7 @@ codes! {
     TooManyParts = 400, "You have exceeded the maximum number of parts.";
     UnexpectedContent = 400, "This request does not support content.";
     UnresolvableGrantByEmailAddress = 400, "The email address that you provided does not match any account on record.";
+    VirusDetected = 400, "The upload was rejected by the malware scanner.";
     UserKeyMustBeSpecified = 400, "The bucket POST request must contain the specified field name.";
     XAmzContentSHA256Mismatch = 400, "The provided 'x-amz-content-sha256' header does not match what was computed.";
 }

@@ -66,6 +66,12 @@ breaks alpha.2 directories and the CHANGELOG says so. From `beta.1` on that is f
 
 Exit: `v0.1.0-beta.1` tagged with the upgrade test green from alpha.3 → beta.1.
 
+### Block 1b — malware scanning (after beta.1, before v0.1.0)
+
+| # | Work | Proof |
+|---|------|-------|
+| 1b.1 | `[scan]`: stream PUT / CompleteMultipartUpload / CopyObject to clamd `INSTREAM` or an HTTP endpoint before commit; infected → `quarantine/<bucket>/<key>` + `400 VirusDetected`; fail closed; compose `scan` profile. No new on-disk format. | `crates/tidemark-server/tests/scan.rs` (fake clamd + fake HTTP endpoint; two removed checks caught); real ClamAV + EICAR run locally (PUT, zip, 20 MiB multipart); OPERATIONS.md "Malware scanning" |
+
 ### Block 2 — beta → v0.1.0
 
 | # | Work | Proof |

@@ -5,6 +5,10 @@
 #          "$(openssl rand -hex 10)" "$(openssl rand -base64 30)" > .env && chmod 600 .env
 #   2. docker compose up -d                  # S3 on http://127.0.0.1:9000
 #      docker compose --profile ui up -d     # plus the admin UI on http://127.0.0.1:9080
+#      Malware scanning with ClamAV: add TIDEMARK_SCAN_ENDPOINT=clamd://clamav:3310 to .env, then
+#        docker compose --profile scan up -d
+#      Infected uploads land in the `quarantine` bucket. Uploads are refused (503) until ClamAV
+#      has downloaded its signatures (a few minutes on the first start).
 #
 # The image is pulled from GHCR (public, no login). `docker compose up -d --build` builds it from
 # this checkout instead (slow: a full Rust build).
@@ -32,6 +36,7 @@ services:
       TIDEMARK_LOG_JSON: "true"
       TIDEMARK_ROOT_ACCESS_KEY: ${TIDEMARK_ROOT_ACCESS_KEY:?create .env first, see the top of compose.yaml}
       TIDEMARK_ROOT_SECRET: ${TIDEMARK_ROOT_SECRET:?create .env first, see the top of compose.yaml}
+      TIDEMARK_SCAN_ENDPOINT: ${TIDEMARK_SCAN_ENDPOINT:-}
     volumes:
       - tidemark-data:/data
       # Optional config file (every key: deploy/tidemark.example.toml); then also set
@@ -76,5 +81,15 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  # ClamAV for `[scan]` (opt in with `--profile scan` and TIDEMARK_SCAN_ENDPOINT, see the top).
+  # Not published on the host; Tidemark reaches it on the compose network. Needs ~1.5 GiB RAM.
+  clamav:
+    profiles: [scan]
+    image: clamav/clamav:stable
+    restart: unless-stopped
+    volumes:
+      - clamav-db:/var/lib/clamav
+
 volumes:
   tidemark-data:
+  clamav-db:

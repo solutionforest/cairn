@@ -26,7 +26,9 @@ Aliases: `TIDEMARK_ROOT_ACCESS_KEY`, `TIDEMARK_ROOT_SECRET`, `TIDEMARK_DATA_DIR`
 | `data_dir` | `"./data"` | Data directory root (`meta/`, `blobs/`, `tmp/`, `keys/`, `audit/`). |
 | `fsync` | `true` | fsync blobs before rename (disable only for tests). |
 | `verify_on_read` | `false` | Re-hash blobs while streaming GETs. |
-| `encrypt_at_rest` | `false` | Encrypt every blob with a key derived from `keys/master.key`. |
+| `encrypt_at_rest` | `false` | Encrypt every blob with a key derived from the master key (`storage.master_key`, else `storage.master_key_file`, else `keys/master.key` created on first use). |
+| `master_key` | unset | Master key as 64 hex characters; set it with `TIDEMARK_STORAGE_MASTER_KEY` rather than in the file. Never printed by `tidemark config check`. Unset by default. |
+| `master_key_file` | unset | File with the master key (32 raw bytes or 64 hex characters), e.g. a container secret; must exist, never generated. Unset by default (`keys/master.key`). |
 | `min_free` | `1073741824` | Bytes kept free under the data directory; writes that would eat into it get `507 InsufficientStorage`. `0` disables. |
 | `scrub` | `false` | Run the background scrubber (re-hash blobs, record damage). |
 | `scrub_bytes_per_sec` | `52428800` | Scrubber read budget in bytes/s (0 = unthrottled). |
@@ -101,3 +103,14 @@ Aliases: `TIDEMARK_ROOT_ACCESS_KEY`, `TIDEMARK_ROOT_SECRET`, `TIDEMARK_DATA_DIR`
 | `max_bytes` | `104857600` | Rotate the audit file at this size. |
 | `keep` | `5` | Rotated audit files kept (`.1` … `.N`). |
 | `all_requests` | `false` | Also record successful reads. |
+
+## `[scan]`
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `endpoint` | unset | Malware scanner; unset = no scanning. `clamd://host:3310`, `clamd:///path/clamd.sock` or `http://host:port/path` (see OPERATIONS.md "Malware scanning"). |
+| `quarantine_bucket` | `"quarantine"` | Infected uploads land here as `<bucket>/<key>` instead of their target; created (versioned) at startup. |
+| `max_size` | `104857600` | Objects larger than this many bytes are not scanned; `on_oversize` decides. |
+| `on_error` | `"reject"` | `reject` (503) or `allow` (store unscanned) when the scanner is down or times out. |
+| `on_oversize` | `"allow"` | `reject` (400 EntityTooLarge) or `allow` (store unscanned) for objects over `max_size`. |
+| `timeout` | `"1m"` | Per-object scan timeout. |

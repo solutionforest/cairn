@@ -246,3 +246,60 @@ First run 2026-11-10 (soak workflow run 42779819852, GitHub-hosted, 3 × 10 min)
 `fsck --verify full` clean; max RSS 180.4 MiB (budget 256 MiB); every 5xx was the intended 507
 during the disk-full window. The weekly workflow runs 2 h with the same shape. A 24 h run needs a
 long-lived machine (GitHub-hosted jobs stop at 6 h) and has not been done yet.
+
+## Malware scanning
+
+With `[scan] endpoint` set, every new object is streamed to a scanner after it is written to disk
+and before it becomes visible. Covered: PutObject, CompleteMultipartUpload (the assembled object,
+so malware split across parts is seen whole), CopyObject, and uploads through MCP. Not covered:
+objects stored before scanning was turned on, and restores from trash or time travel (they bring
+back bytes that were already stored).
+
+```toml
+[scan]
+endpoint = "clamd://127.0.0.1:3310"   # or clamd:///run/clamav/clamd.ctl, or http://host:port/path
+quarantine_bucket = "quarantine"      # created, versioned, at startup
+max_size = 104857600                  # 100 MiB; match clamd's StreamMaxLength
+on_error = "reject"                   # scanner down: 503 (fail closed); "allow" stores unscanned
+on_oversize = "allow"                 # over max_size: stored unscanned; "reject" answers 400
+timeout = "60s"
+```
+
+| Upload | Client sees | Where the bytes go |
+|---|---|---|
+| Clean | normal response | the target bucket |
+| Infected | `400 VirusDetected` with the signature name | `quarantine/<bucket>/<key>`, with `x-amz-meta-tidemark-scan-signature`, `-source-bucket`, `-source-key` |
+| Infected copy | `400 VirusDetected` | nowhere (the source stays where it was) |
+| Scanner down | `503 ServiceUnavailable` (`on_error = "allow"`: stored, logged) | nothing stored |
+| Over `max_size` | stored, logged (`on_oversize = "reject"`: `400 EntityTooLarge`) | the target bucket |
+
+Writes into the quarantine bucket are not scanned, and only root can read it unless you add a
+policy. Lifecycle rules work there as anywhere (for example expire quarantined objects after 30
+days). Copying an object out of quarantine into another bucket is scanned like any copy.
+
+**ClamAV.** Run `clamd` with a TCP or unix socket listener; set `StreamMaxLength` at least as high
+as `max_size` (clamd hangs up on larger streams and Tidemark treats that as "no verdict"). With
+Docker Compose: put `TIDEMARK_SCAN_ENDPOINT=clamd://clamav:3310` in `.env` and run
+`docker compose --profile scan up -d`. ClamAV needs about 1.5 GiB of RAM and a few minutes to fetch
+signatures on first start; uploads get 503 until then.
+
+**Your own endpoint** (wrap VirusTotal, a commercial engine, or your own rules). Tidemark sends:
+
+```
+POST /path HTTP/1.1
+Content-Type: application/octet-stream
+Content-Length: <size>
+X-Tidemark-Bucket: <bucket>
+X-Tidemark-Key: <key, percent-encoded, / kept>
+
+<object bytes>
+```
+
+and expects `200` with `{"infected": false}` or `{"infected": true, "signature": "<name>"}`.
+Any other status, a body that is not this JSON, or no answer within `timeout` counts as "no
+verdict" and `on_error` applies. Only `http://` is supported: keep the scanner on localhost or a
+private network. Sending files to a third-party service such as VirusTotal shares their content
+with that service; decide that in your endpoint, not in Tidemark.
+
+Throughput: an upload is acknowledged only after the scan, so PUT latency includes the scanner's
+time (ClamAV: tens of milliseconds for small files, seconds for large archives).

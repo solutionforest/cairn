@@ -386,16 +386,34 @@ impl TidemarkEngine {
             }),
             _ => None,
         };
+        let outcome = if replica.is_none() {
+            self.scan_upload(&req.bucket, &req.key, &body).await?
+        } else {
+            crate::scan::ScanOutcome::Store
+        };
+        // An infected upload is completed into the quarantine bucket: same parts, same
+        // transaction, the upload record still goes away.
+        let (target_bid, target_bn, target_key, conds) = match &outcome {
+            crate::scan::ScanOutcome::Store => (
+                upload.bucket,
+                req.bucket.clone(),
+                req.key.clone(),
+                req.conditions.clone(),
+            ),
+            crate::scan::ScanOutcome::Quarantine(q) => {
+                q.stamp(&mut body, &req.bucket, &req.key);
+                (
+                    q.bucket_id,
+                    q.bucket.clone(),
+                    q.key.clone(),
+                    WriteConditions::default(),
+                )
+            }
+        };
         let inner = self.inner.clone();
         let em = self.emitter(&req.owner);
-        let (bn, key, uid, owner, conds, bid) = (
-            req.bucket.clone(),
-            req.key.clone(),
-            req.upload_id.clone(),
-            req.owner.clone(),
-            req.conditions.clone(),
-            upload.bucket,
-        );
+        let (uid, owner, bid) = (req.upload_id.clone(), req.owner.clone(), upload.bucket);
+        let (bn, key, tbid) = (target_bn, target_key, target_bid);
         let (v, b) = self
             .inner
             .meta
@@ -426,7 +444,7 @@ impl TidemarkEngine {
                         txn,
                         &inner.blobs,
                         &inner.cfg,
-                        bid,
+                        tbid,
                         &bn,
                         &key,
                         kind,
@@ -453,6 +471,9 @@ impl TidemarkEngine {
             .await?;
         failpoint!("complete.committed");
         self.notify();
+        if let crate::scan::ScanOutcome::Quarantine(q) = outcome {
+            return Err(q.error());
+        }
         let body = v.body().expect("object");
         Ok(PutObjectRes {
             etag: body.etag.clone(),

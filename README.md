@@ -114,6 +114,7 @@ python3 admin-ui/server.py        # or: php -S 127.0.0.1:9080 admin-ui/server.ph
 | **Recovery** | Trash for objects, versions and buckets; point-in-time reads (`x-tidemark-as-of`) and bucket restore. [Guide](docs/OPERATIONS.md) |
 | **Access control** | IAM users, keys and policies, bucket policies, PublicAccessBlock, SigV4. [Actions](docs/EXTENSIONS.md#iam-actions-tidemark) |
 | **Encryption** | SSE-S3 (`AES256`) and bucket default encryption, master key sealed at rest. [Config](docs/CONFIG.md) |
+| **Malware scanning** | Uploads are streamed to ClamAV or your own HTTP endpoint before they are stored; infected files land in a quarantine bucket. [Guide](docs/OPERATIONS.md#malware-scanning) |
 | **AI agents** | MCP over stdio or HTTP; every tool call is an IAM-checked request. [Guide](docs/MCP.md) |
 | **Operations** | Backup and restore, `fsck` and scrub, disk-full handling, Prometheus metrics, health endpoints. [Guide](docs/OPERATIONS.md) |
 

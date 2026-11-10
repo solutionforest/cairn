@@ -200,22 +200,59 @@ impl TidemarkEngine {
                 checksum: ing.checksum.as_ref().map(|(_, v)| v.clone()),
             }],
         };
-        let res = self
-            .commit_object(
-                bucket.id,
-                &req.bucket,
-                &req.key,
-                body,
-                &req.owner,
-                req.conditions,
-                EventName::ObjectCreatedPut,
-                replica,
-            )
-            .await;
+        let mut body = body;
+        let outcome = if replica.is_none() {
+            match self.scan_upload(&req.bucket, &req.key, &body).await {
+                Ok(o) => o,
+                Err(e) => {
+                    if !ing.digest.deduped {
+                        self.discard_blob(ing.digest.blob_id).await;
+                    }
+                    return Err(e);
+                }
+            }
+        } else {
+            crate::scan::ScanOutcome::Store
+        };
+        let res = match &outcome {
+            crate::scan::ScanOutcome::Store => {
+                self.commit_object(
+                    bucket.id,
+                    &req.bucket,
+                    &req.key,
+                    body,
+                    &req.owner,
+                    req.conditions,
+                    EventName::ObjectCreatedPut,
+                    replica,
+                )
+                .await
+            }
+            crate::scan::ScanOutcome::Quarantine(q) => {
+                q.stamp(&mut body, &req.bucket, &req.key);
+                self.commit_object(
+                    q.bucket_id,
+                    &q.bucket,
+                    &q.key,
+                    body,
+                    &req.owner,
+                    WriteConditions::default(),
+                    EventName::ObjectCreatedPut,
+                    None,
+                )
+                .await
+            }
+        };
         if res.is_err() && !ing.digest.deduped {
             self.discard_blob(ing.digest.blob_id).await;
         }
-        res
+        match outcome {
+            crate::scan::ScanOutcome::Quarantine(q) => {
+                res?;
+                Err(q.error())
+            }
+            crate::scan::ScanOutcome::Store => res,
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -647,6 +684,7 @@ impl TidemarkEngine {
             validate_tags(&req.tags, 10)?;
             body.tags = req.tags.clone();
         }
+        self.scan_copy(&req.bucket, &req.key, &body).await?;
         let put = self
             .commit_object(
                 dst.id,

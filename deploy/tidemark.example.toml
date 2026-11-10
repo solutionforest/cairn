@@ -82,3 +82,16 @@ enabled = true
 level = "info"
 # Emit JSON log lines instead of human-readable text.
 json = false
+
+[scan]
+# Malware scanning of uploads (OPERATIONS.md "Malware scanning"). Unset = off.
+# endpoint = "clamd://127.0.0.1:3310"   # or clamd:///run/clamav/clamd.ctl, or http://host:port/path
+# Infected uploads are stored here as <bucket>/<key> instead of their target.
+quarantine_bucket = "quarantine"
+# Objects larger than this are not scanned (match clamd's StreamMaxLength).
+max_size = 104857600
+# "reject" (503) or "allow" (store unscanned) when the scanner is down.
+on_error = "reject"
+# "reject" (400) or "allow" (store unscanned) for objects over max_size.
+on_oversize = "allow"
+timeout = "60s"

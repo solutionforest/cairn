@@ -52,6 +52,8 @@ pub struct Config {
     pub log: LogConfig,
     /// `[audit]`
     pub audit: AuditConfig,
+    /// `[scan]`
+    pub scan: ScanConfig,
 }
 
 /// `[server]` section.
@@ -331,6 +333,60 @@ impl Default for AuditConfig {
     }
 }
 
+/// `[scan]` section: malware scanning of uploads before they are stored.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct ScanConfig {
+    /// Scanner address; unset disables scanning. `clamd://host:3310`, `clamd:///run/clamav/clamd.ctl`
+    /// (unix socket) or `http://host:port/path` (generic endpoint).
+    pub endpoint: Option<String>,
+    /// Bucket infected uploads are stored in instead of their target (created at startup).
+    pub quarantine_bucket: String,
+    /// Objects larger than this are not sent to the scanner; `on_oversize` decides.
+    pub max_size: u64,
+    /// Scanner unreachable, timed out or answered garbage.
+    pub on_error: ScanFailMode,
+    /// Object larger than `max_size`.
+    pub on_oversize: ScanFailMode,
+    /// Per-object scan timeout.
+    #[serde(with = "duration_serde")]
+    pub timeout: Duration,
+}
+
+/// What happens to an upload that could not be scanned.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ScanFailMode {
+    /// Refuse the upload.
+    Reject,
+    /// Store it unscanned (logged).
+    Allow,
+}
+
+impl ScanConfig {
+    /// The endpoint, if scanning is on (unset or blank means off, so an empty
+    /// `TIDEMARK_SCAN_ENDPOINT=` disables it).
+    pub fn endpoint(&self) -> Option<&str> {
+        self.endpoint
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+    }
+}
+
+impl Default for ScanConfig {
+    fn default() -> Self {
+        ScanConfig {
+            endpoint: None,
+            quarantine_bucket: "quarantine".into(),
+            max_size: 100 * 1024 * 1024,
+            on_error: ScanFailMode::Reject,
+            on_oversize: ScanFailMode::Allow,
+            timeout: Duration::from_secs(60),
+        }
+    }
+}
+
 /// `[log]` section.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
@@ -542,6 +598,33 @@ impl Config {
         if self.limits.max_parts == 0 || self.limits.max_parts > 10_000 {
             out.push("limits.max_parts must be 1..=10000".into());
         }
+        if let Some(ep) = self.scan.endpoint() {
+            let ok = ["clamd://", "http://"]
+                .iter()
+                .any(|p| ep.strip_prefix(p).is_some_and(|r| !r.is_empty()));
+            if !ok {
+                out.push(format!(
+                    "scan.endpoint {ep:?}: expected clamd://host:port, clamd:///socket/path or http://host:port/path"
+                ));
+            }
+            let q = &self.scan.quarantine_bucket;
+            if q.len() < 3
+                || q.len() > 63
+                || !q
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+            {
+                out.push(format!(
+                    "scan.quarantine_bucket {q:?} is not a valid bucket name"
+                ));
+            }
+            if self.scan.max_size == 0 {
+                out.push("scan.max_size must be > 0".into());
+            }
+            if self.scan.timeout.is_zero() {
+                out.push("scan.timeout must be > 0".into());
+            }
+        }
         out
     }
 
@@ -577,6 +660,7 @@ fn known_optional(section: &str, field: &str) -> bool {
             | ("storage", "master_key" | "master_key_file")
             | ("auth", "root_access_key" | "root_secret_key")
             | ("audit", "path")
+            | ("scan", "endpoint")
     )
 }
 
@@ -831,6 +915,27 @@ pub const KEY_DOCS: &[(&str, &str)] = &[
     ("audit.max_bytes", r#"Rotate the audit file at this size."#),
     ("audit.keep", r#"Rotated audit files kept (`.1` … `.N`)."#),
     ("audit.all_requests", r#"Also record successful reads."#),
+    (
+        "scan.endpoint",
+        r#"Malware scanner; unset = no scanning. `clamd://host:3310`, `clamd:///path/clamd.sock` or `http://host:port/path` (see OPERATIONS.md "Malware scanning")."#,
+    ),
+    (
+        "scan.quarantine_bucket",
+        r#"Infected uploads land here as `<bucket>/<key>` instead of their target; created (versioned) at startup."#,
+    ),
+    (
+        "scan.max_size",
+        r#"Objects larger than this many bytes are not scanned; `on_oversize` decides."#,
+    ),
+    (
+        "scan.on_error",
+        r#"`reject` (503) or `allow` (store unscanned) when the scanner is down or times out."#,
+    ),
+    (
+        "scan.on_oversize",
+        r#"`reject` (400 EntityTooLarge) or `allow` (store unscanned) for objects over `max_size`."#,
+    ),
+    ("scan.timeout", r#"Per-object scan timeout."#),
 ];
 
 fn flatten(prefix: &str, v: &toml::Value, out: &mut Vec<(String, String)>) {

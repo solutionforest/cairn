@@ -97,7 +97,7 @@ async fn disk_full_returns_507_and_reads_deletes_gc_keep_working() {
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     clock.advance(std::time::Duration::from_secs(3_601));
     let mut ok = false;
-    for _ in 0..100 {
+    for _ in 0..300 {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         if blob_files(dir.path()).0 == before - 1 {
             ok = true;

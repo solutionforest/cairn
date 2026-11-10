@@ -27,6 +27,7 @@ mod multipart;
 mod object;
 mod recovery;
 pub mod replication;
+pub mod scan;
 pub mod scrub;
 mod trash;
 pub mod types;
@@ -71,6 +72,8 @@ pub struct EngineExtras {
     pub region: Option<String>,
     /// Free-space guard checked before new blob data is written.
     pub space: Option<tidemark_blob::space::SpaceGuard>,
+    /// Malware scanning of new objects (see [`scan`]).
+    pub scan: Option<scan::ScanGate>,
 }
 
 struct Inner {
@@ -84,6 +87,7 @@ struct Inner {
     outbox: tidemark_events::Outbox,
     region: String,
     space: Option<tidemark_blob::space::SpaceGuard>,
+    scan: Option<scan::ScanGate>,
 }
 
 /// Marker file present while an engine has the data directory open.
@@ -125,6 +129,7 @@ impl TidemarkEngine {
                 outbox: extras.outbox,
                 region: extras.region.unwrap_or_else(|| "us-east-1".into()),
                 space: extras.space,
+                scan: extras.scan,
             }),
         })
     }

@@ -10,6 +10,7 @@ pub mod clock;
 mod http_layer;
 pub mod metrics;
 pub mod proxy;
+pub mod scan;
 pub use http_layer::ConnInfo;
 pub mod test_support;
 mod tls;
@@ -187,6 +188,7 @@ pub async fn open_engine(cfg: &Config, outbox: Outbox) -> anyhow::Result<Tidemar
             outbox,
             region: Some(cfg.server.region.clone()),
             space,
+            scan: scan::scan_gate(&cfg.scan)?,
         },
     )
     .with_context(|| format!("opening data directory {}", cfg.storage.data_dir.display()))?;
@@ -315,6 +317,18 @@ impl Server {
         let engine = open_engine(&config, outbox.clone()).await?;
         let mut engine_guard = ShutdownOnDrop(Some(engine.clone()));
         let store = credential_store_with_clock(&config, &engine, auth_clock).await?;
+        engine
+            .ensure_quarantine_bucket(&tidemark_core::PrincipalId::root())
+            .await
+            .with_context(|| {
+                format!(
+                    "creating the scan quarantine bucket {:?}",
+                    config.scan.quarantine_bucket
+                )
+            })?;
+        if let Some(ep) = config.scan.endpoint() {
+            tracing::info!(endpoint = %ep, quarantine = %config.scan.quarantine_bucket, "malware scanning enabled");
+        }
         let policies = Arc::new(BucketPolicyStore::new(engine.meta().clone()));
         let access = TidemarkS3Access::new(store.clone(), policies.clone());
         let mut sink_arns = Vec::new();

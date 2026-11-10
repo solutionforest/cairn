@@ -60,6 +60,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with: { shared-key: ci-linux }
       - run: cargo test --workspace --locked --no-fail-fast
+      - name: docs/CONFIG.md matches `tidemark config schema`
+        run: cargo run -q -p tidemark-cli --locked -- config schema | diff -u docs/CONFIG.md -
       - name: off-by-default features (remote S3 client, OIDC)
         run: >-
           cargo test -p tidemark-blob -p tidemark-engine -p tidemark-auth --locked --no-fail-fast

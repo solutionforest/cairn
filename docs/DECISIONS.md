@@ -621,3 +621,14 @@ Dated (UTC) design and implementation decisions, newest last. Moved out of `BUIL
   from fork PRs then runs on GitHub's throwaway VMs, not our machines, so the fork-PR `if:`
   guards are gone. The `uname -m` target/asset derivation stays (harmless on x86_64). The 24 h
   soak still needs a long-lived machine: GitHub-hosted jobs stop at 6 h.
+- **2026-11-10 — Malware scanning is synchronous and quarantines by redirecting the commit.**
+  `[scan]` streams each new object (PUT, completed multipart, copy) to a scanner before the
+  metadata commit. An infected upload is committed to `quarantine/<bucket>/<key>` instead of its
+  target, reusing the same blobs (no copy, no second write), and the client gets
+  `400 VirusDetected`; the multipart upload record is consumed in the same transaction. A
+  scan-after-commit design was rejected because the object would be readable until the scanner
+  answered. Fail closed by default (`on_error = "reject"`). Two protocols only: clamd `INSTREAM`
+  and a documented HTTP endpoint; VirusTotal is not built in because it sends file contents to a
+  third party and its free API allows ~4 requests/minute, so it belongs behind a user's own
+  endpoint. Plain `http://` only (keeps TLS client roots out of the binary). Restores from trash
+  and time travel are not rescanned: they bring back bytes that were already stored.
