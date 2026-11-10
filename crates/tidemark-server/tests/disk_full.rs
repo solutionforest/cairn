@@ -21,7 +21,7 @@ async fn disk_full_returns_507_and_reads_deletes_gc_keep_working() {
     cfg.storage.min_free = u64::MAX / 4;
     cfg.retention.gc_interval = std::time::Duration::from_millis(50);
     let clock = std::sync::Arc::new(tidemark_server::OffsetClock::new());
-    let node = Node::start_with_clock(cfg, clock.clone()).await;
+    let node = Node::start_with_clock(cfg.clone(), clock.clone()).await;
     let s3 = &node.s3;
 
     let r = s3
@@ -110,5 +110,13 @@ async fn disk_full_returns_507_and_reads_deletes_gc_keep_working() {
         blob_files(dir.path())
     );
     assert_eq!(node.get("full", "keep").await, b"kept bytes");
+    node.stop().await;
+
+    cfg.storage.min_free = 0;
+    let node = Node::start(cfg).await;
+    assert_eq!(node.get("full", "keep").await, b"kept bytes");
+    assert_eq!(node.get("full", "keep-copy").await, b"kept bytes");
+    node.put("full", "after-recovery", "new bytes").await;
+    assert_eq!(node.get("full", "after-recovery").await, b"new bytes");
     node.stop().await;
 }
