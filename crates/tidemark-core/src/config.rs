@@ -114,6 +114,9 @@ pub struct StorageConfig {
     /// Free space (bytes) kept under the data directory; writes that would eat into it get
     /// `507`. `0` disables the guard.
     pub min_free: u64,
+    /// Bytes of memory the metadata database may use as page cache; `0` = automatic
+    /// (see [`StorageConfig::meta_cache_bytes`]).
+    pub meta_cache: u64,
     /// Run the background scrubber (re-hash blobs, mark damage).
     pub scrub: bool,
     /// Scrubber read budget in bytes per second (0 = unthrottled).
@@ -133,10 +136,51 @@ impl Default for StorageConfig {
             master_key: None,
             master_key_file: None,
             min_free: 1 << 30,
+            meta_cache: 0,
             scrub: false,
             scrub_bytes_per_sec: 50 * 1024 * 1024,
             scrub_idle: Duration::from_secs(3600),
         }
+    }
+}
+
+impl StorageConfig {
+    /// The metadata page cache to use: `meta_cache` when set, else an eighth of the memory
+    /// available to the process (container limit or physical memory) within 64 MiB..=256 MiB.
+    pub fn meta_cache_bytes(&self) -> u64 {
+        if self.meta_cache > 0 {
+            self.meta_cache
+        } else {
+            auto_meta_cache(available_memory())
+        }
+    }
+}
+
+/// An eighth of `memory` clamped to 64 MiB..=256 MiB; 256 MiB when memory is unknown.
+pub fn auto_meta_cache(memory: Option<u64>) -> u64 {
+    match memory {
+        Some(m) => (m / 8).clamp(64 << 20, 256 << 20),
+        None => 256 << 20,
+    }
+}
+
+/// Memory available to this process: the smaller of physical memory and a cgroup limit (Linux).
+fn available_memory() -> Option<u64> {
+    let total = std::fs::read_to_string("/proc/meminfo").ok().and_then(|s| {
+        s.lines()
+            .find_map(|l| l.strip_prefix("MemTotal:"))
+            .and_then(|v| v.trim().trim_end_matches("kB").trim().parse::<u64>().ok())
+            .map(|kib| kib * 1024)
+    });
+    let limit = [
+        "/sys/fs/cgroup/memory.max",
+        "/sys/fs/cgroup/memory/memory.limit_in_bytes",
+    ]
+    .iter()
+    .find_map(|p| std::fs::read_to_string(p).ok()?.trim().parse::<u64>().ok());
+    match (total, limit) {
+        (Some(t), Some(l)) => Some(t.min(l)),
+        (t, l) => t.or(l),
     }
 }
 
@@ -842,6 +886,10 @@ pub const KEY_DOCS: &[(&str, &str)] = &[
         r#"Bytes kept free under the data directory; writes that would eat into it get `507 InsufficientStorage`. `0` disables."#,
     ),
     (
+        "storage.meta_cache",
+        r#"Bytes of memory the metadata database may use as page cache. `0` (default) = an eighth of the memory available to the process (container limit or RAM), between 64 MiB and 256 MiB; the server logs the value it picked. Raise it for very large buckets (a cache smaller than the hot metadata costs throughput), lower it on tiny machines."#,
+    ),
+    (
         "storage.scrub",
         r#"Run the background scrubber (re-hash blobs, record damage)."#,
     ),
@@ -1085,11 +1133,24 @@ mod tests {
     }
 
     #[test]
+    fn auto_meta_cache_is_an_eighth_within_bounds() {
+        const MIB: u64 = 1 << 20;
+        assert_eq!(auto_meta_cache(Some(512 * MIB)), 64 * MIB);
+        assert_eq!(auto_meta_cache(Some(2048 * MIB)), 256 * MIB);
+        assert_eq!(auto_meta_cache(Some(1024 * MIB)), 128 * MIB);
+        assert_eq!(auto_meta_cache(Some(32 << 30)), 256 * MIB);
+        assert_eq!(auto_meta_cache(None), 256 * MIB);
+        let auto = StorageConfig::default().meta_cache_bytes();
+        assert!((64 * MIB..=256 * MIB).contains(&auto), "{auto}");
+    }
+
+    #[test]
     fn env_overlay() {
         let vars = [
             ("TIDEMARK_SERVER_LISTEN", "0.0.0.0:1"),
             ("TIDEMARK_STORAGE_FSYNC", "false"),
             ("TIDEMARK_LIMITS_MAX_PARTS", "5"),
+            ("TIDEMARK_STORAGE_META_CACHE", "16777216"),
             ("TIDEMARK_RETENTION_SOFT_DELETE", "1h"),
             ("TIDEMARK_ROOT_ACCESS_KEY", "AK"),
             ("TIDEMARK_ROOT_SECRET", "SK"),
@@ -1101,6 +1162,8 @@ mod tests {
         .map(|(a, b)| (a.to_string(), b.to_string()));
         let c = Config::default().with_env(vars).unwrap();
         assert_eq!(c.server.listen, "0.0.0.0:1");
+        assert_eq!(c.storage.meta_cache, 16 << 20);
+        assert_eq!(c.storage.meta_cache_bytes(), 16 << 20);
         assert!(!c.storage.fsync);
         assert_eq!(c.limits.max_parts, 5);
         assert_eq!(c.retention.soft_delete, Duration::from_secs(3600));

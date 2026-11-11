@@ -11,7 +11,20 @@ developers.
 
 ## [Unreleased]
 
+### Fixed
+- Restart after a crash (`kill -9`, power loss) no longer checks the whole metadata file before
+  the server answers. Every metadata commit now records the file's allocation state, so a restart
+  takes well under a second whatever the metadata size (the 4 GB file from the beta.1 soak:
+  22.8 s → 0.3 s). The first restart after a crash of a beta.1 or older process still does the
+  full check once.
+- Memory under heavy load: the metadata cache was a fixed 1 GiB, so a busy server with a large
+  store grew past 1 GiB. New `[storage] meta_cache` (bytes, `TIDEMARK_STORAGE_META_CACHE`);
+  the default `0` picks an eighth of RAM or the container limit, between 64 MiB and 256 MiB, and
+  the server logs the value. On the beta.1 soak data under heavy load: 1 277 → 379 MiB peak, with
+  throughput within run-to-run noise. Rolling back to beta.1 is safe: it opens metadata written by this release.
+
 ### Changed
+- `scripts/soak.sh` memory budget is now 512 MiB (256 MiB cache plus working set).
 - `scripts/bench.sh` and `scripts/soak.sh` also run on macOS (stock bash 3.2); OPERATIONS.md
   "Soak" has the steps.
 

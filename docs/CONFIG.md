@@ -30,6 +30,7 @@ Aliases: `TIDEMARK_ROOT_ACCESS_KEY`, `TIDEMARK_ROOT_SECRET`, `TIDEMARK_DATA_DIR`
 | `master_key` | unset | Master key as 64 hex characters; set it with `TIDEMARK_STORAGE_MASTER_KEY` rather than in the file. Never printed by `tidemark config check`. Unset by default. |
 | `master_key_file` | unset | File with the master key (32 raw bytes or 64 hex characters), e.g. a container secret; must exist, never generated. Unset by default (`keys/master.key`). |
 | `min_free` | `1073741824` | Bytes kept free under the data directory; writes that would eat into it get `507 InsufficientStorage`. `0` disables. |
+| `meta_cache` | `0` | Bytes of memory the metadata database may use as page cache. `0` (default) = an eighth of the memory available to the process (container limit or RAM), between 64 MiB and 256 MiB; the server logs the value it picked. Raise it for very large buckets (a cache smaller than the hot metadata costs throughput), lower it on tiny machines. |
 | `scrub` | `false` | Run the background scrubber (re-hash blobs, record damage). |
 | `scrub_bytes_per_sec` | `52428800` | Scrubber read budget in bytes/s (0 = unthrottled). |
 | `scrub_idle` | `"1h"` | Pause between scrub passes. |

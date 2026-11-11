@@ -60,6 +60,8 @@ pub struct EngineConfig {
     pub at_rest_key: Option<DataKey>,
     /// fsync blobs.
     pub fsync: bool,
+    /// Metadata page cache in bytes (`None` = [`tidemark_meta::DEFAULT_CACHE_BYTES`]).
+    pub meta_cache: Option<u64>,
 }
 
 /// Runtime collaborators that are not plain configuration (see [`TidemarkEngine::open_with`]).
@@ -111,7 +113,10 @@ impl TidemarkEngine {
         cfg: EngineConfig,
         extras: EngineExtras,
     ) -> S3Result<TidemarkEngine> {
-        let meta = RedbMetaStore::open(&data_dir.join("meta").join("tidemark.redb"))?;
+        let meta = RedbMetaStore::open_with_cache(
+            &data_dir.join("meta").join("tidemark.redb"),
+            cfg.meta_cache.unwrap_or(tidemark_meta::DEFAULT_CACHE_BYTES),
+        )?;
         let blobs = FsBlobStore::open(data_dir, cfg.fsync)?;
         let tmp_removed = blobs.clean_tmp()?;
         let marker = data_dir.join("meta").join(RUNNING_MARKER);

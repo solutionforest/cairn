@@ -681,3 +681,14 @@ Dated (UTC) design and implementation decisions, newest last. Moved out of `BUIL
   store; degraded and damage tracking use `kv` key prefixes; a separate metadata directory would
   be configuration, not a new on-disk name. v0.1 stays single-disk; erasure coding stays shelved
   until v0.1.0 ships and an issue asks for it.
+- **2026-11-11 — redb quick-repair on every commit; metadata cache sized from memory.** Both
+  beta.1 known issues were redb defaults. Without quick-repair, opening after a crash walks the
+  whole file to rebuild the allocator (22.6 s for the 4 GB soak file here, 120 s under load);
+  with it each commit also writes the allocator state and uses two-phase commit, and the same
+  file opens in 0.28 s (`crates/tidemark-meta/tests/crash_reopen.rs` aborts a writer process and
+  fails if redb runs its full repair). The extra commit work did not show above this host's
+  ±30% noise; group commit amortises it. The page cache defaulted to 1 GiB; `[storage]
+  meta_cache = 0` now means an eighth of RAM or the cgroup limit, clamped to 64–256 MiB. 256 MiB
+  matched 1 GiB's throughput on 5.4 M versions while 64 MiB lost about half, hence the cap and
+  the floor. No format change: the allocator state is a redb system table, and beta.1 opens
+  files written this way (checked by hand on the soak data).

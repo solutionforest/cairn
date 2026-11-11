@@ -293,11 +293,27 @@ Long runs 2026-11-10/11 on a single-vCPU gVisor host with a network disk (24 h a
 | 1 | 7eefa0e | 64 (10.7 h), no disk-full window | 26.4 M | 0 | 170.6 MiB | host restarted overnight | clean (3 640 blobs, 4.0 M versions) |
 | 2 | beta.1 | 17 (2.9 h), disk-full at segment 4 | 35.7 M | 58, all 507 in the disk-full window | 916.6 MiB | restart took 120 s, the script's old timeout | clean (936 blobs, 5.4 M versions) |
 
-Two findings. Restart after a crash checks the whole metadata file first: 120 s for the 4 GB
-file run 2 had built, so give health checks a start period sized to your metadata (the soak
-script now waits up to `SOAK_READY_SECS`, default 900 s). Memory under sustained heavy load
-grows toward 1 GiB as the metadata cache fills (run 2 pushed about 4 times run 1's load); it
-is cache, not a leak, and a cap is planned. A clean 24 h run is still open and gates v0.1.0.
+Two findings, both fixed after beta.1. Restart after a crash checked the whole metadata file
+first (120 s under load for the 4 GB file run 2 had built); every commit now records the
+allocation state, and the same file restarts in 0.3 s. Memory under sustained heavy load grew
+past 1 GiB because the metadata cache defaulted to 1 GiB; `[storage] meta_cache` now caps it
+(default: an eighth of RAM or the container limit, 64–256 MiB). A clean 24 h run is still open
+and gates v0.1.0.
+
+Metadata cache vs memory and throughput, on run 2's data (4 GB metadata, 5.4 M versions): five
+minutes of `warp mixed` c=8 plus a full version listing, same host, release builds.
+
+| Build, `meta_cache` | Peak RSS | warp total | Restart after `kill -9` |
+|---|---|---|---|
+| beta.1 (1 GiB, fixed) | 1 277 MiB | 1 650 obj/s | 22.6 s |
+| after beta.1, 1 GiB | 1 273 MiB | 1 221 obj/s | 0.29 s |
+| after beta.1, 256 MiB | 379 MiB | 1 157 obj/s | 0.28 s |
+| after beta.1, 64 MiB | 160 MiB | 539 obj/s | 0.28 s |
+
+Run-to-run noise on this host is about ±30% (the same beta.1 binary measured 1 223 and 1 650
+obj/s), so only the 64 MiB row is a real slowdown: below the hot metadata the cache costs
+throughput. On a small machine with a large store, prefer 256 MiB over the 64 MiB floor if the
+memory is there.
 
 ### Running the soak or bench on a Mac
 
@@ -315,12 +331,12 @@ cargo build --release -p tidemark-cli
 hdiutil create -size 200g -type SPARSEBUNDLE -fs APFS -volname tmsoak ~/tmsoak
 hdiutil attach ~/tmsoak.sparsebundle
 caffeinate -dims env SOAK_DURATION=24h SOAK_DIR=/Volumes/tmsoak/run SOAK_KEEP=1 \
-  SOAK_MAX_RSS_MIB=1200 scripts/soak.sh > soak-24h.md
+  scripts/soak.sh > soak-24h.md
 hdiutil detach /Volumes/tmsoak && rm -rf ~/tmsoak.sparsebundle
 ```
 
-`caffeinate` keeps the Mac awake; keep it on power. `SOAK_MAX_RSS_MIB=1200` allows for the
-metadata cache until the cap lands (the 256 MiB default fails a heavy 24 h run on memory alone).
+`caffeinate` keeps the Mac awake; keep it on power. Testing a beta.1 binary needs
+`SOAK_MAX_RSS_MIB=1400` (its metadata cache is 1 GiB); later builds fit the 512 MiB default.
 The disk-full window reserves its ballast with `F_PREALLOCATE` instead of writing it. For throughput, `BENCH_DIR=/Volumes/tmsoak/bench scripts/bench.sh` measures the image;
 leave `BENCH_DIR` unset to measure the internal SSD.
 

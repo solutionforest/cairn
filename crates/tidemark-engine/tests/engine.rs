@@ -26,6 +26,7 @@ fn cfg() -> EngineConfig {
         },
         at_rest_key: None,
         fsync: false,
+        meta_cache: None,
     }
 }
 

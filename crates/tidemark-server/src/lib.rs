@@ -97,6 +97,7 @@ pub fn engine_config(cfg: &Config) -> anyhow::Result<EngineConfig> {
         limits: cfg.limits.clone(),
         at_rest_key,
         fsync: cfg.storage.fsync,
+        meta_cache: Some(cfg.storage.meta_cache_bytes()),
     })
 }
 
@@ -179,6 +180,11 @@ pub async fn run_migrations(
 pub async fn open_engine(cfg: &Config, outbox: Outbox) -> anyhow::Result<TidemarkEngine> {
     run_migrations(cfg).await?;
     let ecfg = engine_config(cfg)?;
+    tracing::info!(
+        meta_cache_mib = ecfg.meta_cache.unwrap_or_default() >> 20,
+        auto = cfg.storage.meta_cache == 0,
+        "metadata cache"
+    );
     let space = (cfg.storage.min_free > 0).then(|| {
         tidemark_blob::space::SpaceGuard::new(&cfg.storage.data_dir, cfg.storage.min_free)
     });

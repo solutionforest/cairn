@@ -12,7 +12,9 @@ mod store;
 pub mod tables;
 
 pub use records::*;
-pub use store::{Flow, MetaStore, ReadTxn, Reader, RedbMetaStore, ScanFn, WriteTxn};
+pub use store::{
+    DEFAULT_CACHE_BYTES, Flow, MetaStore, ReadTxn, Reader, RedbMetaStore, ScanFn, WriteTxn,
+};
 pub use tables::{ReadExt, Table};
 
 /// Metadata store errors.

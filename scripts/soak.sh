@@ -14,7 +14,7 @@
 # Usage: scripts/soak.sh [path/to/tidemark]   (default target/release/tidemark)
 # Env:   SOAK_DURATION (2h; s/m/h), SOAK_SEGMENT (10m: time between kills),
 #        SOAK_FULL_SEGMENT (middle segment index, 0-based; -1 = no disk-full window),
-#        SOAK_CONC (8, warp concurrency), SOAK_MAX_RSS_MIB (256), SOAK_PORT (9320),
+#        SOAK_CONC (8, warp concurrency), SOAK_MAX_RSS_MIB (512: 256 MiB metadata cache + working set), SOAK_PORT (9320),
 #        SOAK_DIR (mktemp; must be on the disk under test), SOAK_KEEP=1, WARP, RCLONE
 # Output: a markdown report on stdout (segments, RSS, verdict); logs in $SOAK_DIR. Exit 1 on any
 #         lost or corrupted object, a write accepted during the full window, fsck findings, or RSS
@@ -48,7 +48,7 @@ seg=$(secs "${SOAK_SEGMENT:-10m}")
 segments=$(((total + seg - 1) / seg))
 full_seg="${SOAK_FULL_SEGMENT:-$((segments / 2))}"
 conc="${SOAK_CONC:-8}"
-max_rss="${SOAK_MAX_RSS_MIB:-256}"
+max_rss="${SOAK_MAX_RSS_MIB:-512}"
 port="${SOAK_PORT:-9320}"
 work="${SOAK_DIR:-$(mktemp -d /tmp/tidemark-soak.XXXXXX)}"
 mkdir -p "$work"

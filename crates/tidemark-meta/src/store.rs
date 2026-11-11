@@ -163,15 +163,27 @@ pub struct RedbMetaStore {
 /// Max jobs folded into one commit.
 const MAX_BATCH: usize = 128;
 
+/// Default redb page cache (redb's own default is 1 GiB, which a long-running server fills).
+pub const DEFAULT_CACHE_BYTES: u64 = 64 * 1024 * 1024;
+
 impl RedbMetaStore {
-    /// Open (or create) the database at `path` and start the writer thread.
+    /// Open (or create) the database at `path` with [`DEFAULT_CACHE_BYTES`] of page cache.
     pub fn open(path: &Path) -> Result<RedbMetaStore, MetaError> {
+        RedbMetaStore::open_with_cache(path, DEFAULT_CACHE_BYTES)
+    }
+
+    /// Open (or create) the database at `path` with at most `cache_bytes` of page cache and
+    /// start the writer thread. Every commit records the allocator state (redb quick-repair),
+    /// so reopening after a crash does not walk the whole file.
+    pub fn open_with_cache(path: &Path, cache_bytes: u64) -> Result<RedbMetaStore, MetaError> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| MetaError::Db(e.to_string()))?;
         }
-        let db = Arc::new(redb::Database::create(path)?);
+        let cache = usize::try_from(cache_bytes).unwrap_or(usize::MAX);
+        let db = Arc::new(redb::Builder::new().set_cache_size(cache).create(path)?);
         {
-            let w = db.begin_write()?;
+            let mut w = db.begin_write()?;
+            w.set_quick_repair(true);
             for t in Table::ALL {
                 w.open_table(t.def())?;
             }
@@ -266,9 +278,9 @@ fn writer_loop(db: &redb::Database, rx: mpsc::Receiver<Job>) {
 }
 
 fn begin(db: &redb::Database) -> Result<WriteTxn, MetaError> {
-    Ok(WriteTxn {
-        inner: db.begin_write()?,
-    })
+    let mut inner = db.begin_write()?;
+    inner.set_quick_repair(true);
+    Ok(WriteTxn { inner })
 }
 
 fn run_batch(db: &redb::Database, mut batch: Vec<Job>) {
