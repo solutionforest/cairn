@@ -284,8 +284,20 @@ First run 2026-11-10 (soak workflow run 42779819852, GitHub-hosted, 3 × 10 min)
 | 3 | load | 1 113 713 | 41 915 / 208 756 | 0 (0) | 3 | 180.4 MiB |
 
 `fsck --verify full` clean; max RSS 180.4 MiB (budget 256 MiB); every 5xx was the intended 507
-during the disk-full window. The weekly workflow runs 2 h with the same shape. A 24 h run needs a
-long-lived machine (GitHub-hosted jobs stop at 6 h) and has not been done yet.
+during the disk-full window. The weekly workflow runs 2 h with the same shape.
+
+Long runs 2026-11-10/11 on a single-vCPU gVisor host with a network disk (24 h attempts):
+
+| Run | Build | Segments (`kill -9` each) | Requests | 5xx | Max RSS | Ended | `fsck --verify full` |
+|---|---|---|---|---|---|---|---|
+| 1 | 7eefa0e | 64 (10.7 h), no disk-full window | 26.4 M | 0 | 170.6 MiB | host restarted overnight | clean (3 640 blobs, 4.0 M versions) |
+| 2 | beta.1 | 17 (2.9 h), disk-full at segment 4 | 35.7 M | 58, all 507 in the disk-full window | 916.6 MiB | restart took 120 s, the script's old timeout | clean (936 blobs, 5.4 M versions) |
+
+Two findings. Restart after a crash checks the whole metadata file first: 120 s for the 4 GB
+file run 2 had built, so give health checks a start period sized to your metadata (the soak
+script now waits up to `SOAK_READY_SECS`, default 900 s). Memory under sustained heavy load
+grows toward 1 GiB as the metadata cache fills (run 2 pushed about 4 times run 1's load); it
+is cache, not a leak, and a cap is planned. A clean 24 h run is still open and gates v0.1.0.
 
 ## Malware scanning
 

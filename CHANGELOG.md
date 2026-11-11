@@ -17,8 +17,16 @@ First beta. The on-disk format is now frozen (DESIGN §4.5): a data directory or
 this release, or by 0.1.0-alpha.3, opens in every later release. Upgrading from alpha.3 is
 replacing the binary and restarting; data from the Cairn-named alpha.1 and alpha.2 is not covered
 (see the alpha.3 entry). Five security fixes below affect every alpha, so upgrade.
-This release passed a 24-hour soak under mixed load with a `kill -9` every 10 minutes and a
-disk-full window (numbers in OPERATIONS.md "Soak").
+Soak on this machine: 81 ten-minute segments of mixed load (about 13.5 h) across two runs, a
+`kill -9` after every segment and one disk-full window, with `fsck --verify full` clean after. The
+full 24 h soak is still open and gates v0.1.0 (numbers in OPERATIONS.md "Soak").
+
+### Known issues
+- After a crash (`kill -9`, power loss) the server checks its metadata file before it answers;
+  this takes longer as the metadata grows (about 2 minutes for a 4 GB file on a slow network disk).
+  Give health checks a generous start period.
+- Under sustained heavy load memory grows up to about 1 GiB as the metadata cache fills (idle
+  stays around 10 MiB). A setting to cap it is planned.
 
 ### Added
 - Malware scanning (`[scan]`): new objects (PUT, completed multipart uploads, copies) are streamed

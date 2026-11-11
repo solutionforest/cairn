@@ -89,7 +89,8 @@ start() {
   run=$((run + 1))
   "$tidemark" serve --log-format json --config "$work/data/tidemark.toml" > "$work/server-$run.log" 2>&1 &
   pid=$!
-  for _ in $(seq 1 240); do
+  # Crash recovery checks the whole metadata file; on a large store that takes minutes.
+  for _ in $(seq 1 $((${SOAK_READY_SECS:-900} * 2))); do
     curl -fs "$ep/readyz" > /dev/null 2>&1 && return 0
     kill -0 "$pid" 2> /dev/null || break
     sleep 0.5
