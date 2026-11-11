@@ -299,6 +299,31 @@ script now waits up to `SOAK_READY_SECS`, default 900 s). Memory under sustained
 grows toward 1 GiB as the metadata cache fills (run 2 pushed about 4 times run 1's load); it
 is cache, not a leak, and a cap is planned. A clean 24 h run is still open and gates v0.1.0.
 
+### Running the soak or bench on a Mac
+
+Both scripts run on macOS with its stock bash 3.2. Put the data on a disk image so the
+disk-full window fills the image, not your boot volume. A sparse bundle only takes real space as
+data lands, but that adds up: run 2 kept about 7 GB per hour (old versions stay for the undo
+window), so a 24 h run needs up to ~170 GB free on the Mac. Lower `SOAK_CONC` if you have less.
+
+```bash
+brew install rclone
+curl -fsSLO https://github.com/minio/warp/releases/download/v1.3.0/warp_Darwin_arm64.tar.gz
+tar xzf warp_Darwin_arm64.tar.gz warp && sudo mv warp /usr/local/bin/
+cargo build --release -p tidemark-cli
+
+hdiutil create -size 200g -type SPARSEBUNDLE -fs APFS -volname tmsoak ~/tmsoak
+hdiutil attach ~/tmsoak.sparsebundle
+caffeinate -dims env SOAK_DURATION=24h SOAK_DIR=/Volumes/tmsoak/run SOAK_KEEP=1 \
+  SOAK_MAX_RSS_MIB=1200 scripts/soak.sh > soak-24h.md
+hdiutil detach /Volumes/tmsoak && rm -rf ~/tmsoak.sparsebundle
+```
+
+`caffeinate` keeps the Mac awake; keep it on power. `SOAK_MAX_RSS_MIB=1200` allows for the
+metadata cache until the cap lands (the 256 MiB default fails a heavy 24 h run on memory alone).
+The disk-full window reserves its ballast with `F_PREALLOCATE` instead of writing it. For throughput, `BENCH_DIR=/Volumes/tmsoak/bench scripts/bench.sh` measures the image;
+leave `BENCH_DIR` unset to measure the internal SSD.
+
 ## Malware scanning
 
 With `[scan] endpoint` set, every new object is streamed to a scanner after it is written to disk

@@ -11,6 +11,10 @@ developers.
 
 ## [Unreleased]
 
+### Changed
+- `scripts/bench.sh` and `scripts/soak.sh` also run on macOS (stock bash 3.2); OPERATIONS.md
+  "Soak" has the steps.
+
 ## [0.1.0-beta.1] - 2026-11-11
 
 First beta. The on-disk format is now frozen (DESIGN §4.5): a data directory or backup written by

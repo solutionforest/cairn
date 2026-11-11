@@ -11,10 +11,13 @@
 #        BENCH_PORT (9310), BENCH_DIR (mktemp; the data dir must be on the disk under test),
 #        BENCH_KEEP=1 (keep the work dir with warp's raw .csv.zst data), WARP (warp binary)
 # Needs: warp (github.com/minio/warp; 1.3.0 is the last release with a plain Linux tarball), curl.
+#        Linux and macOS (bash 3.2 is enough).
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$here/.." && pwd)"
+# shellcheck source=scripts/host.sh
+. "$here/host.sh"
 tidemark="${1:-$root/target/release/tidemark}"
 warp="${WARP:-warp}"
 [ -x "$tidemark" ] || { echo "binary not found: $tidemark (cargo build --release -p tidemark-cli)" >&2; exit 2; }
@@ -81,7 +84,7 @@ run() {
     }' "$log"
 }
 
-echo "Machine: $(nproc) CPU, $(awk '/MemTotal/ {printf "%.0f GiB", $2 / 1048576}' /proc/meminfo) RAM, $(uname -sr), data on $(df -hT "$work" | awk 'NR == 2 {print $2}')"
+echo "Machine: $(host_line "$work")"
 echo "Tidemark: $("$tidemark" --version 2>/dev/null || echo unknown), warp: $("$warp" --version | head -1)"
 echo
 echo "| workload | concurrency | throughput | ops/s | p50 | p99 |"

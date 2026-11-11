@@ -19,16 +19,19 @@
 # Output: a markdown report on stdout (segments, RSS, verdict); logs in $SOAK_DIR. Exit 1 on any
 #         lost or corrupted object, a write accepted during the full window, fsck findings, or RSS
 #         over budget.
-# Needs: warp (1.3.0), rclone, curl, fallocate, python3.
+# Needs: warp (1.3.0), rclone, curl, python3; on Linux also fallocate. Runs on Linux and macOS
+#        (bash 3.2 is enough). On a Mac put SOAK_DIR on a disk image, not the boot volume.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$here/.." && pwd)"
+# shellcheck source=scripts/host.sh
+. "$here/host.sh"
 tidemark="${1:-$root/target/release/tidemark}"
 warp="${WARP:-warp}"
 rclone="${RCLONE:-rclone}"
 [ -x "$tidemark" ] || { echo "binary not found: $tidemark" >&2; exit 2; }
-for t in "$warp" "$rclone" curl fallocate python3; do
+for t in "$warp" "$rclone" curl python3; do
   command -v "$t" > /dev/null || { echo "missing tool: $t" >&2; exit 2; }
 done
 
@@ -100,7 +103,7 @@ start() {
   exit 1
 }
 
-rss_mib() { awk '/^VmRSS:/ {printf "%.1f", $2 / 1024}' "/proc/$pid/status"; }
+rss_mib() { rss_of "$pid"; }
 metric() { curl -fs "$ep/metrics" | awk -v m="$1" '$1 == m {printf "%.0f", $2 / 1048576}'; }
 
 # batch N: 40 files, 1 KiB to 8 MiB, random content, in $work/ledger/bN.
@@ -135,18 +138,18 @@ for s in $(seq 0 $((segments - 1))); do
   t0=$(date +%s)
 
   if [ "$phase" = disk-full ]; then
-    free=$(df -B1 --output=avail "$work/data" | tail -1)
+    free=$(free_bytes "$work/data")
     min_free=$(awk -F= '/^min_free/ {gsub(/[ _]/, "", $2); print $2}' "$work/data/tidemark.toml")
     min_free="${min_free:-1073741824}"
-    fallocate -l $((free - min_free / 2)) "$work/data/ballast"
-    log "ballast: $(df -h --output=avail "$work/data" | tail -1 | tr -d ' ') left (reserve $((min_free / 1048576)) MiB)"
+    ballast "$work/data/ballast" $((free - min_free / 2)) || bad "could not allocate the ballast file"
+    log "ballast: $(($(free_bytes "$work/data") / 1048576)) MiB left (reserve $((min_free / 1048576)) MiB)"
     batch "$s"
     if rc copy "$work/ledger/b$s" "tm:ledger/b$s" > "$work/full-copy.log" 2>&1; then
       bad "uploads were accepted while the disk was full"
     elif ! grep -q "507\|InsufficientStorage" "$work/full-copy.log"; then
       bad "upload during disk-full failed without a 507 (see full-copy.log)"
     fi
-    for b in "${verified[@]}"; do
+    for b in ${verified[@]+"${verified[@]}"}; do
       rc check "$work/ledger/b$b" "tm:ledger/b$b" > /dev/null 2>&1 || bad "batch $b unreadable while disk full"
     done
     curl -fs "$ep/readyz" > /dev/null || bad "server not ready while disk full"
@@ -162,7 +165,7 @@ for s in $(seq 0 $((segments - 1))); do
   else
     bad "segment $s: ledger upload failed (see copy-$s.log)"
   fi
-  for b in "${verified[@]}"; do
+  for b in ${verified[@]+"${verified[@]}"}; do
     rc check "$work/ledger/b$b" "tm:ledger/b$b" > "$work/check-$s-$b.log" 2>&1 \
       || bad "segment $s: batch $b differs after restart (see check-$s-$b.log)"
   done
@@ -189,7 +192,7 @@ for s in $(seq 0 $((segments - 1))); do
 done
 
 log "final: byte-compare the whole ledger"
-for b in "${verified[@]}"; do
+for b in ${verified[@]+"${verified[@]}"}; do
   rc check --download "$work/ledger/b$b" "tm:ledger/b$b" > "$work/final-$b.log" 2>&1 \
     || bad "final: batch $b differs (see final-$b.log)"
 done
@@ -203,12 +206,12 @@ else
   bad "fsck --verify full: $(tail -5 "$work/fsck.log" | tr '\n' ' ')"
 fi
 
-peak=$(printf '%s\n' "${rss_values[@]}" | sort -n | tail -1)
+peak=$(printf '%s\n' ${rss_values[@]+"${rss_values[@]}"} | sort -n | tail -1)
 awk -v p="$peak" -v m="$max_rss" 'BEGIN { exit !(p > m) }' && bad "RSS $peak MiB over budget $max_rss MiB"
 
 echo "## Soak $(date -u +%Y-%m-%d) — $segments x $((seg / 60)) min, kill -9 between segments"
 echo
-echo "Machine: $(nproc) CPU, $(awk '/MemTotal/ {printf "%.0f GiB", $2 / 1048576}' /proc/meminfo) RAM, $(uname -sr), data on $(df -T "$work" | awk 'NR == 2 {print $2}')"
+echo "Machine: $(host_line "$work")"
 echo "Tidemark: $("$tidemark" --version) ($(git -C "$root" rev-parse --short HEAD 2> /dev/null || echo "?")), warp mixed c=$conc 256 KiB, rclone ledger of $((${#verified[@]} * 40)) files"
 echo
 cat "$work/segments.md"
