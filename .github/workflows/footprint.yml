@@ -33,7 +33,7 @@ jobs:
           echo "MUSL_TARGET=$t" >> "$GITHUB_ENV"
       - name: musl toolchain
         run: |
-          command -v musl-gcc || { sudo -n apt-get update && sudo -n apt-get install -y musl-tools; }
+          command -v musl-gcc || { sudo -n apt-get -o Acquire::Retries=5 update && sudo -n apt-get -o Acquire::Retries=5 install -y musl-tools; }
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: footprint-musl-${{ runner.arch }}

@@ -31,7 +31,7 @@ jobs:
           echo "MUSL_TARGET=$t" >> "$GITHUB_ENV"
       - name: tools
         run: |
-          sudo -n apt-get update && sudo -n apt-get install -y musl-tools
+          sudo -n apt-get -o Acquire::Retries=5 update && sudo -n apt-get -o Acquire::Retries=5 install -y musl-tools
           curl -fsSL -o /tmp/warp.tgz "https://github.com/minio/warp/releases/download/$WARP_VERSION/warp_Linux_$(uname -m | sed s/aarch64/arm64/).tar.gz"
           echo "$WARP_SHA256  /tmp/warp.tgz" | sha256sum -c -
           mkdir -p /tmp/warp && tar -xzf /tmp/warp.tgz -C /tmp/warp && sudo -n install /tmp/warp/warp /usr/local/bin/warp
