@@ -16,7 +16,7 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$here/.." && pwd)"
 repo=solutionforest/tidemark
-version=v0.1.0-beta.1
+version=v0.1.0-beta.2
 data=./tidemark-data
 port=9000
 ui_port=9080

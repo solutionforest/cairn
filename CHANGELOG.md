@@ -11,6 +11,8 @@ developers.
 
 ## [Unreleased]
 
+## [0.1.0-beta.2] - 2026-11-12
+
 ### Fixed
 - Restart after a crash (`kill -9`, power loss) no longer checks the whole metadata file before
   the server answers. Every metadata commit now records the file's allocation state, so a restart
@@ -181,7 +183,8 @@ Replication, tiering, event notifications, OIDC, Object Lock, SSE-C / SSE-KMS, C
 PostObject, quotas and rate limiting are not supported; `docs/COMPAT.md` lists how each
 related request is answered.
 
-[Unreleased]: https://github.com/solutionforest/tidemark/compare/v0.1.0-beta.1...master
+[Unreleased]: https://github.com/solutionforest/tidemark/compare/v0.1.0-beta.2...master
+[0.1.0-beta.2]: https://github.com/solutionforest/tidemark/releases/tag/v0.1.0-beta.2
 [0.1.0-beta.1]: https://github.com/solutionforest/tidemark/releases/tag/v0.1.0-beta.1
 [0.1.0-alpha.3]: https://github.com/solutionforest/tidemark/releases/tag/v0.1.0-alpha.3
 [0.1.0-alpha.2]: https://github.com/solutionforest/tidemark/releases/tag/v0.1.0-alpha.2

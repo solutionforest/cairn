@@ -27,7 +27,7 @@
 </p>
 
 > [!WARNING]
-> **Beta (`v0.1.0-beta.1`).** Single node, tested but young. The on-disk format is frozen: data
+> **Beta (`v0.1.0-beta.2`).** Single node, tested but young. The on-disk format is frozen: data
 > written by this release opens in every later one. Keep an independent backup.
 > Formerly named **Cairn**.
 
@@ -83,7 +83,7 @@ the `tidemark-data` volume.
 <summary><b>Plain Linux binary</b></summary>
 
 ```sh
-v=v0.1.0-beta.1; t=$(uname -m)-unknown-linux-musl
+v=v0.1.0-beta.2; t=$(uname -m)-unknown-linux-musl
 base=https://github.com/solutionforest/tidemark/releases/download/$v
 curl -fLO "$base/tidemark-$v-$t.tar.gz" -fLO "$base/SHA256SUMS"
 grep " tidemark-$v-$t.tar.gz\$" SHA256SUMS | sha256sum -c - && tar xzf "tidemark-$v-$t.tar.gz"

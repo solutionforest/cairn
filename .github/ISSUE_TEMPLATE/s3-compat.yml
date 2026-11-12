@@ -7,7 +7,7 @@ body:
       value: Check [docs/COMPAT.md](https://github.com/solutionforest/tidemark/blob/master/docs/COMPAT.md) first; documented deviations are listed there.
   - type: input
     id: version
-    attributes: { label: Tidemark version, placeholder: 0.1.0-beta.1 }
+    attributes: { label: Tidemark version, placeholder: 0.1.0-beta.2 }
     validations: { required: true }
   - type: input
     id: client
